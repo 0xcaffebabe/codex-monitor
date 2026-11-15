@@ -19,10 +19,13 @@ export class SessionIndex {
     public home: string,
     private databases: SourceDatabases,
     private rollouts: Pick<RolloutStore, 'status'>,
+    private allows: (id: string) => boolean = () => true,
   ) {}
   private async scanFiles() {
     this.filesScannedAt = Date.now();
-    this.sessions = await scanSessions(this.home, (id) => this.rollouts.status(id));
+    this.sessions = (await scanSessions(this.home, (id) => this.rollouts.status(id))).filter((s) =>
+      this.allows(s.id),
+    );
   }
   async refresh(force = false) {
     if (!force && Date.now() - this.lastRefresh < 1200) return;
@@ -71,48 +74,50 @@ export class SessionIndex {
       const latest = this.databases.history?.prepare(
         'SELECT status,turn_id,started_at,completed_at FROM thread_turns WHERE thread_id=? ORDER BY rollout_ordinal DESC LIMIT 1',
       );
-      this.sessions = rows.map((r) => {
-        let parentId: string | undefined;
-        try {
-          parentId = JSON.parse(String(r.source)).subagent?.thread_spawn?.parent_thread_id;
-        } catch {}
-        const turn = latest?.get(r.id!);
-        let status: SessionStatus = 'idle';
-        const raw = String(turn?.status ?? '');
-        if (raw === 'inProgress' || raw === 'in_progress') status = 'running';
-        else if (raw === 'completed') status = 'completed';
-        else if (raw === 'interrupted') status = 'interrupted';
-        else if (raw === 'failed') status = 'failed';
-        const updatedAt = Number(r.updated_at_ms) || Number(r.updated_at) * 1000;
-        // A persisted unfinished turn alone cannot prove that a process is still running.
-        if (status === 'running' && Date.now() - updatedAt > 15 * 60000) status = 'stale';
-        const cwd = String(r.cwd).replace(/^\\\\\?\\/, '');
-        return {
-          id: String(r.id),
-          title: String(
-            r.name ||
-              this.titles.get(String(r.id)) ||
-              r.title ||
-              r.first_user_message ||
-              '未命名会话',
-          ).slice(0, 500),
-          cwd,
-          project: path.basename(cwd.replaceAll('\\', '/')) || cwd,
-          createdAt: Number(r.created_at) * 1000,
-          updatedAt,
-          archived: !!r.archived,
-          model: String(r.model || ''),
-          tokens: Number(r.tokens_used) || 0,
-          preview: textOf(String(r.preview || r.first_user_message || '')).slice(0, 400),
-          status,
-          statusSource: turn ? 'history' : 'rollout',
-          parentId,
-          latestTurn: turn?.turn_id as string | undefined,
-          file: String(r.rollout_path),
-          historyMode: String(r.history_mode),
-          subagent: String(r.source).includes('subagent') || !!r.agent_role,
-        };
-      });
+      this.sessions = rows
+        .filter((r) => this.allows(String(r.id)))
+        .map((r) => {
+          let parentId: string | undefined;
+          try {
+            parentId = JSON.parse(String(r.source)).subagent?.thread_spawn?.parent_thread_id;
+          } catch {}
+          const turn = latest?.get(r.id!);
+          let status: SessionStatus = 'idle';
+          const raw = String(turn?.status ?? '');
+          if (raw === 'inProgress' || raw === 'in_progress') status = 'running';
+          else if (raw === 'completed') status = 'completed';
+          else if (raw === 'interrupted') status = 'interrupted';
+          else if (raw === 'failed') status = 'failed';
+          const updatedAt = Number(r.updated_at_ms) || Number(r.updated_at) * 1000;
+          // A persisted unfinished turn alone cannot prove that a process is still running.
+          if (status === 'running' && Date.now() - updatedAt > 15 * 60000) status = 'stale';
+          const cwd = String(r.cwd).replace(/^\\\\\?\\/, '');
+          return {
+            id: String(r.id),
+            title: String(
+              r.name ||
+                this.titles.get(String(r.id)) ||
+                r.title ||
+                r.first_user_message ||
+                '未命名会话',
+            ).slice(0, 500),
+            cwd,
+            project: path.basename(cwd.replaceAll('\\', '/')) || cwd,
+            createdAt: Number(r.created_at) * 1000,
+            updatedAt,
+            archived: !!r.archived,
+            model: String(r.model || ''),
+            tokens: Number(r.tokens_used) || 0,
+            preview: textOf(String(r.preview || r.first_user_message || '')).slice(0, 400),
+            status,
+            statusSource: turn ? 'history' : 'rollout',
+            parentId,
+            latestTurn: turn?.turn_id as string | undefined,
+            file: String(r.rollout_path),
+            historyMode: String(r.history_mode),
+            subagent: String(r.source).includes('subagent') || !!r.agent_role,
+          };
+        });
     } catch {
       if (!this.databases.warnings.includes('会话索引暂时不可读，正在显示最近成功读取的数据。'))
         this.databases.warnings.push('会话索引暂时不可读，正在显示最近成功读取的数据。');

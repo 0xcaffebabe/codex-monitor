@@ -13,7 +13,12 @@ import type { TerminalOutput } from '../src/terminal-types.js';
 
 const windows = process.platform === 'win32';
 const { Terminal } = headless;
-const quote = (value: string) => "'" + value.replaceAll("'", "''") + "'";
+const quote = (value: string) => "'" + value.replaceAll("'", windows ? "''" : "'\\''") + "'";
+const readProcessId = (file: string) => {
+  if (!existsSync(file)) return 0;
+  const pid = Number(readFileSync(file, 'utf8').trim());
+  return Number.isInteger(pid) && pid > 0 ? pid : 0;
+};
 
 async function terminalFixture() {
   const f = fixture();
@@ -78,7 +83,13 @@ async function terminalFixture() {
   const open = async () => {
     const response = await request(base, 'POST', { id, cols: 100, rows: 30 });
     assert.equal(response.status, 201, await response.clone().text());
-    await until(() => (windows ? output.includes('PS ') : /[$#] /.test(output)));
+    // Readiness comes from an actual round trip, independent of shell prompt/theme.
+    await input(
+      windows
+        ? "Write-Output ('PTY_'+'READY')\r"
+        : "export PS1='CM_TEST_PROMPT> '; printf 'PTY_%s\\n' READY\r",
+    );
+    await until(() => output.includes('PTY_READY'));
     return response.json();
   };
   return {
@@ -158,8 +169,12 @@ test(
       await f.until(() =>
         windows
           ? /STREAM_BEGIN[\s\S]*PS /.test(f.output())
-          : /STREAM_BEGIN[\s\S]*[$#] /.test(f.output()),
+          : /STREAM_BEGIN[\s\S]*CM_TEST_PROMPT> /.test(f.output()),
       );
+      await f.input(
+        windows ? "Write-Output ('INTERRUPT_'+'READY')\r" : "printf 'INTERRUPT_%s\\n' READY\r",
+      );
+      await f.until(() => f.output().includes('INTERRUPT_READY'));
       await f.input(
         windows ? "Write-Output ('AFTER_'+'INTERRUPT')\r" : "printf 'AFTER_%s\\n' INTERRUPT\r",
       );
@@ -182,6 +197,35 @@ test(
       assert.equal((await f.request(f.endpoint + '?after=0')).status, 404);
     } finally {
       await f.close();
+    }
+  },
+);
+
+test(
+  'macOS terminals choose UTF-8 when no locale is inherited',
+  { skip: process.platform !== 'darwin' },
+  async () => {
+    const names = ['LANG', 'LC_ALL', 'LC_CTYPE'];
+    const saved = names.map((name) => [name, process.env[name]] as const);
+    for (const name of names) delete process.env[name];
+    const f = await terminalFixture();
+    try {
+      await f.open();
+      await f.input("printf 'LOCALE_%s\\n' \"$LANG\"; printf '中文终端\\n'\r");
+      await f.until(
+        () => f.output().includes('LOCALE_en_US.UTF-8') && f.output().includes('中文终端'),
+      );
+      assert.equal(
+        f.output().includes('\ufffd'),
+        false,
+        'UTF-8 input echo must not contain replacement characters',
+      );
+    } finally {
+      await f.close();
+      for (const [name, value] of saved) {
+        if (value === undefined) delete process.env[name];
+        else process.env[name] = value;
+      }
     }
   },
 );
@@ -262,8 +306,10 @@ test(
           ? `[IO.File]::WriteAllText(${quote(pidFile)}, [string]$PID)\r`
           : `echo $$ > '${pidFile.replaceAll("'", "'\\''")}'\r`,
       );
-      await f.until(() => existsSync(pidFile));
-      const pid = Number(readFileSync(pidFile, 'utf8').trim());
+      // Redirection creates the file before writing its PID. An empty read is 0,
+      // which makes process.kill(0, 0) check the test's whole process group.
+      await f.until(() => readProcessId(pidFile) > 0);
+      const pid = readProcessId(pidFile);
       f.service.auth.db.prepare('DELETE FROM sessions WHERE user_id=?').run(f.owner.id);
       const deadline = Date.now() + 8000;
       let alive = true;
@@ -296,8 +342,8 @@ test(
         ? `& ${quote(process.execPath)} -e ${quote(program)}\r`
         : `${quote(process.execPath)} -e ${quote(program)}\r`;
       await f.input(command);
-      await f.until(() => existsSync(pidFile));
-      const pid = Number(readFileSync(pidFile, 'utf8'));
+      await f.until(() => readProcessId(pidFile) > 0);
+      const pid = readProcessId(pidFile);
       f.service.terminals.closeAll();
       const deadline = Date.now() + 8000;
       let alive = true;

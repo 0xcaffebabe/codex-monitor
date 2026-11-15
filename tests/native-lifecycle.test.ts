@@ -12,7 +12,7 @@ class GoalProcess extends EventEmitter {
   stderr = new PassThrough();
   killed = false;
   respond = true;
-  requests: { method: string; params: any }[] = [];
+  requests: { id?: number; method: string; params: any; error?: any }[] = [];
   result = (request: { method: string; params: any }): unknown =>
     request.method === 'initialize' ? {} : { goal: { objective: 'test', status: 'active' } };
   stdin = new Writable({
@@ -60,6 +60,50 @@ test('late exits from an old goal process cannot kill its replacement and stdin 
     await rejection;
     assert.equal(children[1].killed, true);
     assert.equal((await rpc.get('test-thread')).objective, 'test');
+  } finally {
+    rpc.close();
+  }
+});
+
+test('server requests cannot resolve a colliding client request or silently approve execution', async () => {
+  const child = new GoalProcess();
+  const rpc = new NativeRpc(undefined, () => child as unknown as ChildProcessWithoutNullStreams);
+  try {
+    await rpc.get('initial');
+    child.respond = false;
+    const pending = rpc.get('next');
+    await nextTick();
+    const id = child.requests.at(-1)!.id;
+    child.stdout.write(
+      JSON.stringify({
+        id,
+        method: 'item/commandExecution/requestApproval',
+        params: { command: 'test' },
+      }) + '\n',
+    );
+    await nextTick();
+    assert.equal(child.requests.at(-1)!.error.code, -32601);
+    child.stdout.write(
+      JSON.stringify({
+        id,
+        result: { goal: { objective: 'correct response', status: 'paused' } },
+      }) + '\n',
+    );
+    assert.equal((await pending).objective, 'correct response');
+    const compacting = rpc.request('turn/start', { threadId: 'next', input: [] });
+    const rejected = assert.rejects(
+      compacting,
+      (error: unknown) =>
+        error instanceof ControlError && error.code === 'compacting' && !error.uncertain,
+    );
+    await nextTick();
+    child.stdout.write(
+      JSON.stringify({
+        id: child.requests.at(-1)!.id,
+        error: { message: 'ActiveTurnNotSteerable { turn_kind: Compact }' },
+      }) + '\n',
+    );
+    await rejected;
   } finally {
     rpc.close();
   }

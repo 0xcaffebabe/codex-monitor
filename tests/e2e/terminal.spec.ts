@@ -44,7 +44,8 @@ async function open(page: Page) {
   await expect(input(dialog)).toBeFocused();
   await expect(dialog.getByRole('button', { name: '执行', exact: true })).toHaveCount(0);
   await expect(dialog.locator('.project-terminal-command')).toHaveCount(0);
-  await expect(dialog.locator('.xterm-accessibility-tree')).toContainText(windows ? 'PS ' : /[$#]/);
+  if (windows) await expect(dialog.locator('.xterm-accessibility-tree')).toContainText('PS ');
+  else await command(dialog, "export PS1='CM_E2E_PROMPT> '", false);
   await waitForPrompt(dialog);
   return dialog;
 }
@@ -58,7 +59,7 @@ async function waitForPrompt(dialog: Locator) {
           .filter(Boolean)
           .at(-1) ?? '',
     )
-    .toMatch(windows ? />$/ : /[$#]$/);
+    .toMatch(windows ? />$/ : /CM_E2E_PROMPT>$/);
 }
 async function command(dialog: Locator, text: string, shell = true) {
   if (shell) await waitForPrompt(dialog);
@@ -160,7 +161,7 @@ test('project terminal executes in the project, preserves shell state, accepts i
     dialog,
     windows
       ? "$reply=Read-Host 'INTERACTIVE_PROMPT'; Write-Output ('REPLY_' + $reply)"
-      : "read -p 'INTERACTIVE_PROMPT' reply; printf 'REPLY_%s\\n' \"$reply\"",
+      : "printf 'INTERACTIVE_PROMPT'; IFS= read -r reply; printf 'REPLY_%s\\n' \"$reply\"",
   );
   await expect(output(dialog)).toContainText('INTERACTIVE_PROMPT');
   await command(dialog, 'shell-answer', false);
@@ -182,7 +183,7 @@ test('project terminal executes in the project, preserves shell state, accepts i
   await expect(output(dialog)).toContainText('STREAM_BEGIN');
   await page.keyboard.press('Control+c');
   await expect(output(dialog)).toContainText(
-    windows ? /STREAM_BEGIN[\s\S]*PS / : /STREAM_BEGIN[\s\S]*[$#] /,
+    windows ? /STREAM_BEGIN[\s\S]*PS / : /STREAM_BEGIN[\s\S]*CM_E2E_PROMPT> /,
   );
   await command(
     dialog,

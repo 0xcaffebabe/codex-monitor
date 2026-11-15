@@ -2,6 +2,8 @@
 
 Server 提供统一 Web 界面、账户与设备授权、工作空间注册、路由和 Webhook 投递。每台运行 Codex 的机器启动一个 client，主动连接 Server 的 WebSocket。浏览器切换工作空间即可切换机器，也可以打开多个标签页同时管理。
 
+macOS 使用普通 Node 和原生 CLI 控制会话，后台启停使用 `start.sh` / `stop.sh`，详见 [macOS client](macos-client.md)。
+
 ```mermaid
 flowchart LR
   Browser[浏览器：切换工作空间] <-->|HTTP / SSE| Server[Server：Web、账户、工作空间]
@@ -14,7 +16,7 @@ flowchart LR
 
 ## 启动方式
 
-所有机器安装 Node.js 24+，运行 `npm ci`、`npm run build`。支持直接传入命令行参数，也可继续使用环境变量。Windows 启动器读取项目 `.env` 作为补充；直接 `npm start` / `npm run client` 不自动读取 `.env`。
+所有机器安装 Node.js 24+，运行 `npm ci`、`npm run build`。支持直接传入命令行参数，也可继续使用环境变量。Windows/macOS 后台启动器读取项目 `.env` 作为补充；直接 `npm start` / `npm run client` 不自动读取 `.env`。
 
 | 模式 | `.env` 配置 | 行为 |
 | --- | --- | --- |
@@ -52,14 +54,14 @@ npm start -- --mode client --server-url "ws://192.168.1.10:4317" --workspace-id 
 | `--data-dir` | `-DataDir` | `MONITOR_DATA_DIR` | Client 默认 `.monitor-client` |
 | `--poll-ms` | `-PollMs` | `MONITOR_POLL_MS` | 历史轮询间隔，默认 1,500 毫秒，最小 500 |
 | `--pricing-file` | `-PricingFile` | `MONITOR_PRICING_FILE` | 模型价格 JSON 文件 |
-| `--codex-autostart` | `-CodexAutoStart` | `MONITOR_CODEX_AUTOSTART` | `true` / `false`，Windows 默认启用桌面监测 |
+| `--codex-autostart` | `-CodexAutoStart` | `MONITOR_CODEX_AUTOSTART` | `true` / `false`，Windows/macOS 默认启用桌面监测 |
 | `--codex-check-ms` | `-CodexCheckMs` | `MONITOR_CODEX_CHECK_MS` | 桌面检查间隔，默认 15,000 毫秒，范围 1,000–300,000 |
 | `--codex-desktop` | `-CodexDesktop` | `MONITOR_CODEX_DESKTOP` | 桌面 GUI 程序的绝对路径 |
 | `--codex-cli` | `-CodexCli` | `MONITOR_CODEX_CLI` | 原生 RPC 使用的 CLI 程序 |
 | `--codex-pipe` | `-CodexPipe` | `MONITOR_CODEX_PIPE` | 选择桌面实例的 pipe |
 | `--host` / `--port` | `-ListenHost` / `-Port` | `HOST` / `PORT` | Server / 一体模式监听地址与端口 |
 
-配置优先级为 **命令行参数 > 当前进程环境变量 > 项目 `.env`（仅 Windows 启动器）> 默认值**。显式 `--client-key` / `-ClientKey` 会覆盖继承的密钥文件设置；显式文件参数会覆盖继承的内联密钥。仅通过环境变量配置时，仍以密钥文件为先。Windows 启动器的相对路径以项目目录为基准，直接 npm / Node 命令以当前工作目录为基准；带空格的路径用引号包围。
+配置优先级为 **命令行参数 > 当前进程环境变量 > 项目 `.env`（Windows/macOS 后台启动器）> 默认值**。显式 `--client-key` / `-ClientKey` 会覆盖继承的密钥文件设置；显式文件参数会覆盖继承的内联密钥。仅通过环境变量配置时，仍以密钥文件为先。后台启动器的相对路径以项目目录为基准，直接 npm / Node 命令以当前工作目录为基准；带空格的路径用引号包围。
 
 ```powershell
 # 自定义目录并关闭桌面自动启动

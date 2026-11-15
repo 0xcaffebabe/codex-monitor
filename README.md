@@ -4,6 +4,8 @@
 
 默认一体启动会自动启动本机 client，并经过真实加密 WebSocket，沿用原有账户和本机数据。独立部署请看 [Server / client 部署与协议说明](docs/server-client.md)。固定 AES 密钥保存在两端本地，重连不派生新密钥；握手使用签名证明，不传密钥。
 
+macOS 支持独立后台 client、原生会话控制与 zsh 项目终端，使用 `./start.sh` / `./stop.sh`。安装、数据范围及桌面互操作说明见 [macOS client](docs/macos-client.md)。
+
 ## 直接使用（Windows）
 
 需要 **Node.js 24 或以上版本**。首次启动会安装依赖并生成生产构建。

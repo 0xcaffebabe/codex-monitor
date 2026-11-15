@@ -10,6 +10,8 @@ const optionEnv = {
   'client-key-file': 'MONITOR_CLIENT_KEY_FILE',
   'codex-home': 'CODEX_HOME',
   'data-dir': 'MONITOR_DATA_DIR',
+  'session-scope': 'MONITOR_SESSION_SCOPE',
+  'project-path': 'MONITOR_PROJECT_PATH',
   'poll-ms': 'MONITOR_POLL_MS',
   'pricing-file': 'MONITOR_PRICING_FILE',
   'codex-autostart': 'MONITOR_CODEX_AUTOSTART',
@@ -38,11 +40,13 @@ Connection:
 Client settings:
   --codex-home <path>              Codex home (default: ~/.codex)
   --data-dir <path>                Private data (client default: .monitor-client)
+  --session-scope <all|created>    Expose all sessions or only ones created by this client
+  --project-path <path>           Limit new sessions to this local project
   --poll-ms <milliseconds>         History polling interval (default: 1500, min: 500)
   --pricing-file <path>            Model pricing JSON file
-  --codex-autostart <true|false>   Monitor/start the Windows desktop (default: true)
+  --codex-autostart <true|false>   Monitor/start the Windows/macOS desktop (default: true)
   --codex-check-ms <milliseconds>  Desktop check interval (default: 15000)
-  --codex-desktop <absolute-path>  Desktop GUI executable
+  --codex-desktop <absolute-path>  Desktop GUI executable or macOS .app bundle
   --codex-cli <path>              Codex CLI executable for native RPCs
   --codex-pipe <path>             Select a desktop app pipe
 

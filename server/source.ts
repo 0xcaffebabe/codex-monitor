@@ -15,6 +15,7 @@ import { displayItemSql } from './source/sql.js';
 import { CompletionReader, type SessionCompletion } from './source/completions.js';
 import { InputRequestReader } from './source/input-requests.js';
 import { ComputerUseReader } from './source/computer-use.js';
+import type { SessionScope } from './session-scope.js';
 
 export { validId } from './source/session.js';
 /** Coordinates metadata, persisted history and rollout readers. */
@@ -26,10 +27,13 @@ export class CodexSource {
   private completionReader: CompletionReader;
   private inputRequestReader: InputRequestReader;
   private computerUseReader: ComputerUseReader;
-  constructor(public home: string) {
+  constructor(
+    public home: string,
+    private scope?: Pick<SessionScope, 'allows' | 'include'>,
+  ) {
     this.databases = openCodexDatabases(home);
     this.rollouts = new RolloutStore(home);
-    this.index = new SessionIndex(home, this.databases, this.rollouts);
+    this.index = new SessionIndex(home, this.databases, this.rollouts, scope?.allows);
     this.outlines = new SessionOutlineReader(this.databases, this.rollouts);
     this.completionReader = new CompletionReader(this.databases, this.rollouts);
     this.inputRequestReader = new InputRequestReader(this.databases, this.rollouts);
@@ -38,6 +42,10 @@ export class CodexSource {
   refresh(force = false) {
     return this.index.refresh(force);
   }
+  include(id: string) {
+    this.scope?.include(id);
+  }
+  allowsSession = (id: string) => this.scope?.allows(id) ?? true;
   overview() {
     return this.index.overview();
   }
@@ -59,8 +67,8 @@ export class CodexSource {
   async inputRequests(since: number) {
     return this.inputRequestReader.read(await this.index.notificationSessions(), since);
   }
-  activity(id: string): { turnId: string; compacting: boolean } | undefined {
-    if (!validId(id) || !this.databases.history) return;
+  activity(id: string): { turnId: string; compacting: boolean; running: boolean } | undefined {
+    if (!validId(id) || (this.scope && !this.scope.allows(id)) || !this.databases.history) return;
     const turn = this.databases.history
       .prepare(
         'SELECT turn_id,status FROM thread_turns WHERE thread_id=? ORDER BY rollout_ordinal DESC LIMIT 1',
@@ -73,6 +81,7 @@ export class CodexSource {
     const running = ['inProgress', 'in_progress'].includes(String(turn.status));
     return {
       turnId: String(turn.turn_id),
+      running,
       compacting:
         running &&
         !!this.databases.history

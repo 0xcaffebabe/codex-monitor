@@ -61,12 +61,17 @@ test('a real client reports host resources periodically and starts a fresh CPU b
     assert.ok(current().resources!.sampledAt > periodic.sampledAt);
   } finally {
     await client.close();
-    assert.equal(current().resources, null);
-    await service.close();
-    server.closeAllConnections();
-    await new Promise<void>((resolve) => server.close(() => resolve()));
-    f.close();
-    rmSync(f.root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    try {
+      // Local socket close precedes delivery of EOF to the remote gateway.
+      await until(() => !current().online);
+      assert.equal(current().resources, null);
+    } finally {
+      await service.close();
+      server.closeAllConnections();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+      f.close();
+      rmSync(f.root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    }
   }
 });
 

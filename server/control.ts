@@ -112,6 +112,7 @@ export function installControl(
     );
   };
   const context = async (target?: string) => {
+    if (bridge.contextRequired === false) return target || '';
     const inherited = process.env.CODEX_THREAD_ID;
     if (inherited && validId(inherited) && (await source.get(inherited))) return inherited;
     if (target) return target;
@@ -616,6 +617,7 @@ export function installControl(
         acceptedAt: Date.now(),
         ...(asGoal ? { goalObjective: objective, goalState: 'pending' } : {}),
       };
+      source.include(result.threadId);
       // Persist the known thread before any separate goal write or index refresh.
       db.prepare('UPDATE control_requests SET result_json=? WHERE id=?').run(
         JSON.stringify(receipt),
