@@ -159,6 +159,7 @@ export function MessageComposer(props: MessageComposerProps) {
       )}
       <PromptForm
         storageKey={`codex-monitor.draft.${user.id}.${threadId}`}
+        submitOnEnter
         allowAttachments
         submitActions={
           <CommandButton

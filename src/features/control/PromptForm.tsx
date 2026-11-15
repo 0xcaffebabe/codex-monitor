@@ -8,6 +8,7 @@ export function PromptForm(props: PromptFormProps) {
     enabled,
     children,
     inputLabel = '发送给 Codex 的消息',
+    submitOnEnter = false,
     maxLength = 12000,
     allowAttachments = false,
     attachmentControls,
@@ -85,7 +86,10 @@ export function PromptForm(props: PromptFormProps) {
                 ? '输入消息，可粘贴或拖入图片/文件…'
                 : '输入消息…'
           }
-          aria-keyshortcuts="Control+Enter Meta+Enter"
+          aria-keyshortcuts={
+            submitOnEnter ? 'Enter Control+Enter Meta+Enter' : 'Control+Enter Meta+Enter'
+          }
+          title={submitOnEnter ? 'Enter 发送，Shift+Enter 换行' : undefined}
           value={draft.prompt}
           maxLength={
             asGoal
@@ -101,8 +105,9 @@ export function PromptForm(props: PromptFormProps) {
           onKeyDown={(event) => {
             if (
               event.key === 'Enter' &&
-              (event.ctrlKey || event.metaKey) &&
-              !event.nativeEvent.isComposing
+              (submitOnEnter ? !event.shiftKey : event.ctrlKey || event.metaKey) &&
+              !event.nativeEvent.isComposing &&
+              event.nativeEvent.keyCode !== 229
             ) {
               event.preventDefault();
               void submit();

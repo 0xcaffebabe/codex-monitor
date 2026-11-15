@@ -58,6 +58,7 @@ export function NewSessionDialog(props: NewSessionDialogProps) {
         )}
         <PromptForm
           storageKey={`codex-monitor.draft.${user.id}.new`}
+          submitOnEnter
           allowAttachments
           allowGoal
           url="/api/sessions"
