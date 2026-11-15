@@ -1,0 +1,136 @@
+.attachment-picker {
+  min-width: 0;
+}
+.prompt-form.accepts-attachments {
+  position: relative;
+}
+.attachment-drop-hint {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: grid;
+  place-items: center;
+  border: 2px dashed var(--accent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--surface) 85%, transparent);
+  pointer-events: none;
+}
+.attachment-drop-hint > span {
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--accent);
+  font-size: 13px;
+  text-align: center;
+}
+.attachment-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.attachment-toolbar small,
+.attachment-meta small {
+  color: var(--muted);
+  font-size: 10px;
+}
+.attachment-toolbar.has-controls {
+  gap: 8px;
+}
+.attachment-toolbar.has-controls .attachment-add,
+.attachment-toolbar.has-controls > small {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+.attachment-add,
+.composer-choice {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--surface2);
+  color: var(--muted);
+  padding: 6px 8px;
+  font-size: 11px;
+  cursor: pointer;
+}
+.attachment-add:hover:not(:disabled),
+.composer-choice:hover:not(.is-disabled),
+.composer-choice:focus-within {
+  color: var(--accent);
+  background: var(--accent-bg);
+}
+.attachment-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  padding: 0;
+  margin: 8px 0 0;
+  list-style: none;
+  max-height: 145px;
+  overflow: auto;
+}
+.attachment-list > li {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 6px;
+  background: var(--surface2);
+  min-width: 0;
+  max-width: 240px;
+}
+.attachment-thumbnail {
+  width: 34px;
+  height: 34px;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  border-radius: 5px;
+  overflow: hidden;
+  color: var(--muted);
+}
+.attachment-thumbnail img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.attachment-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.attachment-meta strong {
+  font-size: 11px;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.attachment-progress {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+  margin: 6px 0 0;
+}
+@media (max-width: 760px) {
+  .attachment-toolbar.has-controls > small {
+    display: none;
+  }
+  .message-composer > .prompt-form > .attachment-picker {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+  .attachment-list {
+    max-height: 105px;
+  }
+  .attachment-list > li {
+    max-width: 100%;
+  }
+}

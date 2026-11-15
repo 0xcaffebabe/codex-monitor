@@ -1,0 +1,110 @@
+@media (max-width: 1099px) {
+  .detail-layout > .outline {
+    position: absolute;
+    right: 10px;
+    top: 8px;
+    bottom: 10px;
+    width: 270px;
+    max-width: calc(100% - 25px);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    box-shadow: var(--shadow);
+  }
+}
+@media (max-width: 760px) {
+  .running-switcher {
+    display: flex;
+    position: fixed;
+    right: 5px;
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 20;
+    width: 44px;
+    max-height: 58dvh;
+    flex-direction: column;
+    align-items: center;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    box-shadow: 0 3px 16px #17352c14;
+    padding: 6px 3px;
+    gap: 4px;
+  }
+  .running-switcher-heading {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    color: var(--accent);
+    font-size: 8px;
+    padding: 3px 0 5px;
+  }
+  .running-switcher-list {
+    overflow-y: auto;
+    min-height: 0;
+    scrollbar-width: none;
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    overscroll-behavior: contain;
+  }
+  .running-shortcut {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    min-height: 43px;
+    width: 100%;
+    padding: 5px 1px;
+    border-radius: 8px;
+    border: 1px solid transparent;
+    position: relative;
+    color: var(--muted);
+  }
+  .running-shortcut > strong {
+    font-size: 12px;
+    font-family: Consolas, monospace;
+    font-weight: 500;
+  }
+  .running-shortcut > span {
+    font-size: 7px;
+    max-width: 34px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .running-shortcut.active {
+    color: var(--accent);
+    background: var(--accent-bg);
+    border-color: color-mix(in srgb, var(--accent) 20%, transparent);
+  }
+  .running-shortcut.active:before {
+    content: '';
+    position: absolute;
+    left: -3px;
+    width: 2px;
+    height: 16px;
+    border-radius: 2px;
+    background: var(--accent);
+  }
+  .running-switcher .icon-button {
+    width: 26px;
+    height: 23px;
+  }
+  .running-switcher.collapsed {
+    width: 23px;
+    right: 0;
+    padding: 6px 0;
+    border-radius: 9px 0 0 9px;
+  }
+  .app-shell:has(.running-switcher:not(.collapsed)) .timeline {
+    padding-right: 65px;
+  }
+  .app-shell:has(.outline) .running-switcher {
+    visibility: hidden;
+  }
+  .app-shell:has(.outline) .timeline {
+    padding-right: 19px;
+  }
+}

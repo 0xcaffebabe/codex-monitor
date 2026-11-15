@@ -1,0 +1,122 @@
+.workspace-selector {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+.workspace-selector select {
+  max-width: 210px;
+  min-width: 130px;
+  padding: 7px 24px 7px 9px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--ink);
+  font: inherit;
+  font-weight: 600;
+  text-overflow: ellipsis;
+}
+.workspace-notice {
+  margin: 10px 20px 0;
+  flex-shrink: 0;
+}
+.workspace-empty {
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  padding: 28px;
+  text-align: center;
+}
+.workspace-empty p {
+  max-width: 520px;
+  color: var(--muted);
+}
+.client-manager {
+  width: min(780px, calc(100vw - 24px));
+}
+.client-create {
+  display: grid;
+  gap: 8px;
+  padding-bottom: 18px;
+}
+.client-create > div,
+.client-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.client-create input,
+.client-actions input {
+  min-width: 120px;
+  flex: 1;
+}
+.client-create button,
+.client-config button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+.client-row {
+  border-top: 1px solid var(--line);
+  padding: 18px 0;
+}
+.client-heading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.client-heading strong {
+  overflow-wrap: anywhere;
+  flex: 1;
+}
+.client-online {
+  color: var(--green, #16a34a);
+  font-size: 12px;
+}
+.client-id {
+  display: block;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+  margin: 8px 0 12px;
+  color: var(--muted);
+}
+.client-confirm {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding-top: 12px;
+  font-size: 13px;
+}
+.client-config {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 16px;
+  margin-bottom: 20px;
+}
+.client-config textarea {
+  width: 100%;
+  resize: vertical;
+  font-family: Consolas, monospace;
+  font-size: 12px;
+  margin: 10px 0;
+}
+@media (max-width: 700px) {
+  .workspace-selector select {
+    max-width: 148px;
+    min-width: 100px;
+    font-size: 12px;
+  }
+  .topbar .breadcrumb > svg,
+  .topbar .breadcrumb > strong {
+    display: none;
+  }
+  .workspace-notice {
+    margin: 8px 10px 0;
+    font-size: 12px;
+  }
+}

@@ -1,0 +1,206 @@
+import { test, expect, type APIRequestContext, type Page, type Request } from '@playwright/test';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+import os from 'node:os';
+import { DatabaseSync } from 'node:sqlite';
+
+const root = process.env.MONITOR_TEST_ROOT || path.join(os.tmpdir(), 'codex-monitor-e2e-01a1d7fa');
+let previousIds: unknown[] = [];
+const mutations = new Set<Request>();
+
+test.beforeEach(async ({ page }) => {
+  const state = new DatabaseSync(path.join(root, 'codex', 'state_5.sqlite'));
+  previousIds = state
+    .prepare('SELECT id FROM threads')
+    .all()
+    .map((row) => row.id);
+  state.close();
+  mutations.clear();
+  page.on('request', (request) => {
+    if (request.method() === 'POST' && request.url().includes('/api/workspaces/'))
+      mutations.add(request);
+  });
+  page.on('requestfinished', (request) => mutations.delete(request));
+  page.on('requestfailed', (request) => mutations.delete(request));
+});
+
+test.afterEach(async () => {
+  await expect.poll(() => mutations.size).toBe(0);
+  const state = new DatabaseSync(path.join(root, 'codex', 'state_5.sqlite'));
+  const history = new DatabaseSync(path.join(root, 'codex', 'thread_history_1.sqlite'));
+  for (const row of state.prepare('SELECT id FROM threads').all()) {
+    if (previousIds.includes(row.id)) continue;
+    history.prepare('DELETE FROM thread_items WHERE thread_id=?').run(row.id!);
+    history.prepare('DELETE FROM thread_turns WHERE thread_id=?').run(row.id!);
+    state.prepare('DELETE FROM threads WHERE id=?').run(row.id!);
+  }
+  state.close();
+  history.close();
+});
+
+async function enter(page: Page, request: APIRequestContext) {
+  const status = await (await request.get('/api/auth/status')).json();
+  const credentials = { username: 'owner', password: 'monitor-e2e-password!' };
+  const response = await request.post(status.configured ? '/api/auth/login' : '/api/auth/setup', {
+    data: status.configured
+      ? credentials
+      : {
+          ...credentials,
+          setupKey: readFileSync(path.join(root, 'data', 'setup-key.txt'), 'utf8').trim(),
+        },
+  });
+  expect(response.ok()).toBeTruthy();
+  const { token } = await response.json();
+  await page.addInitScript((value) => localStorage.setItem('codex-monitor.auth.v1', value), token);
+  await page.goto('/');
+  await expect(page.getByRole('heading', { name: '全部会话', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: '新建会话', exact: true }).click();
+  return page.getByRole('dialog', { name: '新建会话' });
+}
+
+test('a goal mode draft survives reopening and creates one native goal with attachments', async ({
+  page,
+  request,
+}) => {
+  let creates = 0,
+    extraMessages = 0;
+  page.on('request', (req) => {
+    if (req.method() !== 'POST') return;
+    if (req.url().endsWith('/api/workspaces/local/sessions')) creates++;
+    if (/\/sessions\/[^/]+\/(messages|commands)$/.test(req.url())) extraMessages++;
+  });
+  const dialog = await enter(page, request);
+  const toggle = dialog.getByRole('checkbox', { name: '将首条消息设为目标' });
+  await expect(toggle).not.toBeChecked();
+  await toggle.check();
+  const objective = 'goal-first attachment ' + test.info().project.name;
+  await dialog.getByLabel('目标内容', { exact: true }).fill(objective);
+  await dialog.locator('input[type=file]').setInputFiles({
+    name: 'goal-spec.txt',
+    mimeType: 'text/plain',
+    buffer: Buffer.from('Finish the attached requirements'),
+  });
+  await expect(dialog.getByText('goal-spec.txt', { exact: true })).toBeVisible();
+  await dialog.getByTitle('关闭新建会话').click();
+  await page.getByRole('button', { name: '新建会话', exact: true }).click();
+  await expect(toggle).toBeChecked();
+  await expect(dialog.getByLabel('目标内容', { exact: true })).toHaveValue(objective);
+  await expect(dialog.getByText('goal-spec.txt', { exact: true })).toBeVisible();
+  await expect(dialog.getByRole('button', { name: '创建并执行目标' })).toBeEnabled();
+  await page.screenshot({ path: test.info().outputPath('new-session-goal.png'), fullPage: true });
+  const response = page.waitForResponse(
+    (res) =>
+      res.request().method() === 'POST' && res.url().endsWith('/api/workspaces/local/sessions'),
+  );
+  await dialog.getByRole('button', { name: '创建并执行目标' }).click();
+  const receipt = await (await response).json();
+  expect(receipt.goalState).toBe('saved');
+  expect(receipt.goal.objective).toContain(objective);
+  expect(receipt.goal.objective).toContain('附件（已上传到本机临时目录）');
+  await expect(dialog).toHaveCount(0);
+  await expect(page.getByLabel('会话目标').locator('.goal-objective')).toContainText(objective);
+  await expect(page.locator('.timeline .user-message')).toContainText(`/goal ${objective}`);
+  expect(creates).toBe(1);
+  expect(extraMessages).toBe(0);
+});
+
+test('goal validation keeps long drafts and a first /goal command uses the goal mode', async ({
+  page,
+  request,
+}) => {
+  const dialog = await enter(page, request);
+  await dialog.getByLabel('发送给 Codex 的消息').fill('x'.repeat(4001));
+  await dialog.getByRole('checkbox', { name: '将首条消息设为目标' }).check();
+  await expect(dialog.getByLabel('目标内容', { exact: true })).toHaveValue('x'.repeat(4001));
+  await expect(dialog.getByRole('button', { name: '创建并执行目标' })).toBeDisabled();
+  await expect(dialog.getByRole('alert')).toContainText('目标最多 4000 字符');
+  await dialog.getByRole('checkbox', { name: '将首条消息设为目标' }).uncheck();
+  const objective = 'goal-first slash ' + test.info().project.name;
+  await dialog.getByLabel('发送给 Codex 的消息').fill(`/goal ${objective}`);
+  await expect(dialog.getByRole('checkbox', { name: '将首条消息设为目标' })).toBeChecked();
+  await expect(dialog.getByRole('alert')).toHaveCount(0);
+  await dialog.getByRole('button', { name: '创建并执行目标' }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(page.getByLabel('会话目标').locator('.goal-objective')).toHaveText(objective);
+});
+
+test('a lost goal creation receipt survives reload and is queried without another create', async ({
+  page,
+  request,
+}) => {
+  let creates = 0;
+  await page.route('**/api/workspaces/local/sessions', async (route) => {
+    if (route.request().method() !== 'POST') return route.continue();
+    creates++;
+    await route.fetch();
+    await route.abort('failed');
+  });
+  const dialog = await enter(page, request);
+  await dialog.getByRole('checkbox', { name: '将首条消息设为目标' }).check();
+  const objective = 'goal-first lost response ' + test.info().project.name;
+  await dialog.getByLabel('目标内容', { exact: true }).fill(objective);
+  await dialog.getByRole('button', { name: '创建并执行目标' }).click();
+  await expect(dialog.getByRole('button', { name: '查询发送结果' })).toBeVisible();
+  await expect(dialog.getByRole('checkbox')).toBeDisabled();
+  await page.reload();
+  await page.getByRole('button', { name: '新建会话', exact: true }).click();
+  await expect(dialog.getByRole('checkbox', { name: '将首条消息设为目标' })).toBeChecked();
+  await expect(dialog.getByLabel('目标内容', { exact: true })).toHaveValue(objective);
+  await dialog.getByRole('button', { name: '查询发送结果' }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(page.getByLabel('会话目标').locator('.goal-objective')).toHaveText(objective);
+  expect(creates).toBe(1);
+});
+
+test('a partial goal receipt keeps its thread and offers recovery after closing the dialog', async ({
+  page,
+  request,
+}) => {
+  let creates = 0,
+    retries = 0;
+  await page.route('**/api/workspaces/local/sessions', async (route) => {
+    if (route.request().method() !== 'POST') return route.continue();
+    creates++;
+    const response = await route.fetch();
+    const body = await response.json();
+    await route.fulfill({
+      response,
+      json: {
+        ...body,
+        goalState: 'unknown',
+        goalError: '目标保存状态待确认',
+        message: '会话已创建并发送，请确认目标保存结果。',
+      },
+    });
+  });
+  page.on('request', (req) => {
+    if (req.method() === 'POST' && /\/control\/requests\/[^/]+\/goal$/.test(req.url())) retries++;
+  });
+  const dialog = await enter(page, request);
+  await dialog.getByRole('checkbox', { name: '将首条消息设为目标' }).check();
+  const objective = 'goal-first recovery ' + test.info().project.name;
+  await dialog.getByLabel('目标内容', { exact: true }).fill(objective);
+  await dialog.getByRole('button', { name: '创建并执行目标' }).click();
+  await expect(dialog.getByRole('button', { name: '打开已创建会话' })).toBeVisible();
+  await expect(dialog.getByRole('button', { name: '创建并执行目标' })).toHaveCount(0);
+  await dialog.getByTitle('关闭新建会话').click();
+  await page.getByRole('button', { name: '新建会话', exact: true }).click();
+  await expect(dialog.getByRole('alert')).toContainText('目标保存状态待确认');
+  await page.route(/\/control\/requests\/[^/]+$/, (route) =>
+    route.fulfill({ status: 404, json: { error: '找不到该发送请求' } }),
+  );
+  await dialog.getByRole('button', { name: '查询发送结果' }).click();
+  await expect(dialog.getByRole('alert')).toContainText('请打开已创建会话核对目标');
+  await expect(dialog.getByRole('button', { name: '创建并执行目标' })).toHaveCount(0);
+  await dialog.getByRole('button', { name: '打开已创建会话' }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(page.getByLabel('会话目标').locator('.goal-objective')).toHaveText(objective);
+  await page.getByTitle('返回会话列表').click();
+  await page.getByRole('button', { name: '新建会话', exact: true }).click();
+  await expect(dialog.getByRole('button', { name: '重试保存目标' })).toBeVisible();
+  await dialog.getByRole('button', { name: '重试保存目标' }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(page.getByLabel('会话目标').locator('.goal-objective')).toHaveText(objective);
+  expect(creates).toBe(1);
+  expect(retries).toBe(1);
+});

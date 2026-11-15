@@ -1,0 +1,65 @@
+/* Responsive */
+@media (min-width: 1600px) {
+  .sidebar {
+    width: 245px;
+  }
+  .overview {
+    padding: 37px 45px 30px;
+  }
+  .content {
+    margin: 0 45px;
+  }
+  .stat-card {
+    padding: 23px;
+    min-height: 118px;
+  }
+  .stat-card strong {
+    font-size: 32px;
+  }
+  .stat-card small {
+    font-size: 10px;
+  }
+  .stat-card > span:nth-child(2) {
+    font-size: 12px;
+  }
+  .split .session-panel {
+    width: 335px;
+  }
+  .session-row {
+    padding-top: 20px;
+    padding-bottom: 20px;
+  }
+  .session-info > strong {
+    font-size: 13px;
+  }
+  .session-preview,
+  .project-tag {
+    font-size: 10px;
+  }
+  .table-head,
+  .session-row {
+    grid-template-columns: minmax(0, 1fr) 135px 135px 130px 18px;
+  }
+  .session-row {
+    grid-template-columns: 34px minmax(0, 1fr) 135px 135px 130px 18px;
+  }
+  .timeline {
+    padding: 30px 50px 55px;
+  }
+  .markdown {
+    font-size: 14px;
+  }
+  .tool-card summary strong {
+    font-size: 12px;
+  }
+  .tool-preview,
+  .tool-body pre {
+    font-size: 11px;
+  }
+  .message-top > strong {
+    font-size: 12px;
+  }
+  .detail-heading h1 {
+    font-size: 19px;
+  }
+}

@@ -1,0 +1,130 @@
+# Server / client 架构与部署
+
+Server 提供统一 Web 界面、账户与设备授权、工作空间注册及路由。每台运行 Codex 的机器启动一个 client，主动连接 Server 的 WebSocket。浏览器切换工作空间即可切换机器，也可以打开多个标签页同时管理。
+
+```mermaid
+flowchart LR
+  Browser[浏览器：切换工作空间] <-->|HTTP / SSE| Server[Server：Web、账户、工作空间]
+  ClientA[Client A：本机会话、控制、附件、用量] <-->|ws + AES-256-GCM| Server
+  ClientB[Client B：本机会话、控制、附件、用量] <-->|ws + AES-256-GCM| Server
+  ClientA <--> CodexA[机器 A 的 Codex]
+  ClientB <--> CodexB[机器 B 的 Codex]
+```
+
+## 启动方式
+
+所有机器安装 Node.js 24+，运行 `npm ci`、`npm run build`。支持直接传入命令行参数，也可继续使用环境变量。Windows 启动器读取项目 `.env` 作为补充；直接 `npm start` / `npm run client` 不自动读取 `.env`。
+
+| 模式 | `.env` 配置 | 行为 |
+| --- | --- | --- |
+| 一体启动 | `MONITOR_MODE=standalone`（默认） | 启动 Server 和本机 client，两者经过真实加密 ws 连接。沿用原 `.monitor` 的账户、回执、附件绑定、用量及通知配置。 |
+| 独立 Server | `MONITOR_MODE=server` | 只启动 Web 和工作空间网关，不扫描本机 Codex，也不连接本机桌面。 |
+| 独立 client | `MONITOR_MODE=client` | 只启动本机能力与到 Server 的主动 ws 连接，不开放对外 Web 端口。默认数据目录 `.monitor-client`。 |
+
+Windows：双击 `start.cmd` 或运行 `powershell -NoProfile -ExecutionPolicy Bypass -File .\start.ps1 -Build`。停止使用 `stop.cmd`。Client 模式不会打开浏览器，进程记录与日志放在 client 数据目录（默认 `.monitor-client/server.log`、`.monitor-client/server-error.log`）；Server / 一体模式仍放在 `.monitor`。Linux/macOS 可使用相同的 npm 命令行参数，或设置环境变量后运行 `npm start`。
+
+### Client 命令行启动
+
+从 Server 的“管理工作空间 → 添加”取得工作空间 ID 和 AES 密钥后，在 client 机器直接执行：
+
+```powershell
+# Windows 后台启动，无需先编辑 .env
+.\start.cmd -Mode client -ServerUrl "ws://192.168.1.10:4317" -WorkspaceId "注册的工作空间ID" -ClientKey "注册的AES密钥"
+
+# 前台启动，Windows / Linux / macOS 通用，Ctrl+C 停止
+npm run client -- --server-url "ws://192.168.1.10:4317" --workspace-id "注册的工作空间ID" --client-key "注册的AES密钥"
+
+# 等价的通用入口
+npm start -- --mode client --server-url "ws://192.168.1.10:4317" --workspace-id "注册的工作空间ID" --client-key "注册的AES密钥"
+```
+
+密钥保存在单独文件时，将 `-ClientKey` 换成 `-ClientKeyFile "D:\private\client.key"`；npm 使用 `--client-key-file "D:\private\client.key"`。同一次调用中只指定一种密钥来源。
+
+| npm / Node 参数 | Windows 启动器参数 | 对应环境变量 | 用途或默认值 |
+| --- | --- | --- | --- |
+| `--mode` | `-Mode` | `MONITOR_MODE` | `standalone` / `server` / `client`；`npm run client` 默认 client |
+| `--server-url` | `-ServerUrl` | `MONITOR_SERVER_URL` | Server 的 http(s) 或 ws(s) origin |
+| `--workspace-id` | `-WorkspaceId` | `MONITOR_WORKSPACE_ID` | 注册的工作空间 ID |
+| `--client-key` | `-ClientKey` | `MONITOR_CLIENT_KEY` | 43 字符 base64url AES 密钥 |
+| `--client-key-file` | `-ClientKeyFile` | `MONITOR_CLIENT_KEY_FILE` | 保存密钥的私有文本文件 |
+| `--codex-home` | `-CodexHome` | `CODEX_HOME` | 默认当前用户的 `.codex` |
+| `--data-dir` | `-DataDir` | `MONITOR_DATA_DIR` | Client 默认 `.monitor-client` |
+| `--poll-ms` | `-PollMs` | `MONITOR_POLL_MS` | 历史轮询间隔，默认 1,500 毫秒，最小 500 |
+| `--pricing-file` | `-PricingFile` | `MONITOR_PRICING_FILE` | 模型价格 JSON 文件 |
+| `--codex-autostart` | `-CodexAutoStart` | `MONITOR_CODEX_AUTOSTART` | `true` / `false`，Windows 默认启用桌面监测 |
+| `--codex-check-ms` | `-CodexCheckMs` | `MONITOR_CODEX_CHECK_MS` | 桌面检查间隔，默认 15,000 毫秒，范围 1,000–300,000 |
+| `--codex-desktop` | `-CodexDesktop` | `MONITOR_CODEX_DESKTOP` | 桌面 GUI 程序的绝对路径 |
+| `--codex-cli` | `-CodexCli` | `MONITOR_CODEX_CLI` | 原生 RPC 使用的 CLI 程序 |
+| `--codex-pipe` | `-CodexPipe` | `MONITOR_CODEX_PIPE` | 选择桌面实例的 pipe |
+| `--host` / `--port` | `-ListenHost` / `-Port` | `HOST` / `PORT` | Server / 一体模式监听地址与端口 |
+
+配置优先级为 **命令行参数 > 当前进程环境变量 > 项目 `.env`（仅 Windows 启动器）> 默认值**。显式 `--client-key` / `-ClientKey` 会覆盖继承的密钥文件设置；显式文件参数会覆盖继承的内联密钥。仅通过环境变量配置时，仍以密钥文件为先。Windows 启动器的相对路径以项目目录为基准，直接 npm / Node 命令以当前工作目录为基准；带空格的路径用引号包围。
+
+```powershell
+# 自定义目录并关闭桌面自动启动
+.\start.cmd -Mode client -ServerUrl "ws://192.168.1.10:4317" -WorkspaceId "注册的工作空间ID" -ClientKeyFile "D:\private\client.key" -CodexHome "D:\Codex Home" -DataDir "D:\private\monitor-client" -CodexAutoStart false
+
+# 停止对应的后台 client；自定义过 DataDir 时须使用相同目录
+.\stop.cmd -Mode client -DataDir "D:\private\monitor-client"
+
+# 查看帮助；检查配置会验证参数及密钥文件后退出，不启动 client
+.\start.cmd -Help
+.\start.cmd -Mode client -ServerUrl "ws://192.168.1.10:4317" -WorkspaceId "注册的工作空间ID" -ClientKeyFile "D:\private\client.key" -CheckConfig
+npm run client -- --help
+```
+
+启动器重复执行相同配置会复用已运行的进程；配置不同会提示先停止再启动。多个 client 可指定各自的数据目录独立启动。旧版启动器将 client 进程记录保存在 `.monitor`，升级前应先停止旧进程；若升级后仍遗留旧进程，可用 `stop.cmd -Mode standalone` 按旧记录停止。
+
+## 添加远程 client
+
+1. 启动 Server，通过其 Web 页面创建管理员并登录。
+2. 顶栏点击“管理工作空间”，输入机器名称后“添加”。
+3. 将显示的配置保存到 client 机器的项目 `.env`。固定 AES 密钥只在创建或轮换成功时显示，不保存到浏览器存储。
+
+如果浏览器使用 `localhost` 或 `127.0.0.1` 访问 Server，复制到其他机器时，应把 `MONITOR_SERVER_URL` 改为 client 能访问的 Server 局域网 IP 或域名。
+
+```dotenv
+MONITOR_MODE=client
+MONITOR_SERVER_URL=ws://server-address:4317
+MONITOR_WORKSPACE_ID=注册界面生成的工作空间ID
+MONITOR_CLIENT_KEY=注册界面生成的43字符base64url密钥
+# 可选，指向此 client 运行 Codex 的用户目录
+# CODEX_HOME=C:\Users\your-name\.codex
+```
+
+也可将密钥单独保存到本地私有文本文件，使用 `MONITOR_CLIENT_KEY_FILE` 指定绝对路径，省略 `MONITOR_CLIENT_KEY`。文件模式优先于环境变量。启动器会限制 `.env`、密钥文件与数据目录的 Windows 权限。
+
+4. 在 client 机器运行 `start.cmd`，或设置相同环境变量后 `npm start`。Windows client 默认立即及每 15 秒检查同一登录会话中的 Codex 桌面主进程，缺失时自动启动；CLI 和桌面子进程不算运行中的桌面主进程。启动或检查失败后至少等待 60 秒再尝试启动，日志写入 client 数据目录的 `server.log`，不影响 client 连接和历史读取。该用户的桌面应用启动并登录后才能发送消息及执行控制命令。
+5. Server 页面显示该工作空间“在线”后，从顶栏切换即可查看和操作。
+
+Client 地址要求为 origin，不带路径、查询和用户名密码。可使用 `ws://`；本实现的 AES 保护 WebSocket 业务负载，握手不传共享密钥。若经过反向代理，代理须支持 WebSocket Upgrade；自定义 Server 域名需加入 `MONITOR_ORIGINS`。
+
+桌面自动监测只在 Windows 一体模式和独立 client 中运行，与浏览器是否打开、client 是否连接 Server 无关。Client 必须由目标 Windows 用户在其交互式登录会话中运行；它不会跨用户登录或自动完成 Codex 账户登录。`.env` 可设置 `MONITOR_CODEX_AUTOSTART=false` 关闭，`MONITOR_CODEX_CHECK_MS=15000` 调整间隔（1,000–300,000 毫秒），`MONITOR_CODEX_DESKTOP=C:\path\to\app\ChatGPT.exe` 指定非标准安装的桌面 GUI 程序绝对路径。默认从 Windows Store 包及常见安装目录发现，不使用 `MONITOR_CODEX_CLI` 启动桌面。关闭 client 会取消监测，不会关闭 Codex；监测启用期间主动退出桌面后也会被重新拉起。
+
+## 固定 AES 密钥和连接认证
+
+- 每个工作空间生成独立 256 位随机 AES 密钥。Server 保存在私有 `monitor.sqlite` 的工作空间表，client 保存在本地配置或密钥文件。重连不派生、不轮换共享密钥。
+- ws 握手使用 HMAC-SHA256 证明持有密钥，签名包含工作空间、时间戳与一次性随机数。Server 校验时间窗口和重复签名，线上不发送密钥或浏览器登录令牌。两端系统时间应保持同步，允许 60 秒偏差。
+- 每条业务消息使用 AES-256-GCM、独立随机 96 位 IV 和 128 位认证标签。公开随机连接标识仅绑定认证上下文，不参与密钥派生。AAD 同时绑定协议版本、连接、本次客户端握手凭证的摘要、方向与递增序号；即使攻击者复用录制的连接标识，也无法向新连接重放旧服务端消息。
+- 当前传输协议为 v2。Server 与所有 client 需要一起更新并重启，固定 AES 密钥无需更换；旧版 client 会被拒绝接入。
+- 公共连接标识、协议版本及 WebSocket 控制帧不含业务内容；请求路径、用户身份、消息、附件、响应和事件均在加密负载中。
+- 管理员可以“轮换密钥”，立即断开旧连接；将新密钥更新到 client 本地并重启。旧密钥不能重新接入。同一工作空间同时只允许一个活动 client，其他连接不会挤掉现有连接。
+- 默认本机工作空间的密钥由一体启动管理，保存在 `.monitor/local-client-key`，不通过 Web 页面轮换。
+
+AES 加密范围是 Server 与 client 之间的 ws。浏览器与 Server 之间使用所访问地址的 HTTP/HTTPS；HTTP 登录仍属于该浏览器连接自身的传输范围。
+
+## 请求与故障语义
+
+- 受保护路由为 `/api/workspaces/:workspaceId/sessions`、`/overview`、`/control`、`/uploads`、`/usage`、`/notifications`、`/stream`。账户、设备及工作空间管理由 Server 本身处理。
+- Client 只转发明确允许的本机能力路径，内部 HTTP 适配器绑定随机 loopback 端口，每个请求使用临时随机授权，不接收任意 URL、账户管理或任意文件路径。
+- Client 对初始身份和实际控制提交向 Server 做反向权限复核。浏览器退出或设备撤销后进行中的 SSE 会终止，尚未实际提交的命令重新检查设备权限；已受理消息队列按当前账户管理员权限处理。
+- 连接每 15 秒检测心跳，断开后按 1、2、4…30 秒退避重连。离线工作空间继续保留，页面显示离线；恢复后自动重建浏览器实时流。
+- 传输不自动重放 HTTP 操作。发送、新建、目标、停止等继续沿用持久请求 ID。连接在提交后断开时，恢复后查询原请求回执，不能以“连接断开”认定操作未执行。
+- 每个 client 最多承接 64 个在途请求。上传和响应均按 48 KiB 分片，分别等待 client 接收和浏览器消费确认后继续传输；单帧最多约 136 KiB，避免整份附件的加密与解析阻塞其他会话。120 秒无进展会取消，并关闭本地请求流。附件最多 20 MiB，每个 Server 最多同时处理 4 个、单账户 2 个，配额持续占用到 client 响应结束或浏览器取消；其他路由拒绝二进制请求体。client 继续执行本地限流和归属验证。
+- 网页地址携带工作空间 ID。切换时导航到该工作空间，终止旧页面请求；草稿、附件及待确认回执按工作空间和用户隔离。登录与主题共享，草稿仍只保存在当前标签页。
+
+## 数据归属
+
+Server 保存账户、设备授权和工作空间注册。远程 client 的操作队列、回执、附件、用量缓存和 Webhook 配置均保存在该 client 的本机数据目录。通知投递也由 client 完成，消息链接包含工作空间 ID。
+
+一体模式本机 client 沿用原私有数据库，历史配置无需迁移。切换为纯 Server 模式时，本机运行器停止，原本机数据仍保留；要继续查看本机 Codex，应恢复一体模式或单独注册本机 client。

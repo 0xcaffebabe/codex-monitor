@@ -1,0 +1,158 @@
+.running-switcher-scrim {
+  display: none;
+}
+@media (max-width: 760px) {
+  .image-event {
+    margin-left: 0;
+  }
+  .image-lightbox {
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+  .image-lightbox > header {
+    font-size: 10px;
+    padding: 0 15px;
+  }
+  .running-switcher-scrim,
+  .running-switcher-scrim:hover,
+  .running-switcher-scrim:active {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: #102c2426;
+    z-index: 19;
+    cursor: default;
+  }
+  .running-switcher:not(.collapsed) {
+    width: min(320px, calc(100vw - 30px));
+    max-height: 65dvh;
+    right: 10px;
+    padding: 0;
+    align-items: stretch;
+    border-radius: 13px;
+    gap: 0;
+    box-shadow: 0 8px 35px #17352c33;
+  }
+  .running-switcher.collapsed {
+    width: 44px;
+    right: 5px;
+    padding: 0;
+    border-radius: 11px;
+    max-height: none;
+  }
+  .running-launcher {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    width: 42px;
+    height: 49px;
+    color: var(--accent);
+    border-radius: 11px;
+    background: var(--surface);
+  }
+  .running-launcher > span {
+    font-size: 10px;
+    font-family: Consolas, monospace;
+  }
+  .running-switcher-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 11px 12px 11px 15px;
+    border-bottom: 1px solid var(--line);
+  }
+  .running-switcher-header strong {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 12px;
+    font-weight: 600;
+  }
+  .running-switcher-header strong > svg {
+    color: var(--accent);
+  }
+  .running-switcher-header strong > span {
+    font-size: 10px;
+    font-weight: 400;
+    color: var(--muted);
+    margin-left: 2px;
+  }
+  .running-switcher-header .icon-button {
+    height: 28px;
+    width: 28px;
+  }
+  .running-switcher-list {
+    padding: 7px;
+    gap: 3px;
+  }
+  .running-shortcut {
+    flex-direction: row;
+    align-items: flex-start;
+    text-align: left;
+    gap: 9px;
+    padding: 12px 9px;
+    min-height: 65px;
+    border-radius: 8px;
+  }
+  .running-shortcut > .running-index {
+    width: 23px;
+    max-width: 23px;
+    flex-shrink: 0;
+    display: grid;
+    place-items: center;
+    background: var(--surface2);
+    border: 1px solid var(--line);
+    border-radius: 5px;
+    font-size: 10px;
+    font-family: Consolas, monospace;
+    height: 24px;
+    line-height: 1;
+  }
+  .running-shortcut > .running-shortcut-body {
+    display: flex;
+    flex: 1;
+    min-width: 0;
+    max-width: none;
+    overflow: visible;
+    white-space: normal;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .running-shortcut-body > strong {
+    font-size: 12px;
+    font-weight: 550;
+    line-height: 1.8;
+    color: var(--ink);
+    overflow-wrap: anywhere;
+  }
+  .running-shortcut-body > small {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 9px;
+    line-height: 1.6;
+    color: var(--muted);
+    flex-wrap: wrap;
+  }
+  .running-shortcut-body .green-dot {
+    height: 4px;
+    width: 4px;
+    margin-left: 6px;
+  }
+  .running-shortcut > svg {
+    align-self: center;
+    color: var(--muted);
+  }
+  .running-shortcut.active:before {
+    left: 0;
+  }
+  .running-shortcut.active .running-index {
+    color: var(--accent);
+    background: var(--accent-bg);
+  }
+  .app-shell:has(.running-switcher:not(.collapsed)) .timeline {
+    padding-right: 19px;
+  }
+}

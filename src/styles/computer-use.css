@@ -1,0 +1,332 @@
+.computer-use-trigger {
+  width: auto;
+  gap: 6px;
+  padding: 0 8px;
+  color: var(--accent);
+}
+.computer-use-trigger > span {
+  font-size: 11px;
+  white-space: nowrap;
+}
+.computer-use-dialog {
+  width: min(1180px, calc(100vw - 48px));
+  height: min(820px, calc(100dvh - 48px));
+  max-width: none;
+  max-height: none;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+.computer-use-dialog[open] {
+  display: flex;
+  flex-direction: column;
+}
+.computer-use-dialog::backdrop {
+  background: #0d191db3;
+  backdrop-filter: blur(3px);
+}
+.computer-use-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 18px 20px;
+  border-bottom: 1px solid var(--line);
+  flex-shrink: 0;
+}
+.computer-use-header > svg {
+  color: var(--accent);
+}
+.computer-use-header > div {
+  flex: 1;
+  min-width: 0;
+}
+.computer-use-header h2 {
+  margin: 0;
+  font-size: 16px;
+}
+.computer-use-header p {
+  margin: 5px 0 0;
+  color: var(--muted);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.computer-use-layout {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 280px minmax(0, 1fr);
+}
+.computer-use-steps {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  background: var(--surface2);
+  border-right: 1px solid var(--line);
+  padding: 12px 8px;
+}
+.computer-use-count {
+  padding: 0 10px 12px;
+  color: var(--muted);
+  font-size: 11px;
+}
+.computer-use-steps ol {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.computer-use-step {
+  width: 100%;
+  display: flex;
+  gap: 10px;
+  padding: 12px 10px;
+  text-align: left;
+  border-radius: 9px;
+  border: 1px solid transparent;
+}
+.computer-use-step.active {
+  background: var(--accent-bg);
+  border-color: var(--accent);
+}
+.computer-use-step-number {
+  font-size: 10px;
+  width: 22px;
+  height: 22px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  flex-shrink: 0;
+  color: var(--muted);
+}
+.computer-use-step-content {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.computer-use-step time,
+.computer-use-step small {
+  color: var(--muted);
+  font-size: 10px;
+}
+.computer-use-step strong {
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.computer-use-older {
+  display: block;
+  width: 100%;
+  padding: 9px;
+  color: var(--accent);
+  font-size: 11px;
+}
+.computer-use-preview {
+  min-width: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: 20px;
+}
+.computer-use-selection {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+.computer-use-selection > div:first-child {
+  min-width: 0;
+}
+.computer-use-selection h3 {
+  margin: 0 0 6px;
+  font-size: 15px;
+  overflow-wrap: anywhere;
+}
+.computer-use-selection p {
+  color: var(--muted);
+  font-size: 11px;
+  margin: 0;
+}
+.computer-use-navigation {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--muted);
+}
+.computer-use-page {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 11px;
+  margin: 14px 0;
+}
+.computer-use-page > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.computer-use-screenshot {
+  margin-top: 18px;
+}
+.computer-use-screenshot .session-image {
+  width: 100%;
+}
+.computer-use-screenshot .image-thumbnail {
+  width: 100%;
+  height: auto;
+  min-height: 120px;
+  padding: 5px;
+  cursor: zoom-in;
+}
+.computer-use-screenshot .image-thumbnail img {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: 480px;
+  min-height: 100px;
+  object-fit: contain;
+}
+.computer-use-screenshot .image-loading {
+  width: 100%;
+  min-height: 240px;
+}
+.computer-use-screenshot .image-loading > span,
+.computer-use-screenshot .image-filename {
+  font-size: 11px;
+}
+.computer-use-image-tabs {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 14px;
+}
+.computer-use-image-tabs button {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 6px 12px;
+  font-size: 11px;
+}
+.computer-use-image-tabs button[aria-pressed='true'] {
+  background: var(--accent-bg);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.computer-use-empty {
+  min-height: 200px;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  justify-content: center;
+  align-items: center;
+  color: var(--muted);
+  text-align: center;
+  padding: 24px;
+  font-size: 13px;
+}
+.computer-use-empty small {
+  font-size: 11px;
+}
+.computer-use-text {
+  margin-top: 18px;
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.computer-use-text summary {
+  cursor: pointer;
+}
+.computer-use-text pre {
+  padding: 12px;
+  border-radius: 8px;
+  background: var(--code);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.7;
+  max-height: 240px;
+  overflow: auto;
+  color: var(--ink);
+}
+.computer-use-footer {
+  padding: 10px 20px;
+  font-size: 10px;
+  color: var(--muted);
+  border-top: 1px solid var(--line);
+  flex-shrink: 0;
+}
+@media (max-width: 760px) {
+  .detail-header > .computer-use-trigger {
+    width: 36px;
+    padding: 0;
+  }
+  .computer-use-trigger > span {
+    display: none;
+  }
+  .computer-use-dialog {
+    width: calc(100vw - 16px);
+    height: calc(100dvh - 32px);
+    border-radius: 12px;
+  }
+  .computer-use-header {
+    padding: 12px;
+    gap: 8px;
+  }
+  .computer-use-header h2 {
+    font-size: 14px;
+  }
+  .computer-use-layout {
+    display: flex;
+    flex-direction: column;
+  }
+  .computer-use-steps {
+    height: 200px;
+    flex-shrink: 0;
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+    padding: 8px;
+  }
+  .computer-use-count {
+    padding-bottom: 5px;
+  }
+  .computer-use-step {
+    padding: 7px 8px;
+  }
+  .computer-use-step-content {
+    gap: 2px;
+  }
+  .computer-use-step strong {
+    font-size: 11px;
+  }
+  .computer-use-preview {
+    padding: 14px 12px;
+    flex: 1;
+    min-height: 0;
+  }
+  .computer-use-selection {
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .computer-use-selection h3 {
+    font-size: 13px;
+  }
+  .computer-use-navigation {
+    margin-left: auto;
+  }
+  .computer-use-screenshot .image-loading {
+    min-height: 140px;
+  }
+  .computer-use-empty {
+    min-height: 140px;
+    font-size: 12px;
+  }
+}

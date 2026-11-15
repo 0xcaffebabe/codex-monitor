@@ -1,0 +1,255 @@
+.markdown th {
+  background: var(--surface2);
+  font-weight: 600;
+}
+.markdown hr {
+  border: 0;
+  border-top: 1px solid var(--line);
+  margin: 20px 0;
+}
+.image-placeholder {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  padding: 6px 9px;
+  border-radius: 5px;
+  border: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 10px;
+}
+.activity-group {
+  margin: 12px 0 18px 33px;
+  color: var(--muted);
+}
+.activity-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 7px;
+  min-height: 32px;
+  padding: 4px 0;
+  list-style: none;
+  cursor: pointer;
+  font-size: 11px;
+}
+.activity-summary:hover {
+  color: var(--ink);
+}
+.activity-summary small {
+  font-size: 10px;
+}
+.activity-label {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.activity-failed {
+  color: #be7e70;
+  font-size: 10px;
+}
+.activity-time {
+  margin-left: auto;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.activity-chevron {
+  transition: transform 0.15s;
+}
+.activity-group[open] > .activity-summary .activity-chevron {
+  transform: rotate(90deg);
+}
+.activity-items {
+  margin: 4px 0 0 6px;
+  padding-left: 14px;
+  border-left: 1px solid var(--line);
+}
+.tool-card {
+  border-radius: 5px;
+  margin: 2px 0;
+  scroll-margin-top: 15px;
+  overflow: hidden;
+}
+.tool-card[open] {
+  background: var(--surface2);
+}
+.tool-card summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 4px;
+  list-style: none;
+  cursor: pointer;
+  min-height: 32px;
+  font-size: 11px;
+}
+.tool-card summary:hover,
+.reasoning-card summary:hover {
+  background: var(--surface2);
+}
+.activity-summary::-webkit-details-marker,
+.tool-card summary::-webkit-details-marker,
+.reasoning-card summary::-webkit-details-marker {
+  display: none;
+}
+.tool-icon {
+  width: 16px;
+  flex-shrink: 0;
+  color: var(--muted);
+  display: grid;
+  place-items: center;
+}
+.tool-card summary strong {
+  font-size: 11px;
+  font-weight: 500;
+  flex-shrink: 0;
+  max-width: 45%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tool-card summary .tool-title {
+  flex: 1;
+  min-width: 0;
+  max-width: none;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.6;
+}
+.tool-preview {
+  font-size: 10px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  flex: 1;
+  font-family: Consolas, 'Microsoft YaHei', monospace;
+}
+.tool-result {
+  color: #90ae9e;
+  margin-left: auto;
+}
+.tool-card summary small {
+  font-size: 8px;
+  color: #aab7b6;
+  white-space: nowrap;
+}
+.tool-card summary > svg:last-child {
+  color: #9bafaa;
+  transition: transform 0.15s;
+}
+.tool-card[open] summary > svg:last-child {
+  transform: rotate(90deg);
+}
+.tool-body {
+  padding: 0 10px 10px;
+}
+.code-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 8px;
+  color: #9aa9aa;
+  margin: 4px 0;
+}
+.code-label .icon-button {
+  width: 23px;
+  height: 23px;
+}
+.tool-body pre {
+  font-family: 'Cascadia Code', Consolas, 'Microsoft YaHei', monospace;
+  font-size: 10px;
+  line-height: 1.8;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  background: var(--code);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  padding: 10px;
+  margin: 0;
+  max-height: 440px;
+  overflow: auto;
+}
+.tool-error {
+  color: #be7e70;
+}
+.tool-error .tool-result {
+  color: #be7e70;
+}
+.system-event {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: #a4b4af;
+  font-size: 8px;
+  margin: 20px 0 16px 33px;
+}
+.system-event small {
+  font-size: 7px;
+  margin-left: auto;
+  color: #bdc8c5;
+}
+.reasoning-card {
+  margin: 2px 0;
+  color: var(--muted);
+}
+.reasoning-card summary {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 32px;
+  padding: 6px 4px;
+  list-style: none;
+  font-size: 11px;
+  cursor: pointer;
+}
+.reasoning-card summary > svg:last-child {
+  transition: transform 0.15s;
+}
+.reasoning-card[open] > summary > svg:last-child {
+  transform: rotate(90deg);
+}
+.reasoning-card .markdown {
+  font-size: 11px;
+  color: var(--muted);
+  margin: 4px 4px 12px 27px;
+}
+.working-indicator {
+  display: flex;
+  gap: 9px;
+  align-items: center;
+  font-size: 9px;
+  color: #91a79c;
+  margin-top: 24px;
+}
+.typing {
+  display: flex;
+  gap: 3px;
+  padding: 3px 0;
+}
+.typing i {
+  height: 3px;
+  width: 3px;
+  border-radius: 50%;
+  background: #84b19b;
+  animation: pulse 1.4s infinite;
+}
+.typing i:nth-child(2) {
+  animation-delay: 0.15s;
+}
+.typing i:nth-child(3) {
+  animation-delay: 0.3s;
+}
+@keyframes pulse {
+  0%,
+  80%,
+  100% {
+    opacity: 0.3;
+  }
+  40% {
+    opacity: 1;
+  }
+}

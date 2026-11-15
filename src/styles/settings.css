@@ -1,0 +1,285 @@
+/* Settings */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: #172a2760;
+  backdrop-filter: blur(3px);
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 30px;
+}
+.settings-modal {
+  width: 650px;
+  max-width: 100%;
+  max-height: 90dvh;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 15px;
+  box-shadow: var(--shadow);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.settings-modal > header {
+  padding: 23px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  border-bottom: 1px solid var(--line);
+}
+.settings-modal h2 {
+  font-size: 18px;
+  margin: 0 0 6px;
+  font-weight: 600;
+}
+.settings-modal header p {
+  font-size: 10px;
+  color: var(--muted);
+  margin: 0;
+}
+.settings-modal header > .icon-button {
+  margin-left: auto;
+}
+.settings-modal .login-icon {
+  height: 43px;
+  width: 43px;
+}
+.settings-body {
+  overflow-y: auto;
+  padding: 0 25px 20px;
+}
+.settings-body > section {
+  padding: 24px 0;
+  border-bottom: 1px solid var(--line);
+}
+.settings-body > section:last-child {
+  border: 0;
+}
+.settings-body h3 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  margin: 0 0 14px;
+}
+.settings-body h3 > span {
+  margin-left: auto;
+  font-size: 10px;
+  color: var(--muted);
+}
+.help {
+  font-size: 10px;
+  color: var(--muted);
+  line-height: 1.9;
+  margin: 9px 0;
+}
+.source-config {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 10px;
+  background: var(--surface2);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 12px;
+}
+.source-config strong {
+  font-weight: 500;
+}
+.source-config code {
+  margin-left: auto;
+  font-size: 9px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.device-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 13px 0;
+  border-bottom: 1px solid var(--line);
+  color: #8b9e95;
+}
+.device-row > div {
+  flex: 1;
+  min-width: 0;
+}
+.device-row strong {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 11px;
+  color: var(--ink);
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+.device-row small {
+  display: block;
+  font-size: 8px;
+  color: var(--muted);
+  margin-top: 5px;
+}
+.device-current {
+  font-size: 7px;
+  color: var(--accent);
+  background: var(--accent-bg);
+  padding: 2px 5px;
+  border-radius: 3px;
+  white-space: nowrap;
+}
+.text-danger {
+  font-size: 10px;
+  color: #b57870;
+  white-space: nowrap;
+  padding: 6px;
+  border-radius: 5px;
+}
+.settings-form {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 16px;
+  align-items: flex-end;
+}
+.settings-form label {
+  font-size: 9px;
+  color: var(--muted);
+  flex: 1;
+  min-width: 120px;
+}
+.settings-form input,
+.settings-form select {
+  height: 35px;
+  margin-top: 6px;
+  font-size: 11px;
+}
+.settings-form button {
+  min-height: 35px;
+  font-size: 10px;
+}
+.settings-modal > footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 15px 25px;
+  border-top: 1px solid var(--line);
+}
+.settings-modal footer > span {
+  font-size: 9px;
+  color: var(--muted);
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.settings-modal footer .secondary {
+  font-size: 11px;
+  min-height: 32px;
+  padding: 7px 20px;
+}
+.notification-fields {
+  border: 0;
+  padding: 0;
+  margin: 16px 0 0;
+  min-width: 0;
+  display: grid;
+  gap: 12px;
+}
+.notification-fields > label {
+  display: grid;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.notification-fields input:not([type='checkbox']) {
+  height: 36px;
+  width: 100%;
+  min-width: 0;
+  font-size: 11px;
+}
+.notification-fields > .notification-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ink);
+}
+.notification-toggle input {
+  width: 15px;
+  height: 15px;
+  accent-color: var(--accent);
+}
+.notification-fields .help {
+  margin: 0;
+}
+.notification-hint {
+  overflow-wrap: anywhere;
+}
+.notification-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.notification-actions button {
+  min-height: 35px;
+  font-size: 11px;
+}
+.notification-history {
+  margin-top: 22px;
+}
+.notification-history h4 {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 11px;
+  font-weight: 500;
+}
+.notification-history h4 span {
+  color: var(--muted);
+  font-size: 9px;
+}
+.notification-delivery {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 0;
+  border-top: 1px solid var(--line);
+}
+.notification-delivery > div {
+  flex: 1;
+  min-width: 0;
+}
+.notification-delivery strong {
+  font-size: 11px;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+.notification-delivery small {
+  display: block;
+  font-size: 10px;
+  line-height: 1.7;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+  margin-top: 4px;
+}
+.notification-delivery .notification-error {
+  color: #b57870;
+}
+.notification-status {
+  flex-shrink: 0;
+  font-size: 10px;
+  color: var(--muted);
+  padding: 3px 6px;
+  border-radius: 4px;
+  background: var(--surface2);
+}
+.notification-status.sent {
+  color: var(--accent);
+  background: var(--accent-bg);
+}
+.notification-status.failed {
+  color: #b57870;
+}

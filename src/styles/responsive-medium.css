@@ -1,0 +1,102 @@
+@media (max-width: 1200px) {
+  .sidebar {
+    width: 205px;
+    padding-left: 10px;
+    padding-right: 10px;
+  }
+  .sidebar .brand {
+    font-size: 17px;
+  }
+  .sidebar .brand-symbol {
+    width: 29px;
+    height: 29px;
+  }
+  .sidebar .brand small {
+    font-size: 5px;
+  }
+  .overview {
+    padding: 25px 24px 22px;
+  }
+  .content {
+    margin: 0 24px;
+  }
+  .topbar {
+    padding: 0 24px;
+  }
+  .stat-grid {
+    gap: 10px;
+  }
+  .stat-card {
+    padding: 15px 12px;
+    gap: 9px;
+  }
+  .stat-card strong {
+    display: block;
+    margin-top: 7px;
+    font-size: 26px;
+  }
+  .stat-card small {
+    display: block;
+    margin-top: 3px;
+    font-size: 8px;
+  }
+  .stat-decoration {
+    display: none;
+  }
+  .stat-icon {
+    height: 29px;
+    width: 29px;
+  }
+  .mini-bars {
+    right: 10px;
+    top: 15px;
+    font-size: 14px;
+  }
+  .table-head {
+    grid-template-columns: minmax(0, 1fr) 90px 90px 80px 14px;
+    gap: 10px;
+  }
+  .session-row {
+    grid-template-columns: 28px minmax(0, 1fr) 90px 90px 80px 14px;
+    gap: 10px;
+    padding: 15px 18px;
+  }
+  .tokens small {
+    display: none;
+  }
+  .split .session-panel {
+    width: 250px;
+    min-width: 230px;
+  }
+  .compact .list-toolbar {
+    padding-left: 13px;
+    padding-right: 13px;
+  }
+  .timeline {
+    padding: 20px 24px 40px;
+  }
+  .detail-meta {
+    gap: 8px;
+  }
+  .path-chip {
+    max-width: 210px;
+  }
+  .detail-id {
+    display: none;
+  }
+  .detail-header {
+    gap: 5px;
+    padding-left: 15px;
+    padding-right: 13px;
+  }
+  .detail-header > .icon-button {
+    width: 28px;
+  }
+  .conversation-toolbar {
+    padding: 0 20px;
+    gap: 10px;
+  }
+  .detail-search input {
+    width: 75px;
+  }
+}

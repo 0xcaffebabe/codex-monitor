@@ -1,0 +1,132 @@
+@media (max-width: 760px) {
+  .workspace-footer {
+    padding: 15px 17px calc(15px + env(safe-area-inset-bottom));
+    font-size: 7px;
+    letter-spacing: 0.3px;
+  }
+  .workspace-footer > span:last-child {
+    font-size: 8px;
+  }
+  .workspace-footer .muted {
+    display: none;
+  }
+  .has-detail .session-panel {
+    display: none;
+  }
+  .content.split {
+    margin: 0;
+  }
+  .detail-header {
+    padding: 4px 12px;
+    gap: 4px;
+    min-height: 48px;
+    flex-shrink: 0;
+  }
+  .detail-heading h1 {
+    margin: 0;
+    font-size: 14px;
+    white-space: nowrap;
+    display: block;
+    line-height: 1.5;
+  }
+  .detail-heading .eyebrow {
+    display: none;
+  }
+  .detail-header > .icon-button {
+    width: 36px;
+    height: 36px;
+  }
+  .detail-header .back-button {
+    margin-left: -4px;
+  }
+  .detail-info {
+    display: none;
+  }
+  .detail-info.expanded {
+    display: block;
+    max-height: min(32dvh, 260px);
+    overflow-y: auto;
+    flex-shrink: 0;
+  }
+  .detail-full-title {
+    display: block;
+    margin: 0;
+    padding: 4px 16px 10px;
+    font-size: 13px;
+    line-height: 1.6;
+    overflow-wrap: anywhere;
+  }
+  .detail-summary {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 0 12px 4px;
+    min-height: 32px;
+    flex-shrink: 0;
+  }
+  .detail-mobile-status {
+    display: inline-flex;
+    flex-shrink: 0;
+  }
+  .detail-info-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    min-height: 32px;
+    padding: 0 2px 0 6px;
+    color: var(--muted);
+    font-size: 11px;
+    flex-shrink: 0;
+  }
+  .detail-info-toggle[aria-expanded='true'] {
+    color: var(--accent);
+  }
+  .detail-info-toggle[aria-expanded='true'] > svg {
+    transform: rotate(180deg);
+  }
+  .detail-info .detail-id {
+    display: flex;
+  }
+  .detail-meta {
+    padding: 0 16px 10px;
+    gap: 7px;
+    font-size: 8px;
+  }
+  .path-chip {
+    max-width: 100%;
+    font-size: 9px;
+    flex: 1 1 100%;
+    width: max-content;
+    margin-bottom: 3px;
+    overflow-wrap: anywhere;
+    white-space: normal;
+  }
+  .detail-meta > span:nth-last-child(2) {
+    display: initial;
+  }
+  .conversation-toolbar {
+    padding: 0 12px;
+    height: 40px;
+    gap: 12px;
+  }
+  .conversation-label {
+    font-size: 11px;
+  }
+  .detail-search {
+    display: flex;
+    flex: 1;
+    max-width: 130px;
+  }
+  .detail-search input {
+    width: 0;
+    flex: 1;
+    font-size: 12px;
+  }
+  .detail-search > svg {
+    flex-shrink: 0;
+  }
+  .detail-search .icon-button {
+    width: 24px;
+    height: 30px;
+  }
+}

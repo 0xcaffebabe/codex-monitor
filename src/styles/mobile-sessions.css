@@ -1,0 +1,189 @@
+@media (max-width: 760px) {
+  .overview {
+    padding: 23px 18px 20px;
+  }
+  .overview-heading {
+    margin-bottom: 19px;
+    align-items: flex-start;
+  }
+  .overview-heading h1 {
+    font-size: 25px;
+    letter-spacing: -0.5px;
+    margin-top: 8px;
+  }
+  .overview-heading .eyebrow {
+    font-size: 8px;
+    letter-spacing: 1.5px;
+  }
+  .overview-heading p {
+    font-size: 10px;
+  }
+  .today {
+    display: none;
+  }
+  .stat-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+  }
+  .stat-card {
+    min-height: 92px;
+    padding: 14px;
+    gap: 10px;
+    border-radius: 9px;
+  }
+  .stat-card strong {
+    display: flex;
+    font-size: 25px;
+    margin-top: 6px;
+    gap: 10px;
+  }
+  .stat-card small {
+    font-size: 7px;
+    display: inline;
+    line-height: 1.5;
+    white-space: normal;
+    max-width: 70px;
+  }
+  .stat-card .stat-icon {
+    width: 27px;
+    height: 27px;
+    border-radius: 7px;
+  }
+  .stat-card .stat-icon > svg {
+    height: 16px;
+    width: 16px;
+  }
+  .stat-card > span:nth-child(2) {
+    font-size: 9px;
+  }
+  .mini-bars {
+    top: 13px;
+    right: 12px;
+  }
+  .stat-card.live-stat strong {
+    display: block;
+  }
+  .stat-card.live-stat strong small {
+    display: inline;
+    font-size: 7px;
+    margin-left: 9px;
+  }
+  .content {
+    margin: 0 14px;
+  }
+  .session-panel {
+    border-radius: 10px;
+  }
+  .list-toolbar {
+    padding: 15px 14px 12px;
+    gap: 6px;
+  }
+  .list-heading h2 {
+    font-size: 12px;
+  }
+  .list-actions {
+    gap: 6px;
+  }
+  .toggle-sub {
+    font-size: 8px;
+    gap: 2px;
+  }
+  .segmented button {
+    padding: 0 6px;
+    font-size: 8px;
+    height: 24px;
+  }
+  .segmented button svg {
+    height: 12px;
+    width: 12px;
+  }
+  .search-box {
+    margin: 0 14px 10px;
+    height: 36px;
+  }
+  .search-box input {
+    font-size: 11px;
+  }
+  .search-box kbd {
+    display: none;
+  }
+  .filter-row {
+    padding: 0 15px;
+    height: 38px;
+  }
+  .filter-tabs {
+    gap: 22px;
+  }
+  .filter-tabs > button {
+    font-size: 10px;
+  }
+  .table-head {
+    display: none;
+  }
+  .group-label {
+    padding: 11px 16px 5px;
+    font-size: 8px;
+  }
+  .session-row {
+    padding: 14px 15px;
+    display: grid;
+    grid-template-columns: 27px minmax(0, 1fr) auto;
+    gap: 10px;
+    align-items: start;
+  }
+  .session-glyph {
+    width: 27px;
+    height: 29px;
+    border-radius: 7px;
+  }
+  .session-glyph svg {
+    height: 15px;
+    width: 15px;
+  }
+  .session-info > strong {
+    font-size: 12px;
+    white-space: normal;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-height: 1.65;
+  }
+  .session-info > div:not(.compact-meta) {
+    margin-top: 7px;
+    gap: 5px;
+    flex-wrap: wrap;
+  }
+  .project-tag {
+    font-size: 9px;
+    max-width: 160px;
+  }
+  .session-preview {
+    display: none;
+  }
+  .session-row > .status {
+    font-size: 8px;
+    grid-column: 2;
+    margin-top: -2px;
+  }
+  .session-row > .tokens {
+    display: none;
+  }
+  .session-row > .session-time {
+    grid-column: 3;
+    grid-row: 1;
+    align-self: start;
+    font-size: 8px;
+    white-space: nowrap;
+    padding-top: 3px;
+  }
+  .session-time small {
+    font-size: 7px;
+  }
+  .row-arrow {
+    display: none;
+  }
+  .list-footer {
+    font-size: 8px;
+    padding: 11px 15px;
+  }
+}
