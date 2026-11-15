@@ -6,6 +6,7 @@ import { ClientManager } from './ClientManager';
 import { Brand } from '../../shared/ui/Brand';
 import { useState } from 'react';
 import { Settings } from '../settings/Settings';
+import { ResourceMetrics } from './ResourceMetrics';
 import { CompletionNotifications } from '../notifications/CompletionNotifications';
 
 export function WorkspaceHost(props: WorkspaceProps) {
@@ -13,28 +14,33 @@ export function WorkspaceHost(props: WorkspaceProps) {
   const [accessOpen, setAccessOpen] = useState(false);
   const controls = (
     <div className="workspace-selector">
-      <select
-        aria-label="切换工作空间"
-        value={model.activeId}
-        onChange={(event) => model.select(event.target.value)}
-      >
-        {!model.active && <option value={model.activeId}>选择工作空间</option>}
-        {model.workspaces.map((workspace) => (
-          <option key={workspace.id} value={workspace.id}>
-            {workspace.online ? '●' : '○'} {workspace.name}
-            {!workspace.online ? '（离线）' : ''}
-          </option>
-        ))}
-      </select>
-      {props.user.role === 'admin' && (
-        <button
-          className="icon-button"
-          title="管理工作空间"
-          aria-label="管理工作空间"
-          onClick={() => model.setManaging(true)}
+      <div className="workspace-selector-actions">
+        <select
+          aria-label="切换工作空间"
+          value={model.activeId}
+          onChange={(event) => model.select(event.target.value)}
         >
-          <Settings2 size={17} />
-        </button>
+          {!model.active && <option value={model.activeId}>选择工作空间</option>}
+          {model.workspaces.map((workspace) => (
+            <option key={workspace.id} value={workspace.id}>
+              {workspace.online ? '●' : '○'} {workspace.name}
+              {!workspace.online ? '（离线）' : ''}
+            </option>
+          ))}
+        </select>
+        {props.user.role === 'admin' && (
+          <button
+            className="icon-button"
+            title="管理工作空间"
+            aria-label="管理工作空间"
+            onClick={() => model.setManaging(true)}
+          >
+            <Settings2 size={17} />
+          </button>
+        )}
+      </div>
+      {model.active && (
+        <ResourceMetrics workspace={model.active} compact unavailable={!!model.error} />
       )}
     </div>
   );

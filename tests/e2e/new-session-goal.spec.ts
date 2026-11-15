@@ -58,6 +58,35 @@ async function enter(page: Page, request: APIRequestContext) {
   return page.getByRole('dialog', { name: '新建会话' });
 }
 
+test('ordinary creation stays compatible with a client that rejects goal fields', async ({
+  page,
+  request,
+}) => {
+  let creates = 0;
+  await page.route('**/api/workspaces/local/sessions', async (route) => {
+    if (route.request().method() !== 'POST') return route.continue();
+    creates++;
+    const payload = route.request().postDataJSON();
+    // The old client strictly rejected new fields, even when the checkbox was off.
+    if ('asGoal' in payload)
+      return route.fulfill({
+        status: 400,
+        contentType: 'application/json',
+        body: JSON.stringify({ error: '请选择项目，并输入最多 12000 字符的消息或上传附件。' }),
+      });
+    return route.continue();
+  });
+  const dialog = await enter(page, request);
+  await expect(dialog.getByLabel('新会话项目')).not.toHaveValue('');
+  await expect(dialog.getByRole('checkbox', { name: '将首条消息设为目标' })).not.toBeChecked();
+  const prompt = '现在任务推送webhook的流程什么样的 ' + test.info().project.name;
+  await dialog.getByLabel('发送给 Codex 的消息').fill(prompt);
+  await dialog.getByRole('button', { name: '创建并发送', exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(page.locator('.timeline').getByText(prompt, { exact: true })).toBeVisible();
+  expect(creates).toBe(1);
+});
+
 test('a goal mode draft survives reopening and creates one native goal with attachments', async ({
   page,
   request,

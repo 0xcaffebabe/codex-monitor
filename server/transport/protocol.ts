@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { WebSocket } from 'ws';
 import { createCipheriv, createDecipheriv, createHash, createHmac, randomBytes } from 'node:crypto';
 import { notificationPolicySchema, notificationReportSchema } from '../notifications/events.js';
+import type { HostResourceSample } from '../../src/workspaces.js';
 
 export const PROTOCOL_VERSION = 3;
 export const MAX_BODY = 20 * 1024 * 1024;
@@ -21,7 +22,28 @@ export const identitySchema = z.object({
 });
 const id = z.uuid();
 const headers = z.record(z.string().max(80), z.string().max(2048));
+const bytes = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
+export const hostResourceSchema: z.ZodType<HostResourceSample> = z
+  .object({
+    sampledAt: bytes,
+    cpuPercent: z.number().finite().min(0).max(100).nullable(),
+    memory: z
+      .object({
+        totalBytes: bytes.positive(),
+        usedBytes: bytes,
+        usedPercent: z.number().finite().min(0).max(100),
+      })
+      .strict()
+      .refine(
+        (memory) =>
+          memory.usedBytes <= memory.totalBytes &&
+          Math.abs(memory.usedPercent - (memory.usedBytes / memory.totalBytes) * 100) < 0.01,
+      )
+      .nullable(),
+  })
+  .strict();
 export const frameSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('host-resources'), sample: hostResourceSchema }).strict(),
   z.object({
     type: z.literal('notification-policy'),
     policy: notificationPolicySchema,
@@ -44,6 +66,7 @@ export const frameSchema = z.discriminatedUnion('type', [
     type: z.literal('welcome'),
     version: z.literal(PROTOCOL_VERSION),
     workspaceId: z.string().max(100),
+    capabilities: z.object({ hostResources: z.boolean().optional() }).optional(),
   }),
   z.object({
     type: z.literal('request'),

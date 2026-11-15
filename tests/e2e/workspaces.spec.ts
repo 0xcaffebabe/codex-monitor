@@ -9,6 +9,7 @@ import { MonitorClient } from '../../server/client/connection.js';
 import { createMonitorServer } from '../../server/server-app.js';
 import { once } from 'node:events';
 import { createServer } from 'node:http';
+import { HOST_RESOURCE_STALE_MS } from '../../src/workspaces.js';
 
 const second = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 
@@ -76,6 +77,81 @@ async function enter(page: Page, request: APIRequestContext, query = '') {
   await expect(page.getByLabel('切换工作空间')).toBeVisible();
   return token;
 }
+
+test('shows real host CPU and memory for connected clients in the header and management list', async ({
+  page,
+  request,
+}) => {
+  await enter(page, request, `workspace=local&session=${ids.modern}`);
+  const summary = page
+    .locator('.workspace-selector')
+    .getByRole('group', { name: '本机工作空间整机资源' });
+  await expect(summary).toContainText(/CPU\s*\d+\.\d%/, { timeout: 15000 });
+  await expect(summary).toContainText(/内存\s*\d+\.\d%/);
+  const header = page.locator('.topbar');
+  const headerBox = await header.boundingBox();
+  const summaryBox = await summary.boundingBox();
+  expect(summaryBox!.y + summaryBox!.height).toBeLessThanOrEqual(headerBox!.y + headerBox!.height);
+  await page.screenshot({
+    path: test.info().outputPath('host-resources-header.png'),
+    fullPage: true,
+  });
+  await page.getByRole('button', { name: '管理工作空间', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: '管理工作空间' });
+  for (const name of ['本机工作空间', '第二台测试电脑']) {
+    const resources = dialog.getByRole('group', { name: `${name}整机资源` });
+    await expect(resources).toContainText(/CPU\s*\d+\.\d%/);
+    await expect(resources).toContainText(/内存\s*\d+\.\d%/);
+    await expect(resources).toContainText(/\d+\.\d \/ \d+\.\d GiB/);
+  }
+  expect(
+    await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
+  ).toBeTruthy();
+  await page.screenshot({ path: test.info().outputPath('host-resources.png'), fullPage: true });
+});
+
+test('hides stale and offline values, expires a sample without another response, and handles older clients', async ({
+  page,
+  request,
+}) => {
+  let mode: 'fresh' | 'expiring' | 'offline' | 'waiting' = 'fresh';
+  await page.route('**/api/workspaces', async (route) => {
+    const response = await route.fetch();
+    const body = await response.json();
+    for (const workspace of body.workspaces) {
+      if (workspace.id !== 'local') continue;
+      workspace.online = mode !== 'offline';
+      workspace.resources =
+        mode === 'waiting' || mode === 'offline'
+          ? null
+          : {
+              // The sample age, rather than a remote clock, determines freshness.
+              sampledAt: Date.now() + 3600000,
+              cpuPercent: 23.5,
+              memory: { totalBytes: 8 * 2 ** 30, usedBytes: 6 * 2 ** 30, usedPercent: 75 },
+              ageMs: mode === 'expiring' ? HOST_RESOURCE_STALE_MS - 300 : 0,
+            };
+    }
+    await route.fulfill({ response, json: body });
+  });
+  await enter(page, request, 'workspace=local');
+  const summary = page
+    .locator('.workspace-selector')
+    .getByRole('group', { name: '本机工作空间整机资源' });
+  await expect(summary).toContainText('CPU 23.5%');
+  await expect(summary).toContainText('内存 75.0%');
+  mode = 'expiring';
+  await expect(summary).toContainText('数据过期');
+  await expect(summary).not.toContainText('23.5%');
+  mode = 'fresh';
+  await expect(summary).toContainText('CPU 23.5%');
+  mode = 'offline';
+  await expect(summary).toContainText('离线');
+  await expect(summary).not.toContainText('23.5%');
+  mode = 'waiting';
+  await expect(summary).toContainText('等待上报');
+  await expect(summary).not.toContainText('75.0%');
+});
 
 test('switches clients with identical session IDs, isolates drafts and attachments, and supports simultaneous tabs', async ({
   page,
@@ -150,11 +226,11 @@ test('registers a client with a fixed AES key, shows live status, renames it and
     await expect(row.getByText('在线', { exact: true })).toBeVisible();
     await row.getByRole('textbox').fill(name + ' 新名称');
     await row.getByRole('button', { name: '保存名称' }).click();
-    await expect(row.locator('strong')).toHaveText(name + ' 新名称');
+    await expect(row.locator('.client-heading strong')).toHaveText(name + ' 新名称');
     await row.getByRole('button', { name: '轮换密钥', exact: true }).click();
     await row.getByRole('button', { name: '确认轮换' }).click();
     await expect(dialog.getByLabel('Client 环境配置')).not.toHaveValue(config);
-    await expect(row.getByText('离线', { exact: true })).toBeVisible();
+    await expect(row.locator('.client-heading').getByText('离线', { exact: true })).toBeVisible();
     const list = await (
       await request.get('/api/workspaces', { headers: { Authorization: `Bearer ${token}` } })
     ).json();

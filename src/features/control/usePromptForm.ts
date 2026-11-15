@@ -156,7 +156,8 @@ export function usePromptForm({
         prompt: draft.prompt,
         attachments: draft.attachments,
         requestId,
-        ...(allowGoal ? { asGoal } : {}),
+        // Ordinary creation must remain compatible with clients predating goal creation.
+        ...(asGoal ? { asGoal: true } : {}),
       };
     currentRequest.current = requestId;
     // Persist the ID before the request, so a reload never repeats an uncertain send.

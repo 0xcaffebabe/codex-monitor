@@ -20,6 +20,7 @@ import {
 import { WorkspaceStore } from './store.js';
 import type { NotificationService } from '../notifications/service.js';
 import type { NotificationPolicy } from '../notifications/events.js';
+import type { HostResourceSample } from '../../src/workspaces.js';
 
 type Pending = {
   res: Response;
@@ -39,6 +40,7 @@ type Peer = {
   hostname: string;
   platform: string;
   completionNotifications: boolean;
+  resources: (HostResourceSample & { receivedAt: number }) | null;
   pending: Map<string, Pending>;
   grants: Map<string, string>;
   notificationPolicies: Map<
@@ -91,9 +93,23 @@ export class WorkspaceGateway {
     this.authorizationTimer.unref();
   }
   list() {
-    return this.store
-      .list()
-      .map((workspace) => ({ ...workspace, online: !!this.peers.get(workspace.id)?.ready }));
+    const now = Date.now();
+    return this.store.list().map((workspace) => {
+      const peer = this.peers.get(workspace.id);
+      const resources = peer?.ready ? peer.resources : null;
+      return {
+        ...workspace,
+        online: !!peer?.ready,
+        resources: resources
+          ? {
+              sampledAt: resources.sampledAt,
+              cpuPercent: resources.cpuPercent,
+              memory: resources.memory,
+              ageMs: Math.max(0, now - resources.receivedAt),
+            }
+          : null,
+      };
+    });
   }
   disconnect(id: string) {
     const peer = this.peers.get(id);
@@ -135,8 +151,14 @@ export class WorkspaceGateway {
   }
   attach(server: Server, allowed: (req: IncomingMessage) => boolean) {
     const upgrade = (req: IncomingMessage, socket: import('node:stream').Duplex, head: Buffer) => {
+      // Until ws accepts the upgrade, this raw socket has no WebSocket error handler.
+      // A client or proxy resetting a rejected handshake must not crash Server.
+      const onError = () => socket.destroy();
+      socket.on('error', onError);
       const reject = (status: number) => {
-        socket.end(`HTTP/1.1 ${status} Rejected\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`);
+        socket.end(
+          `HTTP/1.1 ${status} Rejected\r\nConnection: close\r\nContent-Length: 0\r\nDate: ${new Date().toUTCString()}\r\nX-Codex-Monitor-Protocol: ${PROTOCOL_VERSION}\r\n\r\n`,
+        );
       };
       if (this.closed || !allowed(req)) return reject(403);
       let url: URL;
@@ -155,9 +177,10 @@ export class WorkspaceGateway {
       const key = this.store.authenticate(id, header);
       if (!key) return reject(401);
       if (this.peers.has(id)) return reject(409);
-      this.wss.handleUpgrade(req, socket, head, (websocket) =>
-        this.accept(id, websocket, key, header),
-      );
+      this.wss.handleUpgrade(req, socket, head, (websocket) => {
+        socket.off('error', onError);
+        this.accept(id, websocket, key, header);
+      });
     };
     server.on('upgrade', upgrade);
     return () => server.off('upgrade', upgrade);
@@ -171,6 +194,7 @@ export class WorkspaceGateway {
       hostname: '',
       platform: '',
       completionNotifications: false,
+      resources: null,
       pending: new Map(),
       grants: new Map(),
       notificationPolicies: new Map(),
@@ -200,6 +224,7 @@ export class WorkspaceGateway {
             type: 'welcome',
             version: PROTOCOL_VERSION,
             workspaceId: id,
+            capabilities: { hostResources: true },
           })
             .then(() => this.sendNotificationPolicy(peer, this.notifications.policy(), false))
             .catch(() => socket.terminate());
@@ -228,6 +253,13 @@ export class WorkspaceGateway {
     startServerChannel(socket, key, proof);
   }
   private receive(peer: Peer, frame: Frame) {
+    if (frame.type === 'host-resources') {
+      if (!peer.ready || this.peers.get(peer.workspaceId) !== peer) return;
+      const now = Date.now();
+      if (!peer.resources || now - peer.resources.receivedAt >= 1000)
+        peer.resources = { ...frame.sample, receivedAt: now };
+      return;
+    }
     if (frame.type === 'notification-policy-ack') {
       peer.notificationPolicies.get(frame.revision)?.done();
       return;

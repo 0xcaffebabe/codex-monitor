@@ -103,7 +103,10 @@ if($env:MONITOR_MODE -eq 'client' -and $env:MONITOR_CLIENT_KEY_FILE){
   $taskSettings+="`nkey-file-content=$([System.IO.File]::ReadAllText([System.IO.Path]::GetFullPath($env:MONITOR_CLIENT_KEY_FILE)).Trim())"
 }
 $taskHasher=[Security.Cryptography.SHA256]::Create()
-try{$taskSettingsHash=[BitConverter]::ToString($taskHasher.ComputeHash([Text.Encoding]::UTF8.GetBytes($taskSettings)))}finally{$taskHasher.Dispose()}
+try{
+  $taskSettingsHash=[BitConverter]::ToString($taskHasher.ComputeHash([Text.Encoding]::UTF8.GetBytes($taskSettings)))
+  $taskBuildHash=[BitConverter]::ToString($taskHasher.ComputeHash([System.IO.File]::ReadAllBytes($taskServer)))
+}finally{$taskHasher.Dispose()}
 $taskSid=[System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value
 function Protect-MonitorPrivatePath([string]$taskPrivatePath,[bool]$taskIsDirectory){
   # icacls changes only the DACL and does not require access to Windows audit policy.
@@ -152,14 +155,23 @@ if(Test-Path -LiteralPath $taskStateFile){
       $taskStopHint=if($env:MONITOR_MODE -eq 'client'){"stop.cmd -Mode client -DataDir `"$taskData`""}else{'stop.cmd'}
       throw "Codex Monitor is already running with other settings. Stop it first: $taskStopHint"
     }
-    if($env:MONITOR_MODE -eq 'client'){Write-Host "Codex Monitor client is already running. Connection status: $taskData\server.log"}else{Write-Host "Codex Monitor is already running: $taskUrl"}
-    if($OpenBrowser -and $env:MONITOR_MODE -ne 'client'){Start-Process $taskUrl}
-    exit 0
+    $taskBuildChanged=if($taskSaved.buildHash){$taskSaved.buildHash -ne $taskBuildHash}else{(Get-Item -LiteralPath $taskServer).LastWriteTimeUtc -gt $taskExisting.StartTime.ToUniversalTime()}
+    if($Build -or $taskBuildChanged){
+      Write-Host 'Restarting Codex Monitor to apply the current build...'
+      $taskEffectiveMode=if($env:MONITOR_MODE){$env:MONITOR_MODE}else{'standalone'}
+      & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'stop.ps1') -Mode $taskEffectiveMode -DataDir $taskPrivateData
+      if($LASTEXITCODE -ne 0){throw 'Cannot stop the previous monitor process'}
+      if(!$taskExisting.WaitForExit(10000)){throw 'Previous monitor process did not stop'}
+    }else{
+      if($env:MONITOR_MODE -eq 'client'){Write-Host "Codex Monitor client is already running. Connection status: $taskData\server.log"}else{Write-Host "Codex Monitor is already running: $taskUrl"}
+      if($OpenBrowser -and $env:MONITOR_MODE -ne 'client'){Start-Process $taskUrl}
+      exit 0
+    }
   }
 }
 $taskProcess=Start-Process -FilePath $taskNode -ArgumentList @('--disable-warning=ExperimentalWarning',('"'+$taskServer+'"')) -WorkingDirectory $PSScriptRoot -WindowStyle Hidden -PassThru -RedirectStandardOutput (Join-Path $taskData 'server.log') -RedirectStandardError (Join-Path $taskData 'server-error.log')
 Set-Content -LiteralPath $taskPidFile -Value $taskProcess.Id
-@{pid=$taskProcess.Id;started=$taskProcess.StartTime.ToUniversalTime().Ticks.ToString();executable=$taskNode;server=$taskServer;settingsHash=$taskSettingsHash} | ConvertTo-Json | Set-Content -LiteralPath $taskStateFile
+@{pid=$taskProcess.Id;started=$taskProcess.StartTime.ToUniversalTime().Ticks.ToString();executable=$taskNode;server=$taskServer;settingsHash=$taskSettingsHash;buildHash=$taskBuildHash} | ConvertTo-Json | Set-Content -LiteralPath $taskStateFile
 if($env:MONITOR_MODE -eq 'client'){
   Start-Sleep -Milliseconds 700
   $taskProcess.Refresh()

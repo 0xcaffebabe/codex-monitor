@@ -7,6 +7,7 @@ import { createMonitorServer } from './server-app.js';
 import { MonitorClient } from './client/connection.js';
 import { startupFromArgs, startupHelp } from './cli.js';
 import { requestGuard } from './http/security.js';
+import { PROTOCOL_VERSION } from './transport/protocol.js';
 
 const startup = (() => {
   try {
@@ -40,7 +41,7 @@ if (config.mode === 'client') {
   });
   console.log(`Codex Monitor client: ${config.codexHome}`);
   console.log(
-    `  Server: ${startup.client!.serverUrl}\n  Workspace: ${startup.client!.workspaceId}\n  Data: ${config.dataDir}`,
+    `  Server: ${startup.client!.serverUrl}\n  Workspace: ${startup.client!.workspaceId}\n  Protocol: ${PROTOCOL_VERSION}\n  Data: ${config.dataDir}`,
   );
 } else {
   service = createMonitorServer(config);
@@ -58,7 +59,7 @@ if (config.mode === 'client') {
   });
   const scheme = config.secure ? 'https' : 'http';
   console.log(
-    `\n  Codex Monitor (${config.mode || 'standalone'})\n  Local: ${scheme}://localhost:${config.port}\n  Data: ${config.dataDir}`,
+    `\n  Codex Monitor (${config.mode || 'standalone'})\n  Local: ${scheme}://localhost:${config.port}\n  Protocol: ${PROTOCOL_VERSION}\n  Data: ${config.dataDir}`,
   );
   for (const x of Object.values(os.networkInterfaces()).flat())
     if (x?.family === 'IPv4' && !x.internal)
@@ -81,7 +82,8 @@ if (config.mode === 'client') {
       workspaceId: 'local',
       key,
       services: { store: service.auth },
-      onStatus: (status) => console.log(`Local client ${status}`),
+      onStatus: (status, reason) =>
+        console.log(`Local client ${status}${reason ? ': ' + reason : ''}`),
     });
   }
 }

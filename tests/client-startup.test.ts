@@ -6,6 +6,7 @@ import { execFile, spawn } from 'node:child_process';
 import { promisify } from 'node:util';
 import {
   copyFileSync,
+  appendFileSync,
   existsSync,
   mkdirSync,
   readFileSync,
@@ -232,6 +233,26 @@ test(
         const repeated = await ps('start.ps1', parameters);
         assert.match(repeated.stdout, /client is already running/);
         assert.equal(JSON.parse(readFileSync(stateFile, 'utf8')).pid, state.pid);
+        // Older launcher records have no build hash; a newer bundle still needs a restart.
+        delete state.buildHash;
+        writeFileSync(stateFile, JSON.stringify(state));
+        appendFileSync(entry, '\n// Updated build\n');
+        const updated = await ps('start.ps1', parameters);
+        assert.match(updated.stdout, /Restarting Codex Monitor to apply the current build/);
+        const updatedState = JSON.parse(readFileSync(stateFile, 'utf8'));
+        assert.notEqual(updatedState.pid, state.pid);
+        assert.ok(updatedState.buildHash);
+        writeFileSync(
+          path.join(project, 'package.json'),
+          JSON.stringify({ scripts: { build: 'node --check dist/server.mjs' } }),
+        );
+        const rebuilt = await ps('start.ps1', [...parameters, '-Build']);
+        assert.match(rebuilt.stdout, /Restarting Codex Monitor to apply the current build/);
+        assert.notEqual(JSON.parse(readFileSync(stateFile, 'utf8')).pid, updatedState.pid);
+        await until(
+          () =>
+            !!service.gateway.list().find((item) => item.id === registration.workspace.id)?.online,
+        );
         await assert.rejects(
           ps('start.ps1', [...parameters, '-PollMs', '2000']),
           (error: Error & { stderr: string }) => {

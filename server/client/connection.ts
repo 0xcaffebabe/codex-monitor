@@ -23,6 +23,8 @@ import { createClientRuntime } from './runtime.js';
 import { clientConnectionUrl } from './config.js';
 import { NotificationReporter } from '../notifications/reporter.js';
 import type { NotificationReport } from '../notifications/events.js';
+import { HostResourceSampler } from './resources.js';
+import { HOST_RESOURCE_INTERVAL_MS } from '../../src/workspaces.js';
 
 export type ClientOptions = {
   serverUrl: string;
@@ -42,12 +44,29 @@ type ActiveRequest = {
 };
 type Authorized = Extract<Frame, { type: 'authorized' }>['result'];
 
+function handshakeRejection(status: number | undefined, serverProtocol: string | undefined) {
+  if (
+    serverProtocol &&
+    /^\d{1,5}$/.test(serverProtocol) &&
+    Number(serverProtocol) !== PROTOCOL_VERSION
+  )
+    return `HTTP ${status ?? 'unknown'}：协议版本不一致：Server ${Number(serverProtocol)}，Client ${PROTOCOL_VERSION}；请更新两端源码、重新构建并重启`;
+  const hints: Record<number, string> = {
+    401: '工作空间认证失败；请核对工作空间 ID、AES 密钥、两端协议版本和系统时间（允许偏差 60 秒）',
+    403: '连接来源被拒绝；请检查 Server 的 MONITOR_ORIGINS 和代理访问规则',
+    404: '找不到 Client 连接接口；请检查 Server 地址、版本和代理转发路径',
+    409: '该工作空间已有 Client 在线；请停止重复进程，或为另一台机器创建独立工作空间',
+  };
+  return `HTTP ${status ?? 'unknown'}：${hints[status ?? 0] ?? 'WebSocket 握手被拒绝；请检查 Server 和代理的 WebSocket Upgrade 配置'}`;
+}
+
 export class MonitorClient {
   private socket?: WebSocket;
   private ready = false;
   private stopped = false;
   private reconnectTimer?: ReturnType<typeof setTimeout>;
   private heartbeat?: ReturnType<typeof setInterval>;
+  private resourceTimer?: ReturnType<typeof setInterval>;
   private delay: number;
   private requests = new Map<string, ActiveRequest>();
   private rpc = new Map<
@@ -146,13 +165,24 @@ export class MonitorClient {
     this.socket = socket;
     let alive = true;
     let encrypted = false;
+    let failure = '';
+    const safeDetail = (value: string) =>
+      value
+        .replaceAll(this.options.key, '[redacted]')
+        .replaceAll(proof, '[redacted]')
+        .replace(/[\x00-\x1f\x7f-\x9f\u2028\u2029]/g, ' ')
+        .slice(0, 500);
     const handshake = setTimeout(() => {
-      if (!this.ready) socket.terminate();
+      if (!this.ready) {
+        failure ||= '加密握手超时（15 秒）；请检查两端版本和 Server 日志';
+        socket.terminate();
+      }
     }, 15000);
     handshake.unref();
     socket.on('open', () => {
       this.heartbeat = setInterval(() => {
         if (!alive) {
+          failure ||= '心跳超时；Server 未响应，请检查网络和代理连接超时设置';
           socket.terminate();
           return;
         }
@@ -168,6 +198,16 @@ export class MonitorClient {
       try {
         if (binary) throw new Error('Text frames required');
         if (!encrypted) {
+          const channel = JSON.parse(raw.toString());
+          if (
+            channel?.type === 'channel' &&
+            typeof channel.version === 'number' &&
+            channel.version !== PROTOCOL_VERSION
+          ) {
+            failure = `协议版本不一致：Server ${channel.version}，Client ${PROTOCOL_VERSION}；请更新两端源码、重新构建并重启`;
+            socket.close(1008, 'Unsupported protocol');
+            return;
+          }
           startClientChannel(socket, this.options.key, raw.toString(), proof);
           encrypted = true;
           void sendFrame(socket, {
@@ -186,6 +226,7 @@ export class MonitorClient {
           clearTimeout(handshake);
           this.ready = true;
           this.delay = this.options.reconnectMs ?? 1000;
+          if (frame.capabilities?.hostResources) this.startResourceReporting(socket);
           this.options.onStatus?.('connected');
         } else if (!this.ready) throw new Error('Handshake required');
         else if (frame.type === 'notification-policy') {
@@ -269,13 +310,28 @@ export class MonitorClient {
           this.requests.get(frame.id)?.abort.abort();
         } else throw new Error('Unexpected frame');
       } catch {
+        failure ||= encrypted
+          ? '加密通道数据无效；请核对两端版本和 AES 密钥'
+          : '加密握手失败；请核对两端协议版本和 AES 密钥';
         socket.close(1008, 'Invalid protocol');
       }
     });
-    socket.on('error', () => {});
-    socket.on('close', (code) => {
+    socket.on('unexpected-response', (_request, response) => {
+      const serverProtocol = response.headers['x-codex-monitor-protocol'];
+      failure = handshakeRejection(
+        response.statusCode,
+        typeof serverProtocol === 'string' ? serverProtocol : undefined,
+      );
+      response.resume();
+      socket.terminate();
+    });
+    socket.on('error', (error: NodeJS.ErrnoException) => {
+      failure ||= safeDetail(`${error.code ? error.code + ': ' : ''}${error.message}`);
+    });
+    socket.on('close', (code, reason) => {
       clearTimeout(handshake);
       clearInterval(this.heartbeat);
+      clearInterval(this.resourceTimer);
       this.ready = false;
       this.runtime.access.clear();
       this.runtime.terminals.closeAll();
@@ -290,12 +346,33 @@ export class MonitorClient {
         pending.reject(new Error('Notification server disconnected'));
       }
       this.notificationReports.clear();
-      this.options.onStatus?.('disconnected', `WebSocket ${code}`);
+      const detail = failure || safeDetail(reason.toString());
+      this.options.onStatus?.('disconnected', `WebSocket ${code}${detail ? ': ' + detail : ''}`);
       if (!this.stopped) {
         this.reconnectTimer = setTimeout(() => this.connect(), this.delay);
         this.delay = Math.min(this.delay * 2, 30000);
       }
     });
+  }
+  private startResourceReporting(socket: WebSocket) {
+    clearInterval(this.resourceTimer);
+    const sampler = new HostResourceSampler();
+    let sending = false;
+    const report = () => {
+      if (socket !== this.socket || !this.ready || this.stopped) return;
+      const sample = sampler.sample();
+      // Keep sampling across congestion, but never queue up obsolete resource reports.
+      if (sending || socket.bufferedAmount > CHUNK_BYTES) return;
+      sending = true;
+      void sendFrame(socket, { type: 'host-resources', sample })
+        .catch(() => {})
+        .finally(() => {
+          sending = false;
+        });
+    };
+    report();
+    this.resourceTimer = setInterval(report, HOST_RESOURCE_INTERVAL_MS);
+    this.resourceTimer.unref();
   }
   private authorize(input: { grantId?: string; userId?: string }): Promise<Authorized> {
     if (!this.ready || !this.socket)
@@ -420,6 +497,7 @@ export class MonitorClient {
     this.stopped = true;
     clearTimeout(this.reconnectTimer);
     clearInterval(this.heartbeat);
+    clearInterval(this.resourceTimer);
     const socket = this.socket;
     if (socket && socket.readyState !== WebSocket.CLOSED) {
       await new Promise<void>((resolve) => {

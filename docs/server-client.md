@@ -74,7 +74,7 @@ npm start -- --mode client --server-url "ws://192.168.1.10:4317" --workspace-id 
 npm run client -- --help
 ```
 
-启动器重复执行相同配置会复用已运行的进程；配置不同会提示先停止再启动。多个 client 可指定各自的数据目录独立启动。旧版启动器将 client 进程记录保存在 `.monitor`，升级前应先停止旧进程；若升级后仍遗留旧进程，可用 `stop.cmd -Mode standalone` 按旧记录停止。
+启动器重复执行相同配置和构建会复用已运行的进程；发现后端构建已更新或显式传入 `-Build` 时，会核对进程身份并重启以加载新版本，防止新网页仍连接旧后端。配置不同会提示先停止再启动。直接运行 `npm run build` 只更新磁盘文件，随后还需运行启动器或重启由服务管理器维护的 Server / client。多个 client 可指定各自的数据目录独立启动。旧版启动器将 client 进程记录保存在 `.monitor`，升级前应先停止旧进程；若升级后仍遗留旧进程，可用 `stop.cmd -Mode standalone` 按旧记录停止。
 
 ## 添加远程 client
 
@@ -102,6 +102,12 @@ MONITOR_CLIENT_KEY=注册界面生成的43字符base64url密钥
 
 Client 地址要求为 origin，不带路径、查询和用户名密码。可使用 `ws://`；本实现的 AES 保护 WebSocket 业务负载，握手不传共享密钥。若经过反向代理，代理须支持 WebSocket Upgrade；自定义 Server 域名需加入 `MONITOR_ORIGINS`。
 
+### Client 连接失败
+
+启动日志会显示 Client 协议版本。Server 和 Client 必须使用相同协议版本的构建；更新源码后执行 `npm run build` 并重启进程。`npm run client` 直接运行 `dist/server.mjs`，不会自动构建。若源码仍是旧版，须先同步完整新版源码，不能只修改协议版本常量。
+
+`WebSocket 1006` 表示连接异常结束，需结合后面的具体原因排查：`HTTP 401` 检查工作空间 ID、AES 密钥、两端协议版本和系统时间（允许偏差 60 秒）；`HTTP 403` 检查 `MONITOR_ORIGINS` 和代理规则；`HTTP 404` 检查 Server 地址和代理路径；`HTTP 409` 表示同一工作空间已有 Client 在线；`ECONNREFUSED` 检查服务监听和端口；`Opening handshake has timed out` 检查网络、代理的 WebSocket Upgrade 和 Server 日志。底层网络错误、协议版本不一致和服务端关闭原因均写入连接日志。
+
 桌面自动监测只在 Windows 一体模式和独立 client 中运行，与浏览器是否打开、client 是否连接 Server 无关。Client 必须由目标 Windows 用户在其交互式登录会话中运行；它不会跨用户登录或自动完成 Codex 账户登录。`.env` 可设置 `MONITOR_CODEX_AUTOSTART=false` 关闭，`MONITOR_CODEX_CHECK_MS=15000` 调整间隔（1,000–300,000 毫秒），`MONITOR_CODEX_DESKTOP=C:\path\to\app\ChatGPT.exe` 指定非标准安装的桌面 GUI 程序绝对路径。默认从 Windows Store 包及常见安装目录发现，不使用 `MONITOR_CODEX_CLI` 启动桌面。关闭 client 会取消监测，不会关闭 Codex；监测启用期间主动退出桌面后也会被重新拉起。
 
 ## 固定 AES 密钥和连接认证
@@ -122,6 +128,8 @@ AES 加密范围是 Server 与 client 之间的 ws。浏览器与 Server 之间�
 - Client 只转发明确允许的本机能力路径，内部 HTTP 适配器绑定随机 loopback 端口，每个请求使用临时随机授权，不接收任意 URL、账户管理或任意文件路径。
 - Client 对初始身份和实际控制提交向 Server 做反向权限复核。浏览器退出或设备撤销后进行中的 SSE 会终止，尚未实际提交的命令重新检查设备权限；已受理消息队列按当前账户管理员权限处理。
 - 连接每 15 秒检测心跳，断开后按 1、2、4…30 秒退避重连。离线工作空间继续保留，页面显示离线；恢复后自动重建浏览器实时流。
+- 支持资源上报的 Server 会在加密欢迎消息中声明能力。Client 连接后立即上报一次整机内存，并每 5 秒上报整机 CPU、内存；CPU 按两次系统计数器差值计算，为所有逻辑 CPU 的平均占用，首次及重新连接时需等待下一次采样。内存使用率为 `(总量 - 系统空闲量) / 总量`，不同系统与系统监视器的统计口径可能有差异。采样失败显示未知，不影响会话操作。
+- 整机资源以状态标签显示在顶部工作空间选择区域和“管理工作空间”列表中；桌面端与选择器并排，窄屏分行排列。Server 仅在当前连接内存中保留最新样本，按 Server 接收时间计算数据年龄；超过 15 秒显示“数据过期”，离线后清除实时值。拥堵时跳过旧样本，不落库、不补传。新 client 连接未声明能力的旧 v3 Server 时不发送资源帧；旧 client 可继续连接新 Server，资源显示“等待上报”。此能力不改变 v3 握手及密钥。
 - 传输不自动重放 HTTP 操作。发送、新建、目标、停止等继续沿用持久请求 ID。连接在提交后断开时，恢复后查询原请求回执，不能以“连接断开”认定操作未执行。
 - 通知事件使用独立的持久化上报日志：Client 按批上报，Server 提交 SQLite 队列后确认。确认丢失时可安全重传，Server 按已认证的工作空间、会话及轮次／问题 ID 去重；Client 无法指定其他工作空间或接收地址。每批最多 4 条并限制 UTF-8 大小，问题解决事件优先上报，Server 也优先投递问题提醒。
 - 每个 client 最多承接 64 个在途请求。上传和响应均按 48 KiB 分片，分别等待 client 接收和浏览器消费确认后继续传输；单帧最多约 136 KiB，避免整份附件的加密与解析阻塞其他会话。120 秒无进展会取消，并关闭本地请求流。附件最多 20 MiB，每个 Server 最多同时处理 4 个、单账户 2 个，配额持续占用到 client 响应结束或浏览器取消；其他路由拒绝二进制请求体。client 继续执行本地限流和归属验证。

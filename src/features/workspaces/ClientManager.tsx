@@ -3,6 +3,7 @@ import { Copy, Monitor, Plus, X } from 'lucide-react';
 import type { WorkspacesModel } from './useWorkspaces';
 import type { ManagedWorkspace } from '../../workspaces';
 import { relative } from '../../shared/format';
+import { ResourceMetrics } from './ResourceMetrics';
 
 function ClientRow({ workspace, model }: { workspace: ManagedWorkspace; model: WorkspacesModel }) {
   const [name, setName] = useState(workspace.name);
@@ -21,6 +22,7 @@ function ClientRow({ workspace, model }: { workspace: ManagedWorkspace; model: W
         {workspace.platform && ` · ${workspace.platform}`}
         {!workspace.online && workspace.lastSeen && ` · 最后连接 ${relative(workspace.lastSeen)}`}
       </p>
+      <ResourceMetrics workspace={workspace} unavailable={!!model.error} />
       <code className="client-id">{workspace.id}</code>
       <div className="client-actions">
         <input
