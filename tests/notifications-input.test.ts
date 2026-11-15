@@ -68,7 +68,7 @@ test('native async question forms notify with choices, stay separate from comple
       text: '普通文本里提到问题不会触发提醒？',
       phase: 'commentary',
     });
-    await h.service.notifications.poll();
+    await h.service.pollNotifications();
     assert.equal(h.messages.length, 0);
     const question = addItem(h.f, {
       type: 'agentMessage',
@@ -77,8 +77,8 @@ test('native async question forms notify with choices, stay separate from comple
       phase: 'final_answer',
       text: '请选择方案',
     });
-    await h.service.notifications.poll();
-    await h.service.notifications.poll();
+    await h.service.pollNotifications();
+    await h.service.pollNotifications();
     assert.equal(h.messages.length, 1);
     assert.match(h.messages[0], /Codex 需要你选择或回答/);
     assert.match(h.messages[0], /输入提醒测试/);
@@ -95,9 +95,9 @@ test('native async question forms notify with choices, stay separate from comple
         return Response.json({ code: 0 });
       },
     });
-    await restarted.notifications.poll();
+    await restarted.pollNotifications();
     assert.equal(h.messages.length, 1);
-    assert.ok(restarted.notifications.store.has(`input:${ids.modern}:${question.id}`));
+    assert.ok(restarted.notifications.store.has(`local:input:${ids.modern}:${question.id}`));
   } finally {
     await restarted?.close();
     await h.close();
@@ -113,11 +113,11 @@ test('realtime questions and their persisted projections share one notification 
     h.f.hist
       .prepare('INSERT INTO thread_realtime_items VALUES(?,?,?,?,?)')
       .run(ids.modern, id, 6, at, JSON.stringify(item));
-    await h.service.notifications.poll();
+    await h.service.pollNotifications();
     assert.equal(h.messages.length, 1);
     addItem(h.f, item);
     h.f.hist.prepare('DELETE FROM thread_realtime_items WHERE item_id=?').run(id);
-    await h.service.notifications.poll();
+    await h.service.pollNotifications();
     assert.equal(h.messages.length, 1);
   } finally {
     await h.close();
@@ -129,10 +129,10 @@ test('answered questions are skipped and answering cancels a queued retry withou
   try {
     addItem(h.f, { type: 'agentMessage', questions, delivery: 'async' });
     addItem(h.f, { type: 'userMessage', content: [{ type: 'text', text: '方案 A' }] });
-    await h.service.notifications.poll();
+    await h.service.pollNotifications();
     assert.equal(h.messages.length, 0);
     addItem(h.f, { type: 'agentMessage', questions, delivery: 'async' });
-    await h.service.notifications.poll();
+    await h.service.pollNotifications();
     assert.equal(h.messages.length, 1);
     assert.equal(h.service.notifications.state().deliveries[0].status, 'pending');
     addItem(h.f, {
@@ -143,7 +143,7 @@ test('answered questions are skipped and answering cancels a queued retry withou
         '<codex_delegation><source_thread_id>test</source_thread_id><input>方案 B</input></codex_delegation>',
     });
     h.service.auth.db.prepare('UPDATE notification_deliveries SET next_attempt_at=0').run();
-    await h.service.notifications.poll();
+    await h.service.pollNotifications();
     assert.equal(h.messages.length, 1);
     assert.equal(h.service.notifications.state().deliveries[0].status, 'cancelled');
   } finally {
@@ -157,15 +157,39 @@ test('old questions, subagents, archived sessions and disabled notifications do 
     addItem(h.f, { type: 'agentMessage', questions }, ids.modern, Date.now() - 60000);
     addItem(h.f, { type: 'agentMessage', questions }, ids.child);
     addItem(h.f, { type: 'agentMessage', questions }, ids.archived);
-    await h.service.notifications.poll();
+    await h.service.pollNotifications();
     assert.equal(h.messages.length, 0);
     await h.service.notifications.configure({ ...settings, enabled: false });
     addItem(h.f, { type: 'agentMessage', questions });
-    await h.service.notifications.poll();
+    await h.service.pollNotifications();
     assert.equal(h.messages.length, 0);
     await h.service.notifications.configure(settings);
-    await h.service.notifications.poll();
+    await h.service.pollNotifications();
     assert.equal(h.messages.length, 0);
+  } finally {
+    await h.close();
+  }
+});
+
+test('unanswered questions remain retryable beyond the five-minute scan overlap and cancel only after an answer', async (t) => {
+  let clock = Date.now();
+  t.mock.method(Date, 'now', () => clock);
+  const h = await harness(503);
+  try {
+    clock++;
+    addItem(h.f, { type: 'agentMessage', questions, delivery: 'async' });
+    await h.service.pollNotifications();
+    assert.equal(h.messages.length, 1);
+    clock += 6 * 60000;
+    h.service.auth.db.prepare('UPDATE notification_deliveries SET next_attempt_at=0').run();
+    await h.service.pollNotifications();
+    assert.equal(h.messages.length, 2);
+    assert.equal(h.service.notifications.state().deliveries[0].status, 'pending');
+    addItem(h.f, { type: 'userMessage', content: [{ type: 'text', text: '方案 A' }] });
+    h.service.auth.db.prepare('UPDATE notification_deliveries SET next_attempt_at=0').run();
+    await h.service.pollNotifications();
+    assert.equal(h.messages.length, 2);
+    assert.equal(h.service.notifications.state().deliveries[0].status, 'cancelled');
   } finally {
     await h.close();
   }
@@ -199,7 +223,7 @@ test('legacy blocking input and async input are recognized while answers clear t
         },
       },
     ]);
-    await h.service.notifications.poll();
+    await h.service.pollNotifications();
     assert.equal(h.messages.length, 1);
     assert.match(h.messages[0], /选择输入方式/);
     append([
@@ -221,7 +245,7 @@ test('legacy blocking input and async input are recognized while answers clear t
         payload: { type: 'function_call_output', call_id: 'input-2', output: 'request registered' },
       },
     ]);
-    await h.service.notifications.poll();
+    await h.service.pollNotifications();
     assert.equal(h.messages.length, 2);
     append([{ type: 'event_msg', payload: { type: 'user_message', message: '方案 A' } }]);
     const inputs = await h.service.source.inputRequests(

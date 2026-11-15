@@ -5,8 +5,7 @@ export function initializeWorkspace(id: string) {
   active = id;
 }
 export function workspaceUrl(url: string) {
-  return active &&
-    /^\/api\/(?:overview|sessions|control|uploads|usage|notifications|stream)(?:[/?]|$)/.test(url)
+  return active && /^\/api\/(?:overview|sessions|control|uploads|usage|stream)(?:[/?]|$)/.test(url)
     ? `/api/workspaces/${encodeURIComponent(active)}${url.slice(4)}`
     : url;
 }

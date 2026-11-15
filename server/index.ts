@@ -92,7 +92,7 @@ async function stop() {
   const deadline = setTimeout(() => process.exit(0), 5000);
   deadline.unref();
   await client?.close();
-  service?.close();
+  await service?.close();
   server?.closeAllConnections();
   if (server) await new Promise<void>((resolve) => server!.close(() => resolve()));
   clearTimeout(deadline);

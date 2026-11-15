@@ -53,9 +53,7 @@ export function Settings(props: SettingsProps) {
               {error}
             </div>
           )}
-          {user.role === 'admin' && props.workspaceAvailable !== false && (
-            <Notifications notify={props.notify} />
-          )}
+          {user.role === 'admin' && <Notifications notify={props.notify} />}
           {props.workspaceAvailable !== false && (
             <section>
               <h3>

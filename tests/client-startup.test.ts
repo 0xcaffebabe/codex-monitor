@@ -271,7 +271,7 @@ test(
         existsSync(path.join(backgroundData, 'server-process.json'))
       )
         await ps('stop.ps1', ['-Mode', 'client', '-DataDir', backgroundData]);
-      service.close();
+      await service.close();
       server.closeAllConnections();
       await new Promise<void>((resolve) => server.close(() => resolve()));
       f.close();

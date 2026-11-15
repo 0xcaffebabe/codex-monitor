@@ -33,7 +33,10 @@ const webhookReceiver = createServer(async (request, response) => {
 await new Promise<void>((resolve) => webhookReceiver.listen(0, '127.0.0.1', resolve));
 const webhookPort = (webhookReceiver.address() as { port: number }).port;
 f.config.port = Number(process.env.MONITOR_TEST_PORT || 14317);
-const app = createMonitorServer(f.config, { publicDir: process.env.MONITOR_TEST_PUBLIC_DIR });
+const app = createMonitorServer(f.config, {
+  publicDir: process.env.MONITOR_TEST_PUBLIC_DIR,
+  webhookTransport: (_url, init) => fetch(`http://127.0.0.1:${webhookPort}`, init),
+});
 const server = createServer(app.app);
 app.gateway.attach(server, requestGuard(f.config));
 server.listen(f.config.port, '127.0.0.1');
@@ -47,7 +50,6 @@ const client = await MonitorClient.start({
   services: {
     store: app.auth,
     control: new FixtureDesktop(f, 5000),
-    webhookTransport: (_url, init) => fetch(`http://127.0.0.1:${webhookPort}`, init),
   },
 });
 const secondFixture = fixture(path.join(root, 'client-b'));
@@ -65,7 +67,7 @@ const secondClient = await MonitorClient.start({
 async function stop() {
   await client.close();
   await secondClient.close();
-  app.close();
+  await app.close();
   f.close();
   secondFixture.close();
   webhookReceiver.close();

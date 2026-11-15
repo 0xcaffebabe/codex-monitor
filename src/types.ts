@@ -143,6 +143,8 @@ export interface NotificationSettings {
 }
 export interface NotificationDelivery {
   id: string;
+  workspaceId: string | null;
+  workspaceName: string | null;
   kind: 'test' | 'session.completed' | 'session.input_required';
   sessionId: string | null;
   title: string;

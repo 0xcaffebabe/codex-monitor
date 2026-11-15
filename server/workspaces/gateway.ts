@@ -18,6 +18,8 @@ import {
   type Frame,
 } from '../transport/protocol.js';
 import { WorkspaceStore } from './store.js';
+import type { NotificationService } from '../notifications/service.js';
+import type { NotificationPolicy } from '../notifications/events.js';
 
 type Pending = {
   res: Response;
@@ -30,6 +32,7 @@ type Pending = {
   drainAck?: () => void;
 };
 type Peer = {
+  workspaceId: string;
   socket: WebSocket;
   ready: boolean;
   alive: boolean;
@@ -37,6 +40,7 @@ type Peer = {
   platform: string;
   pending: Map<string, Pending>;
   grants: Map<string, string>;
+  notificationPolicies: Map<number, { timer: ReturnType<typeof setTimeout>; done: () => void }>;
 };
 const nameSchema = z.object({ name: z.string().trim().min(1).max(80) }).strict();
 
@@ -54,7 +58,10 @@ export class WorkspaceGateway {
   private uploadCount = 0;
   private userUploads = new Map<string, number>();
   private closed = false;
-  constructor(private auth: AuthStore) {
+  constructor(
+    private auth: AuthStore,
+    private notifications: NotificationService,
+  ) {
     this.store = new WorkspaceStore(auth.db);
     this.timer = setInterval(() => {
       for (const [id, peer] of this.peers) {
@@ -87,6 +94,29 @@ export class WorkspaceGateway {
       peer.socket.terminate();
     }
   }
+  configureNotifications(policy: NotificationPolicy, baseline: boolean) {
+    return Promise.allSettled(
+      [...this.peers.values()]
+        .filter((peer) => peer.ready)
+        .map((peer) => this.sendNotificationPolicy(peer, policy, baseline)),
+    ).then(() => {});
+  }
+  private sendNotificationPolicy(peer: Peer, policy: NotificationPolicy, baseline: boolean) {
+    return new Promise<void>((resolve) => {
+      peer.notificationPolicies.get(policy.revision)?.done();
+      const done = () => {
+        clearTimeout(timer);
+        peer.notificationPolicies.delete(policy.revision);
+        resolve();
+      };
+      const timer = setTimeout(done, 5000);
+      peer.notificationPolicies.set(policy.revision, { timer, done });
+      void sendFrame(peer.socket, { type: 'notification-policy', policy, baseline }).catch(() => {
+        done();
+        peer.socket.terminate();
+      });
+    });
+  }
   attach(server: Server, allowed: (req: IncomingMessage) => boolean) {
     const upgrade = (req: IncomingMessage, socket: import('node:stream').Duplex, head: Buffer) => {
       const reject = (status: number) => {
@@ -118,6 +148,7 @@ export class WorkspaceGateway {
   }
   private accept(id: string, socket: WebSocket, key: string, proof: string) {
     const peer: Peer = {
+      workspaceId: id,
       socket,
       ready: false,
       alive: true,
@@ -125,6 +156,7 @@ export class WorkspaceGateway {
       platform: '',
       pending: new Map(),
       grants: new Map(),
+      notificationPolicies: new Map(),
     };
     this.peers.set(id, peer);
     const handshake = setTimeout(() => {
@@ -150,7 +182,9 @@ export class WorkspaceGateway {
             type: 'welcome',
             version: PROTOCOL_VERSION,
             workspaceId: id,
-          }).catch(() => socket.terminate());
+          })
+            .then(() => this.sendNotificationPolicy(peer, this.notifications.policy(), false))
+            .catch(() => socket.terminate());
           return;
         }
         this.receive(peer, frame);
@@ -171,10 +205,29 @@ export class WorkspaceGateway {
           '工作空间已离线；操作可能已提交，请重新连接后查询原请求回执。',
         );
       peer.grants.clear();
+      for (const policy of peer.notificationPolicies.values()) policy.done();
     });
     startServerChannel(socket, key, proof);
   }
   private receive(peer: Peer, frame: Frame) {
+    if (frame.type === 'notification-policy-ack') {
+      peer.notificationPolicies.get(frame.revision)?.done();
+      return;
+    }
+    if (frame.type === 'notification-report') {
+      const workspace = this.store.get(peer.workspaceId);
+      if (!workspace || this.peers.get(peer.workspaceId) !== peer || !peer.ready)
+        throw new Error('Workspace registration revoked');
+      const accepted = this.notifications.receive(workspace, frame.report);
+      void sendFrame(peer.socket, { type: 'notification-report-ack', id: frame.id, accepted })
+        .then(() =>
+          accepted
+            ? undefined
+            : this.sendNotificationPolicy(peer, this.notifications.policy(), false),
+        )
+        .catch(() => peer.socket.terminate());
+      return;
+    }
     if (frame.type === 'authorize') {
       const token = frame.grantId ? peer.grants.get(frame.grantId) : undefined;
       const result = frame.grantId
@@ -281,6 +334,7 @@ export class WorkspaceGateway {
       const id = String(req.params.workspace);
       if (id === 'local') return fail(res, 409, '本机工作空间由一体启动配置管理');
       if (!this.store.remove(id)) return fail(res, 404, '找不到工作空间');
+      this.notifications.forgetWorkspace(id);
       this.disconnect(id);
       res.status(204).end();
     });
@@ -297,7 +351,7 @@ export class WorkspaceGateway {
     if (!workspacePath(req.method, route)) return fail(res, 404, '工作空间接口不存在');
     if (
       req.identity!.user.role !== 'admin' &&
-      (req.method !== 'GET' || /^\/api\/(?:control|uploads|notifications)(?:[/?]|$)/.test(route))
+      (req.method !== 'GET' || /^\/api\/(?:control|uploads)(?:[/?]|$)/.test(route))
     )
       return fail(res, 403, '此操作需要管理员权限');
     if (peer.pending.size >= MAX_REQUESTS) return fail(res, 429, '工作空间请求过多，请稍后重试');
@@ -412,7 +466,10 @@ export class WorkspaceGateway {
     this.closed = true;
     clearInterval(this.timer);
     clearInterval(this.authorizationTimer);
-    for (const peer of this.peers.values()) peer.socket.terminate();
+    for (const peer of this.peers.values()) {
+      for (const policy of peer.notificationPolicies.values()) policy.done();
+      peer.socket.terminate();
+    }
     this.wss.close();
   }
 }

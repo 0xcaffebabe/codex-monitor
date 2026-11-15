@@ -82,7 +82,7 @@ async function gatewayFixture() {
     async close() {
       socket.terminate();
       await once(socket, 'close');
-      service.close();
+      await service.close();
       server.closeAllConnections();
       await new Promise<void>((resolve) => server.close(() => resolve()));
       rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });

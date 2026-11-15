@@ -5,11 +5,8 @@ import { installControl, type ControlAuthorization } from './control.js';
 import { DesktopBridge, type DesktopControl } from './desktop.js';
 import { DesktopWatchdog } from './desktop-watchdog.js';
 import type { WorkspaceAuth } from './http/access.js';
-import { installNotificationRoutes } from './http/notification-routes.js';
 import { installSessionRoutes } from './http/session-routes.js';
 import { installUsageRoutes } from './http/usage-routes.js';
-import type { WebhookTransport } from './notifications/lark.js';
-import { NotificationService } from './notifications/service.js';
 import { installRealtime } from './realtime.js';
 import { CodexSource } from './source.js';
 import { UploadStore, installUploads } from './uploads.js';
@@ -17,9 +14,7 @@ import { UsageStore } from './usage.js';
 
 export type WorkspaceServices = {
   control?: DesktopControl;
-  webhookTransport?: WebhookTransport;
   authorization?: ControlAuthorization;
-  workspaceId?: string;
 };
 
 /** Local capabilities shared by the legacy test harness and the WebSocket client. */
@@ -49,19 +44,6 @@ export function installWorkspaceRuntime(
     uploads,
     services.authorization,
   );
-  const notifications = new NotificationService(
-    auth.db,
-    source,
-    config.pollMs,
-    services.webhookTransport,
-    services.workspaceId,
-  );
-  installNotificationRoutes(
-    app,
-    auth,
-    notifications,
-    services.authorization ? (req) => services.authorization!.device(req.identity!) : undefined,
-  );
   const recentCreation = auth.db.prepare(`SELECT 1 FROM control_requests WHERE state='succeeded'
     AND json_extract(result_json,'$.mode')='create' AND json_extract(result_json,'$.threadId')=?
     AND json_extract(result_json,'$.acceptedAt')>? LIMIT 1`);
@@ -81,10 +63,8 @@ export function installWorkspaceRuntime(
     closeRealtime();
     uploads.close();
     source.close();
-    closing = Promise.all([usage.close(), notifications.close(), desktopWatchdog?.close()]).then(
-      () => {},
-    );
+    closing = Promise.all([usage.close(), desktopWatchdog?.close()]).then(() => {});
     return closing;
   };
-  return { source, usage, notifications, close };
+  return { source, usage, close };
 }

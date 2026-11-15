@@ -72,7 +72,7 @@ test('stop targets the selected turn, enforces access, and deduplicates requests
     assert.equal(control.compacting, false);
     assert.equal(control.interruptions, 2);
   } finally {
-    application.close();
+    await application.close();
     await new Promise<void>((resolve) => server.close(() => resolve()));
     f.close();
     assert.ok(path.resolve(f.root).startsWith(path.join(os.tmpdir(), 'codex-monitor-test-')));
@@ -142,7 +142,7 @@ test('stop bypasses a pending send and rechecks authorization before interruptin
   } finally {
     releaseSend();
     await pending.catch(() => {});
-    application.close();
+    await application.close();
     await new Promise<void>((resolve) => server.close(() => resolve()));
     f.close();
     assert.ok(path.resolve(f.root).startsWith(path.join(os.tmpdir(), 'codex-monitor-test-')));

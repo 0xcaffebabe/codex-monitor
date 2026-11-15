@@ -8,9 +8,15 @@ import { installFrontend } from './http/frontend.js';
 import { installHttpSecurity } from './http/security.js';
 import { installUserRoutes } from './http/user-routes.js';
 import { WorkspaceGateway } from './workspaces/gateway.js';
+import { NotificationService } from './notifications/service.js';
+import type { WebhookTransport } from './notifications/lark.js';
+import { installNotificationRoutes } from './http/notification-routes.js';
 
-/** Server owns web authentication and registration; local Codex capabilities live in clients. */
-export function createMonitorServer(config: Config, services: { publicDir?: string } = {}) {
+/** Server owns authentication, registration and notification delivery; Codex readers live in clients. */
+export function createMonitorServer(
+  config: Config,
+  services: { publicDir?: string; webhookTransport?: WebhookTransport } = {},
+) {
   const app = express(),
     auth = new AuthStore(config.dataDir, config.sessionDays);
   installHttpSecurity(app, config);
@@ -19,16 +25,24 @@ export function createMonitorServer(config: Config, services: { publicDir?: stri
   app.use('/api', authenticate(auth));
   installAccountRoutes(app, auth, rate);
   installUserRoutes(app, auth);
-  const gateway = new WorkspaceGateway(auth);
+  const notifications = new NotificationService(auth.db, config.pollMs, services.webhookTransport);
+  installNotificationRoutes(app, auth, notifications);
+  const gateway = new WorkspaceGateway(auth, notifications);
+  notifications.onConfigure = (policy, reset) => gateway.configureNotifications(policy, reset);
   gateway.install(app);
   installFrontend(app, path.resolve(services.publicDir || 'dist/public'));
+  let closing: Promise<void> | undefined;
   return {
     app,
     auth,
     gateway,
+    notifications,
     close: () => {
-      gateway.close();
-      auth.close();
+      if (!closing) {
+        gateway.close();
+        closing = notifications.close().then(() => auth.close());
+      }
+      return closing;
     },
   };
 }

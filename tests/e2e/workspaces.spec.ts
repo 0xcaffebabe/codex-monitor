@@ -14,7 +14,7 @@ const second = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 
 test('a server without clients keeps central account management available', async ({ page }) => {
   const f = fixture(),
-    service = createMonitorServer(f.config),
+    service = createMonitorServer(f.config, { publicDir: process.env.MONITOR_TEST_PUBLIC_DIR }),
     server = createServer(service.app);
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
@@ -31,14 +31,15 @@ test('a server without clients keeps central account management available', asyn
     const dialog = page.getByRole('dialog', { name: '设置与访问管理' });
     await expect(dialog.getByText('owner', { exact: true })).toBeVisible();
     await expect(dialog.getByRole('alert')).toHaveCount(0);
-    await expect(dialog.getByText('Webhook 通知', { exact: true })).toHaveCount(0);
+    await expect(dialog.getByRole('heading', { name: /Webhook 通知/ })).toBeVisible();
+    await expect(dialog.getByLabel('启用 Webhook 通知')).toBeEnabled();
     await dialog.getByRole('button', { name: '关闭设置' }).click();
     await page.getByRole('button', { name: '管理工作空间', exact: true }).click();
     await expect(
       page.getByRole('dialog', { name: '管理工作空间' }).getByLabel('添加工作空间'),
     ).toBeVisible();
   } finally {
-    service.close();
+    await service.close();
     server.closeAllConnections();
     await new Promise<void>((resolve) => server.close(() => resolve()));
     f.close();

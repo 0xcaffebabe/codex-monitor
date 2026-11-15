@@ -83,7 +83,7 @@ test('message image previews resolve recorded Markdown with authentication and s
     assert.equal((await get('message-images', 'index=0', true, ids.archived)).status, 404);
     assert.equal((await get('tool-1', 'index=0')).status, 404);
   } finally {
-    application.close();
+    await application.close();
     await new Promise<void>((resolve) => server.close(() => resolve()));
     f.close();
     rmSync(f.root, { recursive: true, force: true });
@@ -126,7 +126,7 @@ test('legacy and realtime message images remain available without an image-view 
       assert.equal(result.file, file);
     }
   } finally {
-    application.close();
+    await application.close();
     f.close();
     rmSync(f.root, { recursive: true, force: true });
   }

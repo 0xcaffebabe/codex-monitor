@@ -295,7 +295,7 @@ test('control API enforces roles, uses live state, deduplicates concurrent/resta
       restarted.close();
     }
   } finally {
-    application.close();
+    await application.close();
     await new Promise<void>((resolve) => server.close(() => resolve()));
     f.close();
     rmSync(f.root, { recursive: true, force: true });

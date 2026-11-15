@@ -40,7 +40,7 @@ test('admins configure Lark, send a test, complete a chat and see background del
 }, testInfo) => {
   const token = await login(request),
     headers = { Authorization: `Bearer ${token}` };
-  await request.put('/api/workspaces/local/notifications', {
+  await request.put('/api/notifications', {
     headers,
     data: { enabled: false, provider: 'lark', publicUrl: '' },
   });
@@ -87,7 +87,7 @@ test('admins configure Lark, send a test, complete a chat and see background del
     await expect.poll(() => captured().length).toBe(before + 2);
     expect(captured().at(-1).content.text).toContain(prompt);
     expect(captured().at(-1).content.text).toContain(`?session=${ids.legacy}`);
-    const state = await (await request.get('/api/workspaces/local/notifications', { headers })).json();
+    const state = await (await request.get('/api/notifications', { headers })).json();
     expect(state.deliveries[0].status).toBe('sent');
     expect(JSON.stringify(state)).not.toContain(webhook);
     const history = new DatabaseSync(path.join(root, 'codex', 'thread_history_1.sqlite'));
@@ -137,7 +137,7 @@ test('admins configure Lark, send a test, complete a chat and see background del
         .first(),
     ).toBeVisible();
   } finally {
-    await request.put('/api/workspaces/local/notifications', {
+    await request.put('/api/notifications', {
       headers,
       data: { enabled: false, provider: 'lark', publicUrl: '' },
     });

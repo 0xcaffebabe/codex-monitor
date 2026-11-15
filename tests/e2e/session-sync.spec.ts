@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { DatabaseSync } from 'node:sqlite';
+import { setTimeout as delay } from 'node:timers/promises';
 import { ids } from '../fixture.js';
 
 const root = process.env.MONITOR_TEST_ROOT || path.join(os.tmpdir(), 'codex-monitor-e2e-01a1d7fa');
@@ -10,14 +11,23 @@ const root = process.env.MONITOR_TEST_ROOT || path.join(os.tmpdir(), 'codex-moni
 async function enter(page: Page, request: APIRequestContext) {
   const status = await (await request.get('/api/auth/status')).json();
   const credentials = { username: 'owner', password: 'monitor-e2e-password!' };
-  const response = await request.post(status.configured ? '/api/auth/login' : '/api/auth/setup', {
-    data: status.configured
-      ? credentials
-      : {
-          ...credentials,
-          setupKey: readFileSync(path.join(root, 'data', 'setup-key.txt'), 'utf8').trim(),
-        },
-  });
+  const login = () =>
+    request.post(status.configured ? '/api/auth/login' : '/api/auth/setup', {
+      data: status.configured
+        ? credentials
+        : {
+            ...credentials,
+            setupKey: readFileSync(path.join(root, 'data', 'setup-key.txt'), 'utf8').trim(),
+          },
+    });
+  let response = await login();
+  if (response.status() === 429) {
+    const waitMs =
+      Math.min(60, Math.max(1, Number(response.headers()['retry-after']) || 60)) * 1000 + 100;
+    test.setTimeout(test.info().timeout + waitMs);
+    await delay(waitMs);
+    response = await login();
+  }
   expect(response.ok()).toBeTruthy();
   const { token } = await response.json();
   await page.addInitScript((token) => localStorage.setItem('codex-monitor.auth.v1', token), token);
@@ -46,7 +56,8 @@ test('new sessions wait for synchronization, survive reload and recover without 
     return route.continue();
   });
   page.on('request', (request) => {
-    if (request.method() === 'POST' && request.url().endsWith('/api/workspaces/local/sessions')) creates++;
+    if (request.method() === 'POST' && request.url().endsWith('/api/workspaces/local/sessions'))
+      creates++;
   });
   try {
     await enter(page, request);
@@ -55,7 +66,8 @@ test('new sessions wait for synchronization, survive reload and recover without 
     await page.getByLabel('发送给 Codex 的消息').fill(prompt);
     const created = page.waitForResponse(
       (response) =>
-        response.request().method() === 'POST' && response.url().endsWith('/api/workspaces/local/sessions'),
+        response.request().method() === 'POST' &&
+        response.url().endsWith('/api/workspaces/local/sessions'),
     );
     await page.getByRole('button', { name: '创建并发送' }).click();
     createdId = (await (await created).json()).threadId;

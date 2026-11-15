@@ -178,7 +178,7 @@ test('image previews require a recorded image operation and reject non-image fil
       'picture.png',
     );
   } finally {
-    application.close();
+    await application.close();
     await new Promise<void>((resolve) => server.close(() => resolve()));
     f.close();
     rmSync(f.root, { recursive: true, force: true });
@@ -246,7 +246,7 @@ test('tool summaries preserve both ends while session JSON is compressed and SSE
     );
     controller.abort();
   } finally {
-    application.close();
+    await application.close();
     await new Promise<void>((resolve) => server.close(() => resolve()));
     f.close();
     rmSync(f.root, { recursive: true, force: true });
@@ -440,7 +440,7 @@ test('authenticated API enforces setup, roles, ownership, revocation and input b
     await post('/api/auth/logout', {}, owner.token);
     assert.equal((await request('/api/sessions', {}, owner.token)).status, 401);
   } finally {
-    application.close();
+    await application.close();
     await new Promise<void>((resolve) => server.close(() => resolve()));
     f.close();
     rmSync(f.root, { recursive: true, force: true });
@@ -552,7 +552,7 @@ test('expired tokens are rejected and password attempts are rate limited', async
     assert.equal(result!.status, 429);
     assert.ok(result!.headers.get('retry-after'));
   } finally {
-    application.close();
+    await application.close();
     await new Promise<void>((resolve) => server.close(() => resolve()));
     f.close();
     rmSync(f.root, { recursive: true, force: true });

@@ -148,7 +148,7 @@ test('oversized turn contents cannot disable control, live status, or compaction
     assert.equal((await bridge.state(ids.modern, ids.modern)).compacting, false);
     assert.ok(!tools.includes('read_thread'));
   } finally {
-    application.close();
+    await application.close();
     await new Promise<void>((resolve) => server.close(() => resolve()));
     await remote.close();
     source.close();

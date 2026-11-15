@@ -1,8 +1,9 @@
 import { z } from 'zod';
 import { WebSocket } from 'ws';
 import { createCipheriv, createDecipheriv, createHash, createHmac, randomBytes } from 'node:crypto';
+import { notificationPolicySchema, notificationReportSchema } from '../notifications/events.js';
 
-export const PROTOCOL_VERSION = 2;
+export const PROTOCOL_VERSION = 3;
 export const MAX_BODY = 20 * 1024 * 1024;
 export const MAX_JSON_BODY = 64 * 1024;
 export const MAX_REQUESTS = 64;
@@ -21,6 +22,17 @@ export const identitySchema = z.object({
 const id = z.uuid();
 const headers = z.record(z.string().max(80), z.string().max(2048));
 export const frameSchema = z.discriminatedUnion('type', [
+  z.object({
+    type: z.literal('notification-policy'),
+    policy: notificationPolicySchema,
+    baseline: z.boolean(),
+  }),
+  z.object({
+    type: z.literal('notification-policy-ack'),
+    revision: z.number().int().nonnegative(),
+  }),
+  z.object({ type: z.literal('notification-report'), id, report: notificationReportSchema }),
+  z.object({ type: z.literal('notification-report-ack'), id, accepted: z.boolean() }),
   z.object({
     type: z.literal('hello'),
     version: z.literal(PROTOCOL_VERSION),
@@ -208,7 +220,7 @@ export function workspacePath(method: string, value: string) {
     return false;
   const [pathname] = value.split('?');
   if (/%(?![0-9a-f]{2})/i.test(value) || /%2f|%5c|%2e|%00/i.test(pathname)) return false;
-  return /^\/api\/(?:overview|sessions(?:\/[A-Za-z0-9_-]+)*|control(?:\/[A-Za-z0-9_-]+)*|uploads(?:\/[A-Za-z0-9_-]+)*|usage(?:\/[A-Za-z0-9_-]+)*|notifications(?:\/test)?|stream)$/.test(
+  return /^\/api\/(?:overview|sessions(?:\/[A-Za-z0-9_-]+)*|control(?:\/[A-Za-z0-9_-]+)*|uploads(?:\/[A-Za-z0-9_-]+)*|usage(?:\/[A-Za-z0-9_-]+)*|stream)$/.test(
     pathname,
   );
 }

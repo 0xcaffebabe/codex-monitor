@@ -21,6 +21,8 @@ import {
 } from '../transport/protocol.js';
 import { createClientRuntime } from './runtime.js';
 import { clientConnectionUrl } from './config.js';
+import { NotificationReporter } from '../notifications/reporter.js';
+import type { NotificationReport } from '../notifications/events.js';
 
 export type ClientOptions = {
   serverUrl: string;
@@ -57,6 +59,16 @@ export class MonitorClient {
     }
   >();
   private runtime!: Awaited<ReturnType<typeof createClientRuntime>>;
+  private reporter!: NotificationReporter;
+  private notificationConfiguration = Promise.resolve();
+  private notificationReports = new Map<
+    string,
+    {
+      timer: ReturnType<typeof setTimeout>;
+      resolve: (accepted: boolean) => void;
+      reject: (error: Error) => void;
+    }
+  >();
   private url: URL;
   private constructor(private options: ClientOptions) {
     this.url = clientConnectionUrl(options);
@@ -66,7 +78,6 @@ export class MonitorClient {
     const client = new MonitorClient(options);
     client.runtime = await createClientRuntime(options.config, {
       ...options.services,
-      workspaceId: options.workspaceId,
       authorization: {
         device: async (identity) => {
           const result = await client.authorize({ grantId: identity.sessionId });
@@ -87,6 +98,12 @@ export class MonitorClient {
         },
       },
     });
+    client.reporter = new NotificationReporter(
+      client.runtime.access.db,
+      client.runtime.source,
+      options.config.pollMs,
+      (report) => client.reportNotifications(report),
+    );
     client.connect();
     return client;
   }
@@ -95,6 +112,27 @@ export class MonitorClient {
   }
   get source() {
     return this.runtime.source;
+  }
+  get notifications() {
+    return this.reporter;
+  }
+  private reportNotifications(report: NotificationReport): Promise<boolean> {
+    if (!this.ready || !this.socket)
+      return Promise.reject(new Error('Notification server disconnected'));
+    const socket = this.socket,
+      id = randomUUID();
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.notificationReports.delete(id);
+        reject(new Error('Notification acknowledgement timed out'));
+      }, 5000);
+      this.notificationReports.set(id, { timer, resolve, reject });
+      void sendFrame(socket, { type: 'notification-report', id, report }).catch((error) => {
+        clearTimeout(timer);
+        this.notificationReports.delete(id);
+        reject(error);
+      });
+    });
   }
   private connect() {
     if (this.stopped) return;
@@ -149,7 +187,26 @@ export class MonitorClient {
           this.delay = this.options.reconnectMs ?? 1000;
           this.options.onStatus?.('connected');
         } else if (!this.ready) throw new Error('Handshake required');
-        else if (frame.type === 'authorized') {
+        else if (frame.type === 'notification-policy') {
+          this.notificationConfiguration = this.notificationConfiguration
+            .then(async () => {
+              if (socket !== this.socket || !this.ready || this.stopped) return;
+              await this.reporter.configure(frame.policy, frame.baseline);
+              await sendFrame(socket, {
+                type: 'notification-policy-ack',
+                revision: frame.policy.revision,
+              });
+              void this.reporter.poll();
+            })
+            .catch(() => socket.terminate());
+        } else if (frame.type === 'notification-report-ack') {
+          const pending = this.notificationReports.get(frame.id);
+          if (pending) {
+            clearTimeout(pending.timer);
+            this.notificationReports.delete(frame.id);
+            pending.resolve(frame.accepted);
+          }
+        } else if (frame.type === 'authorized') {
           const rpc = this.rpc.get(frame.id);
           if (rpc) {
             clearTimeout(rpc.timer);
@@ -226,6 +283,11 @@ export class MonitorClient {
         rpc.reject(new ControlError('工作空间连接已中断，请稍后重试。', false, 503));
       }
       this.rpc.clear();
+      for (const pending of this.notificationReports.values()) {
+        clearTimeout(pending.timer);
+        pending.reject(new Error('Notification server disconnected'));
+      }
+      this.notificationReports.clear();
       this.options.onStatus?.('disconnected', `WebSocket ${code}`);
       if (!this.stopped) {
         this.reconnectTimer = setTimeout(() => this.connect(), this.delay);
@@ -363,6 +425,8 @@ export class MonitorClient {
         socket.terminate();
       });
     }
+    await this.notificationConfiguration;
+    await this.reporter.close();
     await this.runtime.close();
   }
 }

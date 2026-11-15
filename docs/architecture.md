@@ -2,7 +2,7 @@
 
 项目按功能组织前端，按 HTTP、数据读取和控制能力组织后端。入口负责组合依赖；视图负责显示状态和触发操作；请求、持久化及异步状态转换由 hooks 或服务处理。
 
-运行时采用 Server / client 架构，详细部署、固定 AES 密钥和故障语义见 [Server / client 说明](server-client.md)。`server/index.ts` 根据模式装配；`server-app.ts` 只组合中心 Web、认证及网关；`client/connection.ts` 建立主动加密 ws；`workspace-runtime.ts` 在 client 本机装配读取、控制、附件、用量和通知。原 `app.ts` 保留为本机能力测试入口。
+运行时采用 Server / client 架构，详细部署、固定 AES 密钥和故障语义见 [Server / client 说明](server-client.md)。`server/index.ts` 根据模式装配；`server-app.ts` 组合中心 Web、认证、网关和统一通知投递；`client/connection.ts` 建立主动加密 ws 并装配通知事件上报；`workspace-runtime.ts` 在 client 本机装配读取、控制、附件和用量。原 `app.ts` 保留为本机能力测试入口，并将通知采集器和 Server 投递服务直接连接。
 
 ## 前端
 
@@ -80,7 +80,11 @@ server/
   notifications/
     lark.ts                # 飞书/Lark 校验、签名、限时 HTTP 投递与业务码检查
     store.ts               # 私有配置、持久化去重、投递队列和历史
-    service.ts             # 独立后台扫描、投递、退避重试和资源关闭
+    events.ts              # 通知策略、结构化事件和批次契约；不包含接收凭据
+    reporter.ts            # Client 后台扫描、已回答问题识别和确认后清理
+    report-store.ts        # Client 扫描断点、事件上报日志和待答问题状态
+    messages.ts            # Server 统一格式化消息、工作空间及会话链接
+    service.ts             # Server 接收去重、统一投递、退避重试和资源关闭
   usage.ts                 # 增量扫描、SQLite 缓存和查询失效策略
   usage-query.ts           # 流式用量汇总、分页结果与时间分桶
 ```

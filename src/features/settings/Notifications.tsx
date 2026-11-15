@@ -18,7 +18,8 @@ export function Notifications({ notify }: { notify: (message: string) => void })
         Webhook 通知<span>飞书 / Lark</span>
       </h3>
       <p className="help">
-        主会话每轮成功完成，或需要你选择、回答时推送通知。问题提醒附带题目和选项。关闭网页后仍会推送；服务需保持运行。启用时不补发历史通知，子代理不推送。
+        所有工作空间共用此配置，由服务端统一推送。主会话每轮成功完成，或需要你选择、回答时通知。关闭网页后仍会推送；Server
+        和 Client 需保持运行。启用时不补发历史通知，子代理不推送。
       </p>
       {form.error && (
         <div className="alert error" role="alert">
@@ -106,8 +107,8 @@ export function Notifications({ notify }: { notify: (message: string) => void })
             />
           </label>
           <p className="help">
-            填写可从飞书/Lark 访问的监控台地址后，通知会附上会话链接。Webhook
-            和密钥仅保存在本机服务端。
+            填写可从飞书/Lark 访问的监控台地址后，通知会附上会话链接。Webhook 和密钥仅保存在
+            Server。
           </p>
           <div className="notification-actions">
             <button className="primary" disabled={!form.dirty}>
@@ -135,6 +136,7 @@ export function Notifications({ notify }: { notify: (message: string) => void })
           <div className="notification-delivery" key={delivery.id}>
             <div>
               <strong>{delivery.title}</strong>
+              {delivery.workspaceName && <small>{delivery.workspaceName}</small>}
               <small>
                 {delivery.kind === 'test'
                   ? '测试通知'

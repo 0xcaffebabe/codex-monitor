@@ -48,6 +48,16 @@ export class NotificationStore {
       );
       db.prepare('UPDATE notification_settings SET input_since=?').run(Date.now());
     }
+    const deliveryColumns = db.prepare('PRAGMA table_info(notification_deliveries)').all();
+    if (!deliveryColumns.some((column) => column.name === 'workspace_id')) {
+      db.exec(`ALTER TABLE notification_deliveries ADD COLUMN workspace_id TEXT;
+        UPDATE notification_deliveries SET workspace_id='local',event_key='local:' || event_key
+        WHERE event_key IS NOT NULL;`);
+    }
+    if (!deliveryColumns.some((column) => column.name === 'workspace_name')) {
+      db.exec(`ALTER TABLE notification_deliveries ADD COLUMN workspace_name TEXT;
+        UPDATE notification_deliveries SET workspace_name='本机工作空间' WHERE workspace_id='local';`);
+    }
   }
   config(): NotificationConfig {
     const row = this.db.prepare('SELECT * FROM notification_settings WHERE id=1').get()!;
@@ -76,7 +86,7 @@ export class NotificationStore {
       monitorError,
     };
   }
-  save(input: NotificationInput, baseline: string[], enabledAt: number, reset: boolean) {
+  save(input: NotificationInput, enabledAt: number, reset: boolean) {
     const old = this.config();
     this.db.exec('BEGIN IMMEDIATE');
     try {
@@ -92,7 +102,7 @@ export class NotificationStore {
           input.publicUrl,
           reset ? enabledAt : old.enabledAt,
           reset ? enabledAt : old.scanAt,
-          reset ? Date.now() : old.inputSince,
+          reset ? Math.max(Date.now(), old.inputSince + 1) : old.inputSince,
         );
       // Changing credentials or disabling must never send an old queued message to a new recipient.
       if (reset || !input.enabled)
@@ -105,19 +115,11 @@ export class NotificationStore {
         this.db
           .prepare("UPDATE notification_deliveries SET revision=? WHERE status='pending'")
           .run(old.revision + 1);
-      const ignore = this.db.prepare(`INSERT OR IGNORE INTO notification_deliveries
-        (id,event_key,kind,title,message,status,created_at,revision) VALUES(?,?,'session.completed','','','ignored',?,?)`);
-      for (const key of baseline) ignore.run(randomUUID(), key, Date.now(), old.revision + 1);
       this.db.exec('COMMIT');
     } catch (error) {
       this.db.exec('ROLLBACK');
       throw error;
     }
-  }
-  checkpoint(at: number, revision: number) {
-    this.db
-      .prepare('UPDATE notification_settings SET scan_at=? WHERE id=1 AND revision=?')
-      .run(at, revision);
   }
   has(key: string) {
     return !!this.db.prepare('SELECT 1 FROM notification_deliveries WHERE event_key=?').get(key);
@@ -127,6 +129,8 @@ export class NotificationStore {
       key?: string;
       kind: NotificationDelivery['kind'];
       sessionId?: string;
+      workspaceId?: string;
+      workspaceName?: string;
       title: string;
       message: string;
     },
@@ -136,7 +140,7 @@ export class NotificationStore {
     const result = this.db
       .prepare(
         `INSERT OR IGNORE INTO notification_deliveries
-      (id,event_key,kind,session_id,title,message,status,created_at,revision) VALUES(?,?,?,?,?,?,'pending',?,?)`,
+      (id,event_key,kind,session_id,title,message,status,created_at,revision,workspace_id,workspace_name) VALUES(?,?,?,?,?,?,'pending',?,?,?,?)`,
       )
       .run(
         id,
@@ -147,11 +151,13 @@ export class NotificationStore {
         input.message,
         Date.now(),
         revision,
+        input.workspaceId ?? null,
+        input.workspaceName ?? null,
       );
     return result.changes ? id : undefined;
   }
   private select = `SELECT id,kind,session_id AS sessionId,title,status,attempts,error,
-    created_at AS createdAt,sent_at AS sentAt,message,revision FROM notification_deliveries`;
+    created_at AS createdAt,sent_at AS sentAt,message,revision,workspace_id AS workspaceId,workspace_name AS workspaceName FROM notification_deliveries`;
   delivery(id: string) {
     return this.db.prepare(`${this.select} WHERE id=?`).get(id) as PendingDelivery | undefined;
   }
@@ -162,22 +168,27 @@ export class NotificationStore {
       )
       .get(Date.now()) as PendingDelivery | undefined;
   }
-  cancelAnsweredInputs(pendingKeys: Set<string>) {
-    const rows = this.db
+  cancelInput(key: string) {
+    this.db
       .prepare(
-        "SELECT id,event_key FROM notification_deliveries WHERE kind='session.input_required' AND status='pending'",
+        `UPDATE notification_deliveries SET status='cancelled',error='问题已回答或不再需要处理'
+      WHERE event_key=? AND kind='session.input_required' AND status='pending'`,
       )
-      .all();
-    const cancel = this.db.prepare(
-      "UPDATE notification_deliveries SET status='cancelled',error='问题已回答或不再需要处理' WHERE id=?",
-    );
-    for (const row of rows) if (!pendingKeys.has(String(row.event_key))) cancel.run(row.id!);
+      .run(key);
+  }
+  cancelWorkspace(workspaceId: string) {
+    this.db
+      .prepare(
+        `UPDATE notification_deliveries SET status='cancelled',error='工作空间已移除'
+      WHERE workspace_id=? AND status='pending'`,
+      )
+      .run(workspaceId);
   }
   history(): NotificationDelivery[] {
     return this.db
       .prepare(
         `SELECT id,kind,session_id AS sessionId,title,status,attempts,error,
-      created_at AS createdAt,sent_at AS sentAt FROM notification_deliveries WHERE status<>'ignored' ORDER BY created_at DESC,rowid DESC LIMIT 20`,
+      created_at AS createdAt,sent_at AS sentAt,workspace_id AS workspaceId,workspace_name AS workspaceName FROM notification_deliveries WHERE status<>'ignored' ORDER BY created_at DESC,rowid DESC LIMIT 20`,
       )
       .all() as unknown as NotificationDelivery[];
   }

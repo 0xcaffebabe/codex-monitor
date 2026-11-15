@@ -2,6 +2,7 @@ import { test, expect } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import { setTimeout as delay } from 'node:timers/promises';
 
 test('usage totals, filters, heatmap and session metrics work on desktop and mobile', async ({
   page,
@@ -9,21 +10,32 @@ test('usage totals, filters, heatmap and session metrics work on desktop and mob
 }) => {
   const status = await (await request.get('/api/auth/status')).json();
   const credentials = { username: 'owner', password: 'monitor-e2e-password!' };
-  const auth = await request.post('/api/auth/' + (status.configured ? 'login' : 'setup'), {
-    data: status.configured
-      ? credentials
-      : {
-          ...credentials,
-          setupKey: readFileSync(
-            path.join(
-              process.env.MONITOR_TEST_ROOT || path.join(os.tmpdir(), 'codex-monitor-e2e-01a1d7fa'),
-              'data',
-              'setup-key.txt',
-            ),
-            'utf8',
-          ).trim(),
-        },
-  });
+  const login = () =>
+    request.post('/api/auth/' + (status.configured ? 'login' : 'setup'), {
+      data: status.configured
+        ? credentials
+        : {
+            ...credentials,
+            setupKey: readFileSync(
+              path.join(
+                process.env.MONITOR_TEST_ROOT ||
+                  path.join(os.tmpdir(), 'codex-monitor-e2e-01a1d7fa'),
+                'data',
+                'setup-key.txt',
+              ),
+              'utf8',
+            ).trim(),
+          },
+    });
+  let auth = await login();
+  if (auth.status() === 429) {
+    const waitMs =
+      Math.min(60, Math.max(1, Number(auth.headers()['retry-after']) || 60)) * 1000 + 100;
+    test.setTimeout(test.info().timeout + waitMs);
+    await delay(waitMs);
+    auth = await login();
+  }
+  expect(auth.ok()).toBeTruthy();
   const { token } = await auth.json();
   await page.addInitScript((token) => localStorage.setItem('codex-monitor.auth.v1', token), token);
   await page.goto('/');

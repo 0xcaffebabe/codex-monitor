@@ -8,11 +8,15 @@ import { installFrontend } from './http/frontend.js';
 import { installHttpSecurity } from './http/security.js';
 import { installUserRoutes } from './http/user-routes.js';
 import { installWorkspaceRuntime, type WorkspaceServices } from './workspace-runtime.js';
+import { NotificationService } from './notifications/service.js';
+import { NotificationReporter } from './notifications/reporter.js';
+import type { WebhookTransport } from './notifications/lark.js';
+import { installNotificationRoutes } from './http/notification-routes.js';
 
 /** Local HTTP harness for capability tests; production uses server-app and client/connection. */
 export function createApp(
   config: Config,
-  services: WorkspaceServices & { publicDir?: string } = {},
+  services: WorkspaceServices & { publicDir?: string; webhookTransport?: WebhookTransport } = {},
 ) {
   const app = express(),
     auth = new AuthStore(config.dataDir, config.sessionDays);
@@ -23,16 +27,33 @@ export function createApp(
   installAccountRoutes(app, auth, rate);
   installUserRoutes(app, auth);
   const runtime = installWorkspaceRuntime(app, config, auth, services);
+  const notifications = new NotificationService(auth.db, config.pollMs, services.webhookTransport);
+  const notificationReporter = new NotificationReporter(
+    auth.db,
+    runtime.source,
+    config.pollMs,
+    async (report) => notifications.receive({ id: 'local', name: '本机工作空间' }, report),
+  );
+  notifications.onConfigure = (policy, reset) => notificationReporter.configure(policy, reset);
+  const notificationReady = notificationReporter.configure(notifications.policy());
+  installNotificationRoutes(app, auth, notifications);
   installFrontend(app, path.resolve(services.publicDir || 'dist/public'));
   let closing: Promise<void> | undefined;
   return {
     app,
     auth,
     ...runtime,
+    notifications,
+    async pollNotifications() {
+      await notificationReady;
+      await notificationReporter.poll();
+      await notifications.poll();
+    },
     close: () => {
       if (!closing) {
-        closing = runtime.close();
-        auth.close();
+        closing = Promise.all([notificationReporter.close(), notifications.close()])
+          .then(() => runtime.close())
+          .then(() => auth.close());
       }
       return closing;
     },

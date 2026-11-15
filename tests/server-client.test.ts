@@ -286,7 +286,7 @@ test('two clients over encrypted ws isolate reads, writes, uploads and receipts,
     streamAbort?.abort();
     await clientA.close();
     await clientB.close();
-    service.close();
+    await service.close();
     server.closeAllConnections();
     await new Promise<void>((resolve) => server.close(() => resolve()));
     a.close();

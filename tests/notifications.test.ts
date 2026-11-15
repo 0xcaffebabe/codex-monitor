@@ -215,7 +215,7 @@ test('background completion outbox delivers fast turns over real HTTP without SS
   try {
     complete(h.f); // Completion already present in the enabling second must be ignored.
     assert.equal((await h.request('/api/notifications', 'PUT', input)).status, 200);
-    await h.service.notifications.poll();
+    await h.service.pollNotifications();
     assert.equal(received.length, 0);
     const first = complete(h.f, ids.modern, 'completed', '第一轮完成摘要');
     const second = complete(h.f, ids.modern, 'completed', '第二轮独立摘要');
@@ -223,9 +223,9 @@ test('background completion outbox delivers fast turns over real HTTP without SS
     complete(h.f, ids.legacy, 'interrupted');
     complete(h.f, ids.child);
     complete(h.f, ids.archived);
-    await h.service.notifications.poll();
-    await h.service.notifications.poll();
-    await h.service.notifications.poll();
+    await h.service.pollNotifications();
+    await h.service.pollNotifications();
+    await h.service.pollNotifications();
     assert.equal(received.length, 2);
     assert.match(received[0].content.text, new RegExp(first));
     assert.match(received[0].content.text, /第一轮完成摘要/);
@@ -236,8 +236,8 @@ test('background completion outbox delivers fast turns over real HTTP without SS
     await h.service.close();
     complete(h.f, ids.modern, 'completed', '服务停止期间完成');
     restarted = createApp(h.f.config, { webhookTransport: transport });
-    await restarted.notifications.poll();
-    await restarted.notifications.poll();
+    await restarted.pollNotifications();
+    await restarted.pollNotifications();
     assert.equal(received.length, 3);
     assert.match(received[2].content.text, /服务停止期间完成/);
     assert.equal(restarted.notifications.state().settings.enabled, true);
@@ -262,29 +262,29 @@ test('delivery retry is persisted, provider rejection fails visibly, disabling c
   try {
     await h.service.notifications.configure(input);
     complete(h.f);
-    await h.service.notifications.poll();
+    await h.service.pollNotifications();
     let delivery = h.service.notifications.state().deliveries[0];
     assert.equal(delivery.status, 'pending');
     assert.equal(delivery.attempts, 1);
-    await h.service.notifications.poll();
+    await h.service.pollNotifications();
     assert.equal(calls, 1, 'retry respects its backoff');
     h.service.auth.db.prepare('UPDATE notification_deliveries SET next_attempt_at=0').run();
     status = 200;
-    await h.service.notifications.poll();
+    await h.service.pollNotifications();
     delivery = h.service.notifications.state().deliveries[0];
     assert.equal(delivery.status, 'failed');
     assert.match(delivery.error, /19024/);
     complete(h.f);
     status = 503;
-    await h.service.notifications.poll();
+    await h.service.pollNotifications();
     await h.service.notifications.configure({ ...input, enabled: false });
     assert.equal(h.service.notifications.state().deliveries[0].status, 'cancelled');
     const before = calls;
     complete(h.f);
-    await h.service.notifications.poll();
+    await h.service.pollNotifications();
     assert.equal(calls, before);
     await h.service.notifications.configure(input);
-    await h.service.notifications.poll();
+    await h.service.pollNotifications();
     assert.equal(
       calls,
       before,
@@ -321,8 +321,8 @@ test('legacy JSONL completion events work without opening a detail page', async 
         .map((record) => JSON.stringify({ ...record, timestamp: new Date().toISOString() }))
         .join('\n') + '\n',
     );
-    await h.service.notifications.poll();
-    await h.service.notifications.poll();
+    await h.service.pollNotifications();
+    await h.service.pollNotifications();
     assert.equal(messages.length, 1);
     assert.match(messages[0], /旧版完成摘要/);
     assert.match(messages[0], /legacy-new-turn/);
@@ -340,16 +340,16 @@ test('queued retries survive restart and still deliver while the completion sour
   try {
     await h.service.notifications.configure(input);
     complete(h.f);
-    await h.service.notifications.poll();
+    await h.service.pollNotifications();
     assert.equal(h.service.notifications.state().deliveries[0].status, 'pending');
     await h.service.close();
     restarted = createApp(h.f.config, { webhookTransport: transport });
-    await restarted.notifications.poll();
+    await restarted.pollNotifications();
     restarted.source.completions = async () => {
       throw new Error('Source temporarily unavailable');
     };
     restarted.auth.db.prepare('UPDATE notification_deliveries SET next_attempt_at=0').run();
-    await restarted.notifications.poll();
+    await restarted.pollNotifications();
     assert.equal(calls, 2);
     assert.equal(restarted.notifications.state().deliveries[0].status, 'sent');
     assert.ok(restarted.notifications.state().settings.monitorError);
@@ -359,7 +359,7 @@ test('queued retries survive restart and still deliver while the completion sour
   }
 });
 
-test('admin revocation during notification configuration prevents saving or enabling it', async () => {
+test('admin revocation during asynchronous notification authorization prevents saving or enabling it', async () => {
   const h = await harness(async () => Response.json({ code: 0 }));
   let release!: () => void, entered!: () => void;
   const wait = new Promise<void>((resolve) => {
@@ -368,17 +368,22 @@ test('admin revocation during notification configuration prevents saving or enab
   const started = new Promise<void>((resolve) => {
     entered = resolve;
   });
-  h.service.source.completions = async () => {
-    entered();
-    await wait;
-    return [];
-  };
   try {
-    const pending = h.request('/api/notifications', 'PUT', input);
+    const user = h.service.auth.db.prepare("SELECT * FROM users WHERE username='owner'").get()!;
+    const token = h.service.auth.issue(
+      { id: String(user.id), username: 'owner', role: 'admin' },
+      'revoked',
+    ).token;
+    const pending = h.service.notifications.configure(input, async () => {
+      entered();
+      await wait;
+      return h.service.auth.authenticate(token)?.user.role === 'admin';
+    });
+    const rejected = assert.rejects(pending, /权限已失效/);
     await started;
     h.service.auth.db.prepare('DELETE FROM sessions').run();
     release();
-    assert.equal((await pending).status, 409);
+    await rejected;
     assert.equal(h.service.notifications.state().settings.enabled, false);
     assert.equal(h.service.notifications.state().settings.webhookConfigured, false);
   } finally {

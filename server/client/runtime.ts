@@ -14,6 +14,15 @@ export async function createClientRuntime(
   const app = express(),
     store = services.store ?? new AuthStore(config.dataDir, config.sessionDays);
   const access = new ClientAccess(store, !!services.store);
+  if (
+    !services.store &&
+    store.db.prepare("SELECT 1 FROM sqlite_master WHERE name='notification_settings'").get()
+  ) {
+    // Retire the previous client-owned sender. Global credentials are configured only on Server.
+    store.db.exec(`UPDATE notification_settings SET enabled=0,webhook_url='',signing_secret='';
+      UPDATE notification_deliveries SET status='cancelled',error='通知已迁移到 Server 统一投递'
+      WHERE status IN ('pending','sending');`);
+  }
   app.use((req, res, next) => {
     const header = req.headers.authorization || '',
       token = header.startsWith('Bearer ') ? header.slice(7) : '';
