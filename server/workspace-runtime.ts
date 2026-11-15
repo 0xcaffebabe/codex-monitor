@@ -11,6 +11,7 @@ import { installRealtime } from './realtime.js';
 import { CodexSource } from './source.js';
 import { UploadStore, installUploads } from './uploads.js';
 import { UsageStore } from './usage.js';
+import { ImagePreviews } from './image-previews.js';
 import { ProjectTerminals } from './terminal.js';
 import { installTerminalRoutes } from './http/terminal-routes.js';
 
@@ -33,7 +34,8 @@ export function installWorkspaceRuntime(
     config.pricingFile ?? path.resolve('config/model-pricing.json'),
   );
   const uploads = new UploadStore(auth.db, config.dataDir);
-  installUploads(app, uploads);
+  const previews = new ImagePreviews();
+  installUploads(app, uploads, previews);
   const terminals = new ProjectTerminals(auth, source, services.authorization);
   installTerminalRoutes(app, terminals);
   const closeControl = installControl(
@@ -51,7 +53,7 @@ export function installWorkspaceRuntime(
   const recentCreation = auth.db.prepare(`SELECT 1 FROM control_requests WHERE state='succeeded'
     AND json_extract(result_json,'$.mode')='create' AND json_extract(result_json,'$.threadId')=?
     AND json_extract(result_json,'$.acceptedAt')>? LIMIT 1`);
-  installSessionRoutes(app, source, (id) => !!recentCreation.get(id, Date.now() - 120000));
+  installSessionRoutes(app, source, (id) => !!recentCreation.get(id, Date.now() - 120000), previews);
   installUsageRoutes(app, usage);
   const closeRealtime = installRealtime(app, auth, source, config.pollMs);
   const desktopWatchdog = config.desktopAutoStart
@@ -67,6 +69,7 @@ export function installWorkspaceRuntime(
     closeRealtime();
     terminals.close();
     uploads.close();
+    previews.close();
     source.close();
     closing = Promise.all([usage.close(), desktopWatchdog?.close()]).then(() => {});
     return closing;

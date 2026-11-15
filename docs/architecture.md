@@ -56,6 +56,7 @@ server/
   transport/protocol.ts    # 固定 AES-256-GCM、本次握手绑定、上传/响应分片与协议校验
   client/                  # 连接配置校验、主动 ws、重连、本地临时授权与 loopback HTTP 适配器
   workspace-runtime.ts     # Client 本机能力装配与资源关闭
+  image-previews.ts        # AVIF/WebP 尺寸分级、并发与像素上限、源版本缓存和原图回退
   terminal.ts              # 登录设备隔离、目录校验、容量与输出上限、授权复核和终端生命周期
   terminal-process.ts      # 子进程 IPC 与终止兜底
   terminal-worker.mjs       # 独立进程内的 node-pty；原生 PTY 句柄随进程回收

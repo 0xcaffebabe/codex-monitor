@@ -128,9 +128,31 @@
   font-size: 12px;
 }
 .image-lightbox > header > span {
+  flex: 1;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.image-original {
+  flex-shrink: 0;
+  padding: 6px 10px;
+  border: 1px solid #c6d3d066;
+  border-radius: 6px;
+  background: transparent;
+  color: #fff;
+  font-size: 12px;
+  cursor: pointer;
+}
+.image-original:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+.image-preview-status {
+  position: absolute;
+  bottom: 12px;
+  color: #c6d3d0;
+  font-size: 12px;
 }
 .image-lightbox .icon-button {
   color: #fff;

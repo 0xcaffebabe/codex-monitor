@@ -1,8 +1,7 @@
 import { useEffect, useState } from 'react';
-import { getToken } from '../../api';
+import { fetchImagePreview } from '../../shared/image-preview';
 import { imageType } from './attachment-model';
 import type { Attachment } from './types';
-import { workspaceUrl } from '../../workspace-scope';
 
 export type ThumbnailProps = { attachment: Attachment };
 export function useThumbnail({ attachment }: ThumbnailProps) {
@@ -11,15 +10,11 @@ export function useThumbnail({ attachment }: ThumbnailProps) {
     if (!imageType(attachment.type)) return;
     const controller = new AbortController();
     let objectUrl = '';
-    void fetch(workspaceUrl(`/api/uploads/${attachment.id}`), {
-      headers: { Authorization: `Bearer ${getToken()}` },
-      signal: controller.signal,
-    })
-      .then(async (response) => {
-        if (!response.ok) return;
-        const bytes = await response.arrayBuffer();
+    setUrl('');
+    void fetchImagePreview(`/api/uploads/${attachment.id}`, 'thumbnail', controller.signal)
+      .then((blob) => {
         if (controller.signal.aborted) return;
-        objectUrl = URL.createObjectURL(new Blob([bytes], { type: attachment.type }));
+        objectUrl = URL.createObjectURL(blob);
         setUrl(objectUrl);
       })
       .catch(() => {});

@@ -1,6 +1,7 @@
 import type { Express } from 'express';
 import { z } from 'zod';
 import { MediaError } from '../media.js';
+import { ImagePreviews, imagePreviewQuery } from '../image-previews.js';
 import { CodexSource } from '../source.js';
 import { validId } from '../source/session.js';
 import { fail } from './access.js';
@@ -19,6 +20,7 @@ export function installSessionRoutes(
     | 'computerUseImage'
   >,
   isPendingCreation: (id: string) => boolean = () => false,
+  previews = new ImagePreviews(),
 ) {
   app.get('/api/overview', async (_req, res) => res.json(await source.overview()));
   app.get('/api/sessions', async (req, res) => {
@@ -87,13 +89,17 @@ export function installSessionRoutes(
     if (!validId(id) || !/^[A-Za-z0-9_-]{1,200}$/.test(itemId))
       return fail(res, 400, '图片标识无效');
     const parsed = z
-      .object({ index: z.coerce.number().int().min(0).max(10000).optional() })
+      .object({
+        index: z.coerce.number().int().min(0).max(10000).optional(),
+        ...imagePreviewQuery,
+      })
       .strict()
       .safeParse(req.query);
     if (!parsed.success) return fail(res, 400, '图片参数无效');
     try {
-      const media = await source.image(id, itemId, parsed.data.index);
-      if (!media) return fail(res, 404, '找不到这条图片记录');
+      const original = await source.image(id, itemId, parsed.data.index);
+      if (!original) return fail(res, 404, '找不到这条图片记录');
+      const media = await previews.render(original, parsed.data.variant, parsed.data.format);
       res.type(media.mime).setHeader('Content-Disposition', 'inline');
       if ('file' in media) res.sendFile(media.file, { dotfiles: 'allow' });
       else res.send(media.data);
@@ -123,9 +129,13 @@ export function installSessionRoutes(
     const parsed = z.coerce.number().int().min(0).max(10000).safeParse(req.params.index);
     if (!validId(id) || !/^[A-Za-z0-9_-]{1,200}$/.test(itemId) || !parsed.success)
       return fail(res, 400, '截图标识无效');
-    const media = await source.computerUseImage(id, itemId, parsed.data);
-    if (!media) return fail(res, 404, '这一步没有可用的完整截图');
+    const query = z.object(imagePreviewQuery).strict().safeParse(req.query);
+    if (!query.success) return fail(res, 400, '图片参数无效');
+    const original = await source.computerUseImage(id, itemId, parsed.data);
+    if (!original) return fail(res, 404, '这一步没有可用的完整截图');
+    const media = await previews.render(original, query.data.variant, query.data.format);
     res.type(media.mime).setHeader('Content-Disposition', 'inline');
-    res.send(media.data);
+    if ('file' in media) res.sendFile(media.file, { dotfiles: 'allow' });
+    else res.send(media.data);
   });
 }

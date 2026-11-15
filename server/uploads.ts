@@ -8,6 +8,8 @@ import type { DatabaseSync } from 'node:sqlite';
 import type { Express, Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import { ControlError } from './control-error.js';
+import { ImagePreviews, imagePreviewQuery } from './image-previews.js';
+import { localImage, MediaError } from './media.js';
 
 export const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
 export const MAX_ATTACHMENTS = 10;
@@ -175,7 +177,7 @@ export class UploadStore {
   }
 }
 
-export function installUploads(app: Express, uploads: UploadStore) {
+export function installUploads(app: Express, uploads: UploadStore, previews = new ImagePreviews()) {
   const admin = (req: Request, res: Response, next: NextFunction) =>
     req.identity?.user.role === 'admin'
       ? next()
@@ -201,12 +203,22 @@ export function installUploads(app: Express, uploads: UploadStore) {
       res.status(error.status).json({ error: error.message });
     }
   });
-  app.get('/api/uploads/:id', admin, (req, res) => {
+  app.get('/api/uploads/:id', admin, async (req, res) => {
+    const parsed = z.object(imagePreviewQuery).strict().safeParse(req.query);
+    if (!parsed.success) return res.status(400).json({ error: '图片参数无效' });
     try {
       const file = uploads.file(req.identity!.user.id, String(req.params.id));
+      if (parsed.data.variant && parsed.data.variant !== 'original') {
+        const original = await localImage(file.path);
+        const media = await previews.render(original, parsed.data.variant, parsed.data.format);
+        res.type(media.mime).setHeader('Content-Disposition', 'inline');
+        if ('file' in media) res.sendFile(media.file, { dotfiles: 'allow' });
+        else res.send(media.data);
+        return;
+      }
       res.attachment(file.name).type('application/octet-stream').sendFile(file.path);
     } catch (error) {
-      if (!(error instanceof ControlError)) throw error;
+      if (!(error instanceof ControlError) && !(error instanceof MediaError)) throw error;
       res.status(error.status).json({ error: error.message });
     }
   });

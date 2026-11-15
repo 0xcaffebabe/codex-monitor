@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { clearToken, getToken } from '../../api';
+import { fetchImagePreview } from '../../shared/image-preview';
 import type { SessionImageRef } from '../../types';
-import { workspaceUrl } from '../../workspace-scope';
 
 export type SessionImageProps = {
   sessionId: string;
@@ -13,9 +12,17 @@ export function useSessionImage({ sessionId, image }: SessionImageProps) {
   const [visible, setVisible] = useState(false),
     [url, setUrl] = useState(''),
     [error, setError] = useState(''),
-    [open, setOpen] = useState(false);
+    [open, setOpen] = useState(false),
+    [previewUrl, setPreviewUrl] = useState(''),
+    [previewError, setPreviewError] = useState(''),
+    [previewLoading, setPreviewLoading] = useState(false),
+    [original, setOriginal] = useState(false);
   const ref = useRef<HTMLSpanElement>(null);
   const { id, name, index, source } = image;
+  const route =
+    source === 'computer-use'
+      ? `/api/sessions/${sessionId}/computer-use/${encodeURIComponent(id)}/images/${index ?? 0}`
+      : `/api/sessions/${sessionId}/images/${encodeURIComponent(id)}${index === undefined ? '' : `?index=${index}`}`;
   useEffect(() => {
     const observer = new IntersectionObserver(
       (entries) => {
@@ -36,29 +43,11 @@ export function useSessionImage({ sessionId, image }: SessionImageProps) {
     setError('');
     setUrl('');
     setOpen(false);
+    setOriginal(false);
+    setPreviewUrl('');
     void (async () => {
       try {
-        const response = await fetch(
-          workspaceUrl(
-            source === 'computer-use'
-              ? `/api/sessions/${sessionId}/computer-use/${encodeURIComponent(id)}/images/${index ?? 0}`
-              : `/api/sessions/${sessionId}/images/${encodeURIComponent(id)}${index === undefined ? '' : `?index=${index}`}`,
-          ),
-          {
-            headers: { Authorization: `Bearer ${getToken()}` },
-            signal: controller.signal,
-            cache: 'no-store',
-          },
-        );
-        if (response.status === 401) clearToken();
-        if (!response.ok) {
-          let message = '图片加载失败';
-          try {
-            message = (await response.json()).error || message;
-          } catch {}
-          throw new Error(message);
-        }
-        const blob = await response.blob();
+        const blob = await fetchImagePreview(route, 'thumbnail', controller.signal);
         if (controller.signal.aborted) return;
         objectUrl = URL.createObjectURL(blob);
         setUrl(objectUrl);
@@ -70,7 +59,33 @@ export function useSessionImage({ sessionId, image }: SessionImageProps) {
       controller.abort();
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [visible, sessionId, id, index, source]);
+  }, [visible, route]);
+  useEffect(() => {
+    if (!open) return;
+    const controller = new AbortController();
+    let objectUrl = '';
+    setPreviewUrl('');
+    setPreviewError('');
+    setPreviewLoading(true);
+    void fetchImagePreview(route, original ? 'original' : 'preview', controller.signal)
+      .then((blob) => {
+        if (controller.signal.aborted) return;
+        objectUrl = URL.createObjectURL(blob);
+        setPreviewUrl(objectUrl);
+        setPreviewError('');
+      })
+      .catch((error: Error) => {
+        if (!controller.signal.aborted) setPreviewError(error.message);
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setPreviewLoading(false);
+      });
+    return () => {
+      controller.abort();
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+      setPreviewUrl('');
+    };
+  }, [open, original, route]);
   useEffect(() => {
     if (!open) return;
     const key = (event: KeyboardEvent) => {
@@ -88,5 +103,23 @@ export function useSessionImage({ sessionId, image }: SessionImageProps) {
     setUrl('');
     setOpen(false);
   };
-  return { url, error, open, setOpen, ref, name, onImageError };
+  const onPreviewError = () => {
+    setPreviewUrl('');
+    setPreviewError(original ? '原图无法显示' : '图片无法显示，可尝试查看原图');
+  };
+  return {
+    url,
+    error,
+    open,
+    setOpen,
+    ref,
+    name,
+    onImageError,
+    previewUrl,
+    previewError,
+    previewLoading,
+    original,
+    setOriginal,
+    onPreviewError,
+  };
 }
