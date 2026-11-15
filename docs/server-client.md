@@ -78,6 +78,8 @@ npm run client -- --help
 
 ## 添加远程 client
 
+项目终端通过同一条加密 ws 通道转发，进程在所选 client 的会话项目目录启动，仅管理员可用，按登录设备隔离。升级时 Server 和 client 均需重新构建并重启，部署目录须保留生成的 `dist/terminal-worker.mjs` 和 `node_modules`。Windows 使用系统 PowerShell 与 ConPTY（Windows 10 1809+）；Linux/macOS 使用本机 `SHELL`，未设置时使用 `/bin/bash`。`node-pty` 含原生依赖，目标平台没有预编译包时需提供该平台的 C/C++ 编译工具链。
+
 1. 启动 Server，通过其 Web 页面创建管理员并登录。
 2. 顶栏点击“管理工作空间”，输入机器名称后“添加”。
 3. 将显示的配置保存到 client 机器的项目 `.env`。固定 AES 密钥只在创建或轮换成功时显示，不保存到浏览器存储。

@@ -11,6 +11,8 @@ import { installRealtime } from './realtime.js';
 import { CodexSource } from './source.js';
 import { UploadStore, installUploads } from './uploads.js';
 import { UsageStore } from './usage.js';
+import { ProjectTerminals } from './terminal.js';
+import { installTerminalRoutes } from './http/terminal-routes.js';
 
 export type WorkspaceServices = {
   control?: DesktopControl;
@@ -32,6 +34,8 @@ export function installWorkspaceRuntime(
   );
   const uploads = new UploadStore(auth.db, config.dataDir);
   installUploads(app, uploads);
+  const terminals = new ProjectTerminals(auth, source, services.authorization);
+  installTerminalRoutes(app, terminals);
   const closeControl = installControl(
     app,
     auth.db,
@@ -61,10 +65,11 @@ export function installWorkspaceRuntime(
     if (closing) return closing;
     closeControl();
     closeRealtime();
+    terminals.close();
     uploads.close();
     source.close();
     closing = Promise.all([usage.close(), desktopWatchdog?.close()]).then(() => {});
     return closing;
   };
-  return { source, usage, close };
+  return { source, usage, terminals, close };
 }

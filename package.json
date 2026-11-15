@@ -11,7 +11,7 @@
   "scripts": {
     "dev": "tsx watch server/index.ts",
     "dev:web": "vite --host 127.0.0.1",
-    "build": "tsc --noEmit && vite build && esbuild server/index.ts --bundle --platform=node --format=esm --packages=external --outfile=dist/server.mjs",
+    "build": "tsc --noEmit && vite build && esbuild server/index.ts --bundle --platform=node --format=esm --packages=external --outfile=dist/server.mjs && esbuild server/terminal-worker.mjs --bundle --platform=node --format=esm --packages=external --outfile=dist/terminal-worker.mjs",
     "start": "node --disable-warning=ExperimentalWarning dist/server.mjs",
     "client": "node --disable-warning=ExperimentalWarning dist/server.mjs --mode client",
     "test": "tsx --test tests/*.test.ts",
@@ -20,11 +20,14 @@
     "account": "tsx scripts/account.ts"
   },
   "dependencies": {
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/xterm": "^6.0.0",
     "compression": "^1.8.2",
     "express": "^5.1.0",
     "helmet": "^8.1.0",
     "lucide-react": "^0.468.0",
     "mdast-util-from-markdown": "^2.0.3",
+    "node-pty": "1.1.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-markdown": "^10.1.0",
@@ -41,6 +44,7 @@
     "@types/react-dom": "^19.0.0",
     "@types/ws": "^8.18.2",
     "@vitejs/plugin-react": "^4.5.0",
+    "@xterm/headless": "^6.0.0",
     "esbuild": "^0.25.0",
     "prettier": "^3.10.1",
     "tsx": "^4.20.0",

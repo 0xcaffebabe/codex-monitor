@@ -10,6 +10,7 @@ import {
   Monitor,
   Search,
   Terminal,
+  TerminalSquare,
   X,
 } from 'lucide-react';
 import { ContextMeter } from '../../context-meter';
@@ -27,6 +28,7 @@ export function DetailHeader({
   model,
   actions,
   onComputerUse,
+  onTerminal,
 }: Pick<DetailProps, 'page' | 'onBack'> & {
   model: Pick<
     TimelineModel,
@@ -41,6 +43,7 @@ export function DetailHeader({
   >;
   actions: ReturnType<typeof useSessionActions>;
   onComputerUse: () => void;
+  onTerminal?: () => void;
 }) {
   const { session, outline, setOutline, infoExpanded, setInfoExpanded, toolCount, find, setFind } =
     model;
@@ -55,6 +58,18 @@ export function DetailHeader({
           <span className="eyebrow">SESSION DETAIL</span>
           <h1 title={session?.title}>{session?.title || '读取会话…'}</h1>
         </div>
+        {onTerminal && (
+          <button
+            className="icon-button project-terminal-trigger"
+            title="打开项目终端"
+            aria-label="打开项目终端"
+            disabled={!session?.cwd}
+            onClick={onTerminal}
+          >
+            <TerminalSquare size={17} />
+            <span>终端</span>
+          </button>
+        )}
         {page?.hasComputerUse && (
           <button
             className="icon-button computer-use-trigger"

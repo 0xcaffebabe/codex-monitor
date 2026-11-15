@@ -15,6 +15,7 @@ src/
     workspaces/            # client 注册、状态、固定 AES 密钥配置及工作空间选择
     workspace/             # 侧栏、概览、会话列表、筛选与实时同步
     session/               # 详情、时间线、目录、历史读取、导出和图片
+    terminal/              # 项目终端弹窗、终端屏幕、输入顺序与输出游标
     control/               # 消息草稿、回执、队列、命令、目标、新建会话
     attachments/           # 上传、移除、缩略图
     usage/                 # 用量查询、筛选、指标、图表、请求日志
@@ -55,6 +56,9 @@ server/
   transport/protocol.ts    # 固定 AES-256-GCM、本次握手绑定、上传/响应分片与协议校验
   client/                  # 连接配置校验、主动 ws、重连、本地临时授权与 loopback HTTP 适配器
   workspace-runtime.ts     # Client 本机能力装配与资源关闭
+  terminal.ts              # 登录设备隔离、目录校验、容量与输出上限、授权复核和终端生命周期
+  terminal-process.ts      # 子进程 IPC 与终止兜底
+  terminal-worker.mjs       # 独立进程内的 node-pty；原生 PTY 句柄随进程回收
   desktop-watchdog.ts      # Windows 桌面主进程检查、缺失自动启动、冷却与退出清理
   app.ts                   # 本机能力单元／接口测试入口
   http/

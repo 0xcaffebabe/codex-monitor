@@ -1,5 +1,5 @@
 import { Shield, TriangleAlert } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import { cx } from '../../shared/format';
 import { MessageComposer } from '../control/MessageComposer';
 import { DetailHeader } from './DetailHeader';
@@ -8,6 +8,7 @@ import { Timeline } from './Timeline';
 import { useSessionActions } from './useSessionActions';
 import { DetailProps, useTimeline } from './useTimeline';
 import { ComputerUseTimeline } from './ComputerUseTimeline';
+const ProjectTerminal = lazy(() => import('../terminal/ProjectTerminal'));
 
 export function Detail(props: DetailProps & { focusMode?: boolean; onExitFocus?: () => void }) {
   const {
@@ -30,7 +31,9 @@ export function Detail(props: DetailProps & { focusMode?: boolean; onExitFocus?:
   const { outline, setFollow, session } = model;
   const actions = useSessionActions(session, notify);
   const [computerUseSession, setComputerUseSession] = useState('');
+  const [terminalSession, setTerminalSession] = useState('');
   useEffect(() => setComputerUseSession(''), [session?.id]);
+  useEffect(() => setTerminalSession(''), [session?.id]);
   return (
     <section className="detail-panel" aria-label="会话详情">
       <DetailHeader
@@ -46,7 +49,17 @@ export function Detail(props: DetailProps & { focusMode?: boolean; onExitFocus?:
         }}
         actions={actions}
         onComputerUse={() => setComputerUseSession(session?.id ?? '')}
+        onTerminal={user.role === 'admin' ? () => setTerminalSession(session?.id ?? '') : undefined}
       />
+      {session && terminalSession === session.id && (
+        <Suspense fallback={null}>
+          <ProjectTerminal
+            key={session.id}
+            session={session}
+            onClose={() => setTerminalSession('')}
+          />
+        </Suspense>
+      )}
       {page && session && computerUseSession === session.id && (
         <ComputerUseTimeline
           key={session.id}

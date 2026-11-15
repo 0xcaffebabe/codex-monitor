@@ -277,6 +277,7 @@ export class MonitorClient {
       clearInterval(this.heartbeat);
       this.ready = false;
       this.runtime.access.clear();
+      this.runtime.terminals.closeAll();
       for (const active of this.requests.values()) active.abort.abort();
       for (const rpc of this.rpc.values()) {
         clearTimeout(rpc.timer);
