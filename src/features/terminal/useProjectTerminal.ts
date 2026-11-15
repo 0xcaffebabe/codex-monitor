@@ -46,6 +46,7 @@ export function useProjectTerminal(sessionId: string) {
     screen.current = terminal;
     terminal.loadAddon(fit);
     terminal.open(host.current!);
+    terminal.textarea?.setAttribute('aria-label', '终端输入');
     const fitSize = () => {
       fit.fit();
       return {
@@ -179,21 +180,22 @@ export function useProjectTerminal(sessionId: string) {
       if (ready) void close();
     };
   }, [sessionId, generation]);
-  const send = useCallback((data: string) => write.current(data), []);
-  const execute = useCallback((command: string) => {
-    const terminal = screen.current;
-    if (!terminal || terminal.options.disableStdin) return;
-    terminal.paste(command);
-    write.current('\r');
+  const focus = useCallback(() => screen.current?.focus(), []);
+  const send = useCallback((data: string) => {
+    write.current(data);
+    screen.current?.focus();
   }, []);
-  const clear = useCallback(() => screen.current?.clear(), []);
+  const clear = useCallback(() => {
+    screen.current?.clear();
+    screen.current?.focus();
+  }, []);
   return {
     host,
     info,
     status,
     error,
+    focus,
     send,
-    execute,
     clear,
     restart: () => setGeneration((value) => value + 1),
   };

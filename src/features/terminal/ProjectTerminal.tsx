@@ -1,5 +1,5 @@
-import { useLayoutEffect, useRef, useState } from 'react';
-import { Eraser, LoaderCircle, RotateCcw, Send, Square, TerminalSquare, X } from 'lucide-react';
+import { useLayoutEffect, useRef } from 'react';
+import { Eraser, LoaderCircle, RotateCcw, Square, TerminalSquare, X } from 'lucide-react';
 import type { Session } from '../../types';
 import { useProjectTerminal } from './useProjectTerminal';
 import '@xterm/xterm/css/xterm.css';
@@ -16,7 +16,6 @@ export default function ProjectTerminal({
     document.activeElement instanceof HTMLElement ? document.activeElement : null,
   );
   const model = useProjectTerminal(session.id);
-  const [command, setCommand] = useState('');
   const active = model.status === 'ready';
   useLayoutEffect(() => {
     const element = dialog.current!;
@@ -26,11 +25,6 @@ export default function ProjectTerminal({
       if (opener.current?.isConnected) opener.current.focus({ preventScroll: true });
     };
   }, []);
-  const execute = () => {
-    if (!command.trim() || !active) return;
-    model.execute(command);
-    setCommand('');
-  };
   return (
     <dialog
       ref={dialog}
@@ -79,33 +73,12 @@ export default function ProjectTerminal({
           {model.error}
         </div>
       )}
-      <div className="project-terminal-screen" ref={model.host} aria-label="终端输出" />
-      <form
-        className="project-terminal-command"
-        onSubmit={(event) => {
-          event.preventDefault();
-          execute();
-        }}
-      >
-        <textarea
-          aria-label="Shell 命令"
-          placeholder="输入 Shell 命令，Enter 执行，Shift+Enter 换行"
-          rows={2}
-          value={command}
-          disabled={!active}
-          onChange={(event) => setCommand(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
-              event.preventDefault();
-              execute();
-            }
-          }}
-        />
-        <button className="primary" type="submit" disabled={!active || !command.trim()}>
-          <Send size={15} />
-          执行
-        </button>
-      </form>
+      <div
+        className="project-terminal-screen"
+        ref={model.host}
+        aria-label="终端输入和输出"
+        onClick={model.focus}
+      />
       <footer className="project-terminal-footer">
         <button type="button" disabled={!active} onClick={() => model.send('\x03')}>
           <Square size={13} />

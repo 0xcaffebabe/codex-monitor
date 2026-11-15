@@ -40,7 +40,10 @@ async function enter(page: Page, request: APIRequestContext, workspace = 'local'
 async function open(page: Page) {
   await page.getByRole('button', { name: '打开项目终端', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: '项目终端', exact: true });
-  await expect(dialog.getByLabel('Shell 命令')).toBeEnabled();
+  await expect(input(dialog)).toBeEditable();
+  await expect(input(dialog)).toBeFocused();
+  await expect(dialog.getByRole('button', { name: '执行', exact: true })).toHaveCount(0);
+  await expect(dialog.locator('.project-terminal-command')).toHaveCount(0);
   await expect(dialog.locator('.xterm-accessibility-tree')).toContainText(windows ? 'PS ' : /[$#]/);
   await waitForPrompt(dialog);
   return dialog;
@@ -59,9 +62,15 @@ async function waitForPrompt(dialog: Locator) {
 }
 async function command(dialog: Locator, text: string, shell = true) {
   if (shell) await waitForPrompt(dialog);
-  await dialog.getByLabel('Shell 命令').fill(text);
-  await dialog.getByRole('button', { name: '执行', exact: true }).click();
+  await input(dialog).focus();
+  await input(dialog).evaluate((element, value) => {
+    const clipboardData = new DataTransfer();
+    clipboardData.setData('text/plain', value);
+    element.dispatchEvent(new ClipboardEvent('paste', { clipboardData, bubbles: true }));
+  }, text);
+  await input(dialog).press('Enter');
 }
+const input = (dialog: Locator) => dialog.getByRole('textbox', { name: '终端输入', exact: true });
 const output = (dialog: Locator) => dialog.locator('.xterm-accessibility-tree');
 
 test.beforeEach(async ({}, info) => {
@@ -102,6 +111,36 @@ test('project terminal executes in the project, preserves shell state, accepts i
   let dialog = await open(page);
   const info = await (await opened).json();
   expect(info.cwd).toBe(localCwd);
+  await page.keyboard.type(
+    windows ? "Write-Output ('KEYBOARD_'+'OX')" : "printf 'KEYBOARD_%s\\n' OX",
+  );
+  for (let i = 0; i < (windows ? 3 : 1); i++) await page.keyboard.press('ArrowLeft');
+  await page.keyboard.press('Delete');
+  await page.keyboard.type('K');
+  await page.keyboard.press('End');
+  await page.keyboard.press('Enter');
+  await expect(output(dialog)).toContainText('KEYBOARD_OK');
+  await waitForPrompt(dialog);
+  await page.keyboard.press('ArrowUp');
+  await page.keyboard.press('Enter');
+  await expect
+    .poll(async () => (await output(dialog).innerText()).match(/KEYBOARD_OK/g)?.length)
+    .toBe(2);
+  await waitForPrompt(dialog);
+  await page.keyboard.press('Escape');
+  await expect(dialog).toBeVisible();
+  await expect(input(dialog)).toBeFocused();
+  await page.keyboard.type('cd chi');
+  await page.keyboard.press('Tab');
+  await expect(input(dialog)).toBeFocused();
+  await page.keyboard.press('Enter');
+  await command(
+    dialog,
+    windows
+      ? "Write-Output ('COMPLETED_' + (Split-Path -Leaf (Get-Location).Path)); Set-Location .."
+      : 'printf \'COMPLETED_%s\\n\' "${PWD##*/}"; cd ..',
+  );
+  await expect(output(dialog)).toContainText('COMPLETED_child');
   await command(
     dialog,
     windows
@@ -126,14 +165,6 @@ test('project terminal executes in the project, preserves shell state, accepts i
   await expect(output(dialog)).toContainText('INTERACTIVE_PROMPT');
   await command(dialog, 'shell-answer', false);
   await expect(output(dialog)).toContainText('REPLY_shell-answer');
-  await waitForPrompt(dialog);
-  const screen = dialog.locator('.xterm-helper-textarea');
-  await screen.focus();
-  await page.keyboard.type(
-    windows ? "Write-Output ('KEYBOARD_'+'OK')" : "printf 'KEYBOARD_%s\\n' OK",
-  );
-  await page.keyboard.press('Enter');
-  await expect(output(dialog)).toContainText('KEYBOARD_OK');
   await command(
     dialog,
     windows
@@ -149,7 +180,7 @@ test('project terminal executes in the project, preserves shell state, accepts i
       : "printf 'STREAM_%s\\n' BEGIN; sleep 30; printf 'UNEXPECTED_%s\\n' END",
   );
   await expect(output(dialog)).toContainText('STREAM_BEGIN');
-  await dialog.getByRole('button', { name: /中断命令/ }).click();
+  await page.keyboard.press('Control+c');
   await expect(output(dialog)).toContainText(
     windows ? /STREAM_BEGIN[\s\S]*PS / : /STREAM_BEGIN[\s\S]*[$#] /,
   );
@@ -159,6 +190,28 @@ test('project terminal executes in the project, preserves shell state, accepts i
   );
   await expect(output(dialog)).toContainText('AFTER_INTERRUPT');
   await expect(output(dialog)).not.toContainText('UNEXPECTED_END');
+  await command(
+    dialog,
+    windows
+      ? "Write-Output ('BUTTON_'+'BEGIN'); Start-Sleep 30"
+      : "printf 'BUTTON_%s\\n' BEGIN; sleep 30",
+  );
+  await expect(output(dialog)).toContainText('BUTTON_BEGIN');
+  await dialog.getByRole('button', { name: /中断命令/ }).click();
+  await expect(input(dialog)).toBeFocused();
+  await waitForPrompt(dialog);
+  await dialog.getByRole('button', { name: '清空终端显示', exact: true }).click();
+  await expect(input(dialog)).toBeFocused();
+  await expect(output(dialog)).not.toContainText('BUTTON_BEGIN');
+  await dialog.getByRole('heading', { name: '项目终端', exact: true }).click();
+  await dialog.locator('.project-terminal-screen').click({ position: { x: 3, y: 3 } });
+  await expect(input(dialog)).toBeFocused();
+  await page.keyboard.type(
+    windows ? "Write-Output ('DIRECT_'+'INPUT_READY')" : "printf 'DIRECT_%s\\n' INPUT_READY",
+  );
+  await page.keyboard.press('Enter');
+  await expect(output(dialog)).toContainText('DIRECT_INPUT_READY');
+  await page.screenshot({ path: test.info().outputPath('project-terminal-inline.png') });
   await page.setViewportSize({ width: 520, height: 740 });
   await expect
     .poll(async () => {
@@ -183,9 +236,10 @@ test('project terminal executes in the project, preserves shell state, accepts i
   dialog = await open(page);
   await command(dialog, 'exit 7');
   await expect(dialog.getByRole('status')).toContainText('退出码 7');
-  await expect(dialog.getByLabel('Shell 命令')).toBeDisabled();
+  await expect(input(dialog)).not.toBeEditable();
   await dialog.getByRole('button', { name: '重新打开', exact: true }).click();
-  await expect(dialog.getByLabel('Shell 命令')).toBeEnabled();
+  await expect(input(dialog)).toBeEditable();
+  await expect(input(dialog)).toBeFocused();
 });
 
 test('project terminals use the selected workspace client and report missing project directories', async ({
@@ -237,6 +291,6 @@ test('uncertain shell input stops the terminal without automatically resending c
   });
   await command(dialog, 'echo uncertain-command');
   await expect(dialog.getByRole('alert')).toContainText('输入可能已送达');
-  await expect(dialog.getByLabel('Shell 命令')).toBeDisabled();
+  await expect(input(dialog)).not.toBeEditable();
   expect(sends).toBe(1);
 });
