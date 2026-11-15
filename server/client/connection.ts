@@ -172,6 +172,7 @@ export class MonitorClient {
           encrypted = true;
           void sendFrame(socket, {
             type: 'hello',
+            capabilities: { completionNotifications: true },
             version: PROTOCOL_VERSION,
             hostname: os.hostname(),
             platform: process.platform,

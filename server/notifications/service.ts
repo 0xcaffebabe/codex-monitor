@@ -3,10 +3,12 @@ import { LarkDeliveryError, sendLark, type WebhookTransport } from './lark.js';
 import { NotificationStore, type NotificationInput, type PendingDelivery } from './store.js';
 import { notificationKey, type NotificationPolicy, type NotificationReport } from './events.js';
 import { notificationMessage } from './messages.js';
+import { CompletionNotifications } from './completions.js';
 
 /** Server-owned configuration and durable delivery queue, independent of clients and browsers. */
 export class NotificationService {
   readonly store: NotificationStore;
+  readonly completions: CompletionNotifications;
   private timer: ReturnType<typeof setInterval>;
   private closed = false;
   private busy?: Promise<void>;
@@ -21,6 +23,7 @@ export class NotificationService {
     private transport?: WebhookTransport,
   ) {
     this.store = new NotificationStore(db);
+    this.completions = new CompletionNotifications(db);
     this.timer = setInterval(() => void this.poll(), pollMs);
     this.timer.unref();
     void this.poll();
@@ -33,7 +36,7 @@ export class NotificationService {
   }
   policy(): NotificationPolicy {
     const { enabled, enabledAt, inputSince, revision } = this.store.config();
-    return { enabled, enabledAt, inputSince, revision };
+    return { enabled, enabledAt, inputSince, revision, completionSince: this.completions.since };
   }
   async configure(
     input: NotificationInput,
@@ -56,10 +59,13 @@ export class NotificationService {
   }
   receive(workspace: { id: string; name: string }, report: NotificationReport) {
     const config = this.store.config();
-    if (this.closed || !config.enabled || report.revision !== config.revision) return false;
+    if (this.closed || report.revision !== config.revision) return false;
     this.db.exec('BEGIN IMMEDIATE');
     try {
+      for (const event of report.completions ?? []) this.completions.receive(workspace, event);
       for (const event of report.events) {
+        if (event.kind === 'session.completed') this.completions.receive(workspace, event);
+        if (!config.enabled) continue;
         const key = `${workspace.id}:${notificationKey(event)}`;
         if (event.kind === 'session.input_resolved') {
           this.store.cancelInput(key);
@@ -95,6 +101,7 @@ export class NotificationService {
   }
   forgetWorkspace(workspaceId: string) {
     this.store.cancelWorkspace(workspaceId);
+    this.completions.forgetWorkspace(workspaceId);
     this.monitorErrors.delete(workspaceId);
   }
   poll() {

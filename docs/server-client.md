@@ -109,7 +109,7 @@ Client 地址要求为 origin，不带路径、查询和用户名密码。可使
 - 每个工作空间生成独立 256 位随机 AES 密钥。Server 保存在私有 `monitor.sqlite` 的工作空间表，client 保存在本地配置或密钥文件。重连不派生、不轮换共享密钥。
 - ws 握手使用 HMAC-SHA256 证明持有密钥，签名包含工作空间、时间戳与一次性随机数。Server 校验时间窗口和重复签名，线上不发送密钥或浏览器登录令牌。两端系统时间应保持同步，允许 60 秒偏差。
 - 每条业务消息使用 AES-256-GCM、独立随机 96 位 IV 和 128 位认证标签。公开随机连接标识仅绑定认证上下文，不参与密钥派生。AAD 同时绑定协议版本、连接、本次客户端握手凭证的摘要、方向与递增序号；即使攻击者复用录制的连接标识，也无法向新连接重放旧服务端消息。
-- 当前传输协议为 v3，增加通知策略、事件上报和持久化接收确认。Server 与所有 client 需要一起更新并重启，固定 AES 密钥无需更换；旧版 client 会被拒绝接入。
+- 当前传输协议为 v3，包含通知策略、事件上报和持久化接收确认。网页完成通知通过 client 能力声明增加独立扫描边界与上报批次，需要更新 Server 和对应 client 才能使用；未声明此能力的 v3 client 保持原 Webhook 行为，固定 AES 密钥无需更换。更早协议的 client 会被拒绝接入。
 - 公共连接标识、协议版本及 WebSocket 控制帧不含业务内容；请求路径、用户身份、消息、附件、响应和事件均在加密负载中。
 - 管理员可以“轮换密钥”，立即断开旧连接；将新密钥更新到 client 本地并重启。旧密钥不能重新接入。同一工作空间同时只允许一个活动 client，其他连接不会挤掉现有连接。
 - 默认本机工作空间的密钥由一体启动管理，保存在 `.monitor/local-client-key`，不通过 Web 页面轮换。
@@ -118,7 +118,7 @@ AES 加密范围是 Server 与 client 之间的 ws。浏览器与 Server 之间�
 
 ## 请求与故障语义
 
-- 工作空间受保护路由为 `/api/workspaces/:workspaceId/sessions`、`/overview`、`/control`、`/uploads`、`/usage`、`/stream`。账户、设备、工作空间管理和全局 `/api/notifications`、`/api/notifications/test` 由 Server 本身处理，不经过 client 的 HTTP 转发；通知接口仅管理员可访问。
+- 工作空间受保护路由为 `/api/workspaces/:workspaceId/sessions`、`/overview`、`/control`、`/uploads`、`/usage`、`/stream`。账户、设备、工作空间管理和全局通知接口由 Server 本身处理，不经过 client 的 HTTP 转发；`/api/notifications`、`/api/notifications/test` 仅管理员可访问。`GET /api/notifications/completions` 面向所有已登录用户，仅返回完成通知的序号、工作空间、会话、标题和完成时间，不返回投递正文或凭据。
 - Client 只转发明确允许的本机能力路径，内部 HTTP 适配器绑定随机 loopback 端口，每个请求使用临时随机授权，不接收任意 URL、账户管理或任意文件路径。
 - Client 对初始身份和实际控制提交向 Server 做反向权限复核。浏览器退出或设备撤销后进行中的 SSE 会终止，尚未实际提交的命令重新检查设备权限；已受理消息队列按当前账户管理员权限处理。
 - 连接每 15 秒检测心跳，断开后按 1、2、4…30 秒退避重连。离线工作空间继续保留，页面显示离线；恢复后自动重建浏览器实时流。

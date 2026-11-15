@@ -154,6 +154,19 @@ export interface NotificationDelivery {
   createdAt: number;
   sentAt: number | null;
 }
+export interface CompletionNotification {
+  id: number;
+  workspaceId: string;
+  workspaceName: string;
+  sessionId: string;
+  title: string;
+  completedAt: number;
+}
+export interface CompletionNotificationPage {
+  cursor: number;
+  notifications: CompletionNotification[];
+  hasMore: boolean;
+}
 export interface UsageSummary {
   requests: number;
   sessions: number;

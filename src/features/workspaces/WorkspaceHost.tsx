@@ -6,6 +6,7 @@ import { ClientManager } from './ClientManager';
 import { Brand } from '../../shared/ui/Brand';
 import { useState } from 'react';
 import { Settings } from '../settings/Settings';
+import { CompletionNotifications } from '../notifications/CompletionNotifications';
 
 export function WorkspaceHost(props: WorkspaceProps) {
   const model = useWorkspaces();
@@ -39,6 +40,7 @@ export function WorkspaceHost(props: WorkspaceProps) {
   );
   return (
     <>
+      <CompletionNotifications key={props.user.id} userId={props.user.id} />
       {model.loading ? (
         <div className="full-loader">
           <Brand />

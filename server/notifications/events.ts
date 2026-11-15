@@ -8,16 +8,19 @@ const session = {
   project: z.string().max(200),
 };
 
+export const completionEventSchema = z
+  .object({
+    kind: z.literal('session.completed'),
+    ...session,
+    turnId: identifier,
+    occurredAt,
+    summary: z.string().max(1000),
+  })
+  .strict();
+export type CompletionEvent = z.infer<typeof completionEventSchema>;
+
 export const notificationEventSchema = z.discriminatedUnion('kind', [
-  z
-    .object({
-      kind: z.literal('session.completed'),
-      ...session,
-      turnId: identifier,
-      occurredAt,
-      summary: z.string().max(1000),
-    })
-    .strict(),
+  completionEventSchema,
   z
     .object({
       kind: z.literal('session.input_required'),
@@ -54,6 +57,7 @@ export const notificationPolicySchema = z
     enabledAt: occurredAt,
     inputSince: occurredAt,
     revision: z.number().int().nonnegative(),
+    completionSince: occurredAt.optional(),
   })
   .strict();
 export type NotificationPolicy = z.infer<typeof notificationPolicySchema>;
@@ -61,9 +65,11 @@ export const notificationReportSchema = z
   .object({
     revision: z.number().int().nonnegative(),
     events: z.array(notificationEventSchema).max(4),
+    completions: z.array(completionEventSchema).max(4).optional(),
     monitorError: z.enum(['', '完成事件暂时不可读，后台正在重试']),
   })
-  .strict();
+  .strict()
+  .refine((report) => report.events.length + (report.completions?.length ?? 0) <= 4);
 export type NotificationReport = z.infer<typeof notificationReportSchema>;
 
 export function notificationKey(event: NotificationEvent) {

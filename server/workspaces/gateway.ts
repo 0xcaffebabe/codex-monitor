@@ -38,9 +38,17 @@ type Peer = {
   alive: boolean;
   hostname: string;
   platform: string;
+  completionNotifications: boolean;
   pending: Map<string, Pending>;
   grants: Map<string, string>;
-  notificationPolicies: Map<number, { timer: ReturnType<typeof setTimeout>; done: () => void }>;
+  notificationPolicies: Map<
+    number,
+    {
+      timer: ReturnType<typeof setTimeout>;
+      done: () => void;
+      promise: Promise<void>;
+    }
+  >;
 };
 const nameSchema = z.object({ name: z.string().trim().min(1).max(80) }).strict();
 
@@ -102,20 +110,28 @@ export class WorkspaceGateway {
     ).then(() => {});
   }
   private sendNotificationPolicy(peer: Peer, policy: NotificationPolicy, baseline: boolean) {
-    return new Promise<void>((resolve) => {
-      peer.notificationPolicies.get(policy.revision)?.done();
-      const done = () => {
-        clearTimeout(timer);
-        peer.notificationPolicies.delete(policy.revision);
-        resolve();
-      };
-      const timer = setTimeout(done, 5000);
-      peer.notificationPolicies.set(policy.revision, { timer, done });
-      void sendFrame(peer.socket, { type: 'notification-policy', policy, baseline }).catch(() => {
-        done();
-        peer.socket.terminate();
-      });
+    const pending = peer.notificationPolicies.get(policy.revision);
+    if (pending) return pending.promise;
+    if (!peer.completionNotifications) {
+      const { completionSince: _completionSince, ...legacy } = policy;
+      policy = legacy;
+    }
+    let resolve!: () => void;
+    const promise = new Promise<void>((complete) => {
+      resolve = complete;
     });
+    const done = () => {
+      clearTimeout(timer);
+      peer.notificationPolicies.delete(policy.revision);
+      resolve();
+    };
+    const timer = setTimeout(done, 5000);
+    peer.notificationPolicies.set(policy.revision, { timer, done, promise });
+    void sendFrame(peer.socket, { type: 'notification-policy', policy, baseline }).catch(() => {
+      done();
+      peer.socket.terminate();
+    });
+    return promise;
   }
   attach(server: Server, allowed: (req: IncomingMessage) => boolean) {
     const upgrade = (req: IncomingMessage, socket: import('node:stream').Duplex, head: Buffer) => {
@@ -154,6 +170,7 @@ export class WorkspaceGateway {
       alive: true,
       hostname: '',
       platform: '',
+      completionNotifications: false,
       pending: new Map(),
       grants: new Map(),
       notificationPolicies: new Map(),
@@ -176,6 +193,7 @@ export class WorkspaceGateway {
           peer.ready = true;
           peer.hostname = frame.hostname;
           peer.platform = frame.platform;
+          peer.completionNotifications = !!frame.capabilities?.completionNotifications;
           clearTimeout(handshake);
           this.store.seen(id, frame.hostname, frame.platform);
           void sendFrame(socket, {

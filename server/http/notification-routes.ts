@@ -39,6 +39,18 @@ export function installNotificationRoutes(
   notifications: NotificationService,
   authorized?: (req: Request) => Promise<boolean>,
 ) {
+  // All authenticated readers can already read sessions in every registered workspace.
+  app.get('/api/notifications/completions', (req, res) => {
+    const after = req.query.after;
+    if (
+      after !== undefined &&
+      (typeof after !== 'string' ||
+        !/^\d{1,16}$/.test(after) ||
+        !Number.isSafeInteger(Number(after)))
+    )
+      return fail(res, 400, '通知游标无效');
+    res.json(notifications.completions.page(after === undefined ? undefined : Number(after)));
+  });
   app.get('/api/notifications', admin, (_req, res) => res.json(notifications.state()));
   app.put('/api/notifications', admin, async (req, res) => {
     const parsed = settings.safeParse(req.body);
