@@ -3,6 +3,20 @@ import test from 'node:test';
 import { groupTimelineEvents, mergeSessionPage } from '../src/features/session/session-model.js';
 import { sessionRows } from '../src/features/workspace/session-list-model.js';
 import type { Session, SessionPage, TimelineEvent } from '../src/types.js';
+import { relative } from '../src/shared/format.js';
+
+test('activity time shows seconds on request and crosses minute and hour boundaries', () => {
+  const now = new Date(2026, 10, 16, 12).getTime();
+  const activity = (age: number) => relative(now - age, { now, seconds: true });
+  assert.equal(activity(-1000), '刚刚');
+  assert.equal(activity(999), '刚刚');
+  assert.equal(activity(1000), '1 秒前');
+  assert.equal(activity(59000), '59 秒前');
+  assert.equal(activity(60000), '1 分钟前');
+  assert.equal(activity(3599999), '59 分钟前');
+  assert.equal(activity(3600000), '1 小时前');
+  assert.equal(relative(now - 5000, { now }), '刚刚');
+});
 
 const session = (id: string, values: Partial<Session> = {}): Session => ({
   id,

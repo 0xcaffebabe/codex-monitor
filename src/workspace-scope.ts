@@ -12,8 +12,9 @@ export function workspaceUrl(url: string) {
 export function workspaceStorageKey(key: string) {
   return active && active !== 'local' ? `codex-monitor.workspace.${active}.${key}` : key;
 }
-export function navigateWorkspace(id: string) {
+export function navigateWorkspace(id: string, sessionId?: string) {
   const params = new URLSearchParams();
   params.set('workspace', id);
+  if (sessionId) params.set('session', sessionId);
   location.assign(location.pathname + '?' + params.toString());
 }

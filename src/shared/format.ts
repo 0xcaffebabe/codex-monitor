@@ -10,8 +10,12 @@ export const time = (n: number) =>
   );
 export const date = (n: number) =>
   new Intl.DateTimeFormat('zh-CN', { month: 'short', day: 'numeric' }).format(n || Date.now());
-export function relative(n: number) {
-  const delta = Math.max(0, Date.now() - n);
+export function relative(
+  n: number,
+  { now = Date.now(), seconds = false }: { now?: number; seconds?: boolean } = {},
+) {
+  const delta = Math.max(0, now - n);
+  if (seconds && delta >= 1000 && delta < 60000) return `${Math.floor(delta / 1000)} 秒前`;
   return delta < 60000
     ? '刚刚'
     : delta < 3600000

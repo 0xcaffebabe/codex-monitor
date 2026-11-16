@@ -1970,7 +1970,11 @@ test('mobile fixed shortcuts switch running conversations and can collapse', asy
     await page.getByTitle('收起进行中会话快捷栏').click();
     await expect(shortcuts.getByRole('button', { name: /^切换到/ })).toHaveCount(0);
     await page.getByTitle('展开正在进行的会话').click();
-    await expect(shortcuts.getByRole('button', { name: /^切换到/ })).toHaveCount(2);
+    await expect(
+      shortcuts
+        .getByRole('region', { name: '本机工作空间的进行中会话' })
+        .getByRole('button', { name: /^切换到/ }),
+    ).toHaveCount(2);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
       true,
     );

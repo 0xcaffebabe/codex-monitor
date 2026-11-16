@@ -87,6 +87,53 @@
     padding: 7px;
     gap: 3px;
   }
+  .running-workspace {
+    flex-shrink: 0;
+    min-width: 0;
+  }
+  .running-workspace + .running-workspace {
+    border-top: 1px solid var(--line);
+    margin-top: 4px;
+    padding-top: 7px;
+  }
+  .running-workspace-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin: 0;
+    padding: 8px 9px;
+    font-size: 10px;
+    font-weight: 400;
+    color: var(--muted);
+  }
+  .running-workspace-header > strong {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-weight: 600;
+    color: var(--ink);
+  }
+  .running-workspace-header > span {
+    font-variant-numeric: tabular-nums;
+  }
+  .running-workspace-header > small {
+    color: var(--accent);
+    font-size: 9px;
+    white-space: nowrap;
+  }
+  .running-workspace-sessions {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+  }
+  .running-workspace-message {
+    margin: 0;
+    padding: 10px 9px 14px;
+    color: var(--muted);
+    font-size: 10px;
+  }
   .running-shortcut {
     flex-direction: row;
     align-items: flex-start;
@@ -140,6 +187,11 @@
     height: 4px;
     width: 4px;
     margin-left: 6px;
+  }
+  .running-last-active {
+    margin-left: auto;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
   }
   .running-shortcut > svg {
     align-self: center;

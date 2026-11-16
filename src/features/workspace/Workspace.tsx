@@ -22,13 +22,16 @@ import { SessionPanel } from './SessionPanel';
 import { Sidebar } from './Sidebar';
 import { useWorkspace, WorkspaceProps } from './useWorkspace';
 import { useDesktopLayout } from './useDesktopLayout';
+import type { RunningWorkspace } from '../workspaces/useRunningSessions';
+import { navigateWorkspace } from '../../workspace-scope';
 
-export function Workspace(props: WorkspaceProps) {
+export function Workspace(
+  props: WorkspaceProps & { workspaceId: string; runningWorkspaces: RunningWorkspace[] },
+) {
   const { user } = props;
   const model = useWorkspace();
   const {
     overview,
-    runningSessions,
     setSidebarView,
     tab,
     setTab,
@@ -267,7 +270,15 @@ export function Workspace(props: WorkspaceProps) {
         )}
       </main>
       {!menu && !settings && (
-        <RunningSwitcher sessions={runningSessions} selected={selected} onSelect={select} />
+        <RunningSwitcher
+          workspaces={props.runningWorkspaces}
+          activeWorkspaceId={props.workspaceId}
+          selected={selected}
+          onSelect={(workspaceId, sessionId) => {
+            if (workspaceId === props.workspaceId) select(sessionId);
+            else navigateWorkspace(workspaceId, sessionId);
+          }}
+        />
       )}
       {settings && (
         <Settings

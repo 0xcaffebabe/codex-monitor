@@ -93,6 +93,103 @@ async function enter(page: Page, request: APIRequestContext, query = '') {
   return token;
 }
 
+test('mobile running shortcuts group workspaces and open identical session IDs in the right client', async ({
+  page,
+  request,
+}) => {
+  test.skip(test.info().project.name !== 'mobile', 'The fixed running switcher is mobile only');
+  await enter(page, request, `workspace=local&session=${ids.modern}`);
+  const shortcuts = page.getByRole('navigation', { name: '正在进行的会话快捷切换' });
+  const local = shortcuts.getByRole('region', { name: '本机工作空间的进行中会话' });
+  const remote = shortcuts.getByRole('region', { name: '第二台测试电脑的进行中会话' });
+  await expect(shortcuts.locator('.running-launcher')).toHaveText('2');
+  await page.getByTitle('展开正在进行的会话').click();
+  await expect(local.getByRole('heading')).toContainText('当前空间');
+  await expect(local.getByRole('button')).toHaveAttribute('aria-current', 'page');
+  await expect(remote.getByRole('button')).not.toHaveAttribute('aria-current');
+  await expect(remote.getByRole('button')).toContainText('第二台电脑的独立会话');
+  await remote.getByRole('button').click();
+  await expect(page).toHaveURL(new RegExp(`workspace=${second}&session=${ids.modern}`));
+  await expect(page.locator('.detail-heading')).toContainText('第二台电脑的独立会话');
+  await expect(shortcuts).toHaveClass(/collapsed/);
+  await page.getByTitle('展开正在进行的会话').click();
+  await expect(remote.getByRole('heading')).toContainText('当前空间');
+  await expect(remote.getByRole('button')).toHaveAttribute('aria-current', 'page');
+  await expect(local.getByRole('button')).not.toHaveAttribute('aria-current');
+  await local.getByRole('button').click();
+  await expect(page).toHaveURL(new RegExp(`workspace=local&session=${ids.modern}`));
+  await expect(page.locator('.detail-heading')).toContainText('开发 codex-monitor');
+});
+
+test('mobile running shortcuts update activity times and recover individual workspace lists', async ({
+  page,
+  request,
+}) => {
+  test.skip(test.info().project.name !== 'mobile', 'The fixed running switcher is mobile only');
+  const now = Date.now();
+  let mode: 'running' | 'empty' | 'error' | 'offline' = 'running';
+  await page.route('**/api/workspaces', async (route) => {
+    const response = await route.fetch();
+    const body = await response.json();
+    if (mode === 'offline')
+      body.workspaces.find((workspace: { id: string }) => workspace.id === second).online = false;
+    await route.fulfill({ response, json: body });
+  });
+  await page.route('**/api/workspaces/*/sessions?*', async (route) => {
+    const url = new URL(route.request().url());
+    if (url.searchParams.get('status') !== 'running') return route.continue();
+    const remote = url.pathname.includes(second);
+    if (remote && mode === 'error')
+      return route.fulfill({ status: 503, json: { error: '测试连接失败' } });
+    const response = await route.fetch();
+    const body = await response.json();
+    if (remote && mode === 'empty') {
+      body.sessions = [];
+      body.total = 0;
+    }
+    for (const session of body.sessions) session.updatedAt = now - (remote ? 125000 : 5000);
+    await route.fulfill({ response, json: body });
+  });
+  await page.clock.install({ time: now });
+  await enter(page, request, 'workspace=local');
+  const shortcuts = page.getByRole('navigation', { name: '正在进行的会话快捷切换' });
+  await expect(shortcuts.locator('.running-launcher')).toHaveText('2');
+  await page.getByTitle('展开正在进行的会话').click();
+  const local = shortcuts.getByRole('region', { name: '本机工作空间的进行中会话' });
+  const remote = shortcuts.getByRole('region', { name: '第二台测试电脑的进行中会话' });
+  const localTime = local.locator('time');
+  await expect(localTime).toHaveText(/^\d+ 秒前$/);
+  await expect(remote.locator('time')).toHaveText('2 分钟前');
+  await expect(localTime).toHaveAttribute('datetime', new Date(now - 5000).toISOString());
+  await expect(localTime).toHaveAttribute('title', /^最后活跃：/);
+  const initialTime = await localTime.textContent();
+  await page.clock.fastForward(1000);
+  await expect(localTime).not.toHaveText(initialTime!);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.screenshot({
+    path: test.info().outputPath('all-workspaces-running.png'),
+    fullPage: true,
+  });
+  await page.clock.fastForward(60000);
+  await expect(localTime).toHaveText('1 分钟前');
+  mode = 'empty';
+  await page.clock.fastForward(3000);
+  await expect(remote).toContainText('暂无进行中的会话');
+  await expect(remote.getByRole('button')).toHaveCount(0);
+  await expect(local.getByRole('button')).toHaveCount(1);
+  mode = 'error';
+  await page.clock.fastForward(3000);
+  await expect(remote).toContainText('暂时无法加载，正在重试');
+  await expect(local.getByRole('button')).toHaveCount(1);
+  mode = 'offline';
+  await page.clock.fastForward(3000);
+  await expect(remote).toContainText('空间已离线');
+  mode = 'running';
+  await page.clock.fastForward(3000);
+  await expect(remote.getByRole('button')).toHaveCount(1);
+  await expect(shortcuts.locator('.running-switcher-header')).toContainText('2');
+});
+
 test('shows real host CPU and memory for connected clients in the header and management list', async ({
   page,
   request,

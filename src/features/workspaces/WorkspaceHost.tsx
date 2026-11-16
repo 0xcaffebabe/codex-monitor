@@ -8,9 +8,11 @@ import { useState } from 'react';
 import { Settings } from '../settings/Settings';
 import { ResourceMetrics } from './ResourceMetrics';
 import { CompletionNotifications } from '../notifications/CompletionNotifications';
+import { useRunningSessions } from './useRunningSessions';
 
 export function WorkspaceHost(props: WorkspaceProps) {
   const model = useWorkspaces();
+  const runningWorkspaces = useRunningSessions(model.workspaces);
   const [accessOpen, setAccessOpen] = useState(false);
   const controls = (
     <div className="workspace-selector">
@@ -56,6 +58,8 @@ export function WorkspaceHost(props: WorkspaceProps) {
       ) : model.active ? (
         <Workspace
           {...props}
+          workspaceId={model.active.id}
+          runningWorkspaces={runningWorkspaces}
           workspaceName={model.active.name}
           workspaceControls={controls}
           workspaceNotice={

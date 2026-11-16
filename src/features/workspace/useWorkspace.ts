@@ -43,7 +43,6 @@ export function useWorkspace() {
   } = useSessionList({ query, project, tab, subagents });
   const {
     overview,
-    runningSessions,
     recentSessions,
     recentLoaded,
     recentError,
@@ -152,7 +151,6 @@ export function useWorkspace() {
 
   return {
     overview,
-    runningSessions,
     recentSessions,
     recentLoaded,
     recentError,
