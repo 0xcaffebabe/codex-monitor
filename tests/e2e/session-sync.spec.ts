@@ -1,5 +1,5 @@
 import { test, expect, type Page, type APIRequestContext } from '@playwright/test';
-import { readFileSync } from 'node:fs';
+import { readFileSync, appendFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { DatabaseSync } from 'node:sqlite';
@@ -34,6 +34,37 @@ async function enter(page: Page, request: APIRequestContext) {
   await page.goto('/');
   await expect(page.getByRole('heading', { name: '全部会话', exact: true })).toBeVisible();
 }
+
+test('a generated title updates the conversation heading and recent sessions without reloading', async ({
+  page,
+  request,
+}) => {
+  const index = path.join(root, 'codex', 'session_index.jsonl');
+  let original: Buffer;
+  try {
+    original = readFileSync(index);
+  } catch {
+    original = Buffer.alloc(0);
+  }
+  await enter(page, request);
+  await page.getByTestId('session-row').filter({ hasText: '开发 codex-monitor' }).click();
+  await expect(page.locator('.detail-heading h1')).toHaveText('开发 codex-monitor 实时监控');
+  await expect(page.locator('.connection')).toContainText('实时同步');
+  const title = `自动概括会话标题 ${test.info().project.name}`;
+  try {
+    appendFileSync(index, JSON.stringify({ id: ids.modern, thread_name: title }) + '\n');
+    await expect(page.locator('.detail-heading h1')).toHaveText(title, { timeout: 8000 });
+    if (test.info().project.name === 'mobile') {
+      await page.getByRole('button', { name: '打开菜单', exact: true }).click();
+      await expect(
+        page.getByRole('button', { name: `打开会话：${title}`, exact: true }),
+      ).toBeVisible();
+    } else
+      await expect(page.getByTestId('session-row').filter({ hasText: title })).toBeVisible();
+  } finally {
+    writeFileSync(index, original);
+  }
+});
 
 test('new sessions wait for synchronization, survive reload and recover without SSE', async ({
   page,

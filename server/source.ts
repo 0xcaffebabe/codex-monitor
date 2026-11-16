@@ -101,7 +101,7 @@ export class CodexSource {
       const stat = statSync(file);
       fingerprint = `${stat.size}-${stat.mtimeMs}`;
     }
-    return `${s.updatedAt}-${s.status}-${fingerprint}`;
+    return JSON.stringify([s.updatedAt, s.status, s.title, fingerprint]);
   }
   async detail(id: string, before?: number, limit = 70): Promise<SessionPage | null> {
     const s = await this.get(id);

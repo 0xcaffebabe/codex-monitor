@@ -7,6 +7,55 @@ import { createApp } from '../server/app.js';
 import { fixture, ids } from './fixture.js';
 import { FixtureDesktop } from './control-fixture.js';
 
+test('title-only changes notify list viewers and selected older conversations over SSE', async () => {
+  const f = fixture();
+  f.state.exec('ALTER TABLE threads ADD COLUMN name TEXT');
+  f.state.prepare('UPDATE threads SET updated_at_ms=updated_at_ms+1000 WHERE id=?').run(ids.modern);
+  f.config.pollMs = 20;
+  const service = createApp(f.config, { control: new FixtureDesktop(f) });
+  const server = service.app.listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  const base = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
+  const owner = await service.auth.setup('owner', 'a-long-password');
+  const { token } = service.auth.issue(owner, 'title test');
+  const controller = new AbortController();
+  const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(5000)]);
+  const connect = async (query: string) => {
+    const response = await fetch(base + '/api/stream' + query, {
+      headers: { Authorization: `Bearer ${token}` },
+      signal,
+    });
+    assert.equal(response.status, 200);
+    return response.body!.getReader();
+  };
+  const update = async (reader: ReadableStreamDefaultReader<Uint8Array>) => {
+    for (;;) {
+      const { value, done } = await reader.read();
+      assert.equal(done, false);
+      if (new TextDecoder().decode(value).includes('event: update')) return;
+    }
+  };
+  try {
+    const list = await connect('');
+    const selected = await connect(`?session=${ids.legacy}`);
+    await Promise.all([update(list), update(selected)]);
+    f.state.prepare('UPDATE threads SET name=? WHERE id=?').run('旧会话的新标题', ids.legacy);
+    await service.source.refresh(true);
+    await update(selected);
+    f.state.prepare('UPDATE threads SET name=? WHERE id=?').run('新会话的概括标题', ids.modern);
+    await service.source.refresh(true);
+    await update(list);
+    assert.equal((await service.source.detail(ids.legacy))!.session.title, '旧会话的新标题');
+    assert.equal((await service.source.list({ limit: 1 })).sessions[0].title, '新会话的概括标题');
+  } finally {
+    controller.abort();
+    await service.close();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    f.close();
+    rmSync(f.root, { recursive: true, force: true });
+  }
+});
+
 test('SSE viewers share slow polls, enforce connection limits, release slots and stop revoked streams', async () => {
   const f = fixture();
   f.config.pollMs = 30;

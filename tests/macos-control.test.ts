@@ -6,8 +6,9 @@ import { EventEmitter } from 'node:events';
 import { PassThrough, Writable } from 'node:stream';
 import { setImmediate as nextTick } from 'node:timers/promises';
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
+import type { generateSessionTitle } from '../server/session-title.js';
 
-function fixture() {
+function fixture(generateTitle: typeof generateSessionTitle = async () => undefined) {
   const calls: { method: string; params: any }[] = [],
     ownerCalls: any[] = [];
   let status = 'idle',
@@ -60,6 +61,7 @@ function fixture() {
     { codexHome: '/tmp/codex', activity: () => f.activity },
     {
       native,
+      generateTitle,
       owner: async (...args) => {
         ownerCalls.push(args);
         if (f.ownerError) throw f.ownerError;
@@ -84,6 +86,7 @@ test('completed CLI threads release the writer for desktop handoff; active goals
     { codexHome: '/tmp/codex', activity: () => undefined },
     {
       native: metadata,
+      generateTitle: async () => undefined,
       launch: () => {
         const child = new EventEmitter() as any;
         child.stdout = new PassThrough();
@@ -190,6 +193,83 @@ test('macOS creation uses native project identity and preserves permissions when
   assert.equal(start.params.sandboxPolicy, undefined);
   assert.equal(f.ownerCalls.length, 0);
   await assert.rejects(f.control.create('context', 'missing-project', 'hello'), /项目不可用/);
+});
+
+test('new sessions save a generated native name in the background without adding conversation turns', async () => {
+  let finish!: (title: string) => void;
+  const title = new Promise<string>((resolve) => {
+    finish = resolve;
+  });
+  const inputs: any[] = [];
+  const f = fixture(async (input) => {
+    inputs.push(input);
+    return title;
+  });
+  try {
+    assert.deepEqual(await f.control.create('', 'project', '排查内存统计', { model: 'model' }), {
+      threadId: 'thread',
+    });
+    assert.equal(inputs[0].prompt, '排查内存统计');
+    assert.equal(inputs[0].cwd, '/tmp/project with spaces');
+    assert.equal(inputs[0].model, 'model');
+    assert.equal(
+      f.calls.some((call) => call.method === 'thread/name/set'),
+      false,
+    );
+    finish('修复内存统计');
+    await nextTick();
+    assert.deepEqual(f.calls.find((call) => call.method === 'thread/name/set')?.params, {
+      threadId: 'thread',
+      name: '修复内存统计',
+    });
+    assert.equal(f.calls.filter((call) => call.method === 'turn/start').length, 1);
+    assert.equal(f.calls.filter((call) => call.method === 'thread/resume').length, 0);
+    await f.control.send('', 'thread', '继续');
+    assert.equal(inputs.length, 1, 'continuations do not regenerate the title');
+  } finally {
+    f.control.close();
+  }
+});
+
+test('late title results preserve existing names and cannot write after shutdown', async () => {
+  for (const mode of ['renamed', 'closed', 'empty', 'failed']) {
+    let finish!: (title: string | undefined) => void;
+    let signal: AbortSignal | undefined;
+    const title = new Promise<string | undefined>((resolve) => {
+      finish = resolve;
+    });
+    const f = fixture(async (input) => {
+      signal = input.signal;
+      if (mode === 'failed') throw new Error('title unavailable');
+      return title;
+    });
+    const warn = test.mock.method(console, 'warn', () => {});
+    try {
+      await f.control.create('', 'project', 'hello');
+      if (mode === 'renamed') {
+        const request = f.native.request;
+        f.native.request = async (method, params) =>
+          method === 'thread/read'
+            ? { thread: { id: params.threadId, name: '用户保存的名称' } }
+            : request(method, params);
+      }
+      if (mode === 'closed') {
+        f.control.close();
+        assert.equal(signal?.aborted, true);
+      }
+      finish(mode === 'empty' ? undefined : '自动标题');
+      await nextTick();
+      assert.equal(
+        f.calls.some((call) => call.method === 'thread/name/set'),
+        false,
+        mode,
+      );
+      assert.equal(f.calls.filter((call) => call.method === 'turn/start').length, 1);
+    } finally {
+      f.control.close();
+      warn.mock.restore();
+    }
+  }
 });
 
 test('explicit creation permissions configure the native sandbox and route approvals to the user', async () => {

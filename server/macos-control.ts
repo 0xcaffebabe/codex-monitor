@@ -10,6 +10,7 @@ import {
 } from './native.js';
 import type { SessionModelSettings, SessionCreationSettings } from '../src/types.js';
 import { NativeApprovals } from './native-approvals.js';
+import { generateSessionTitle } from './session-title.js';
 
 type Activity = { turnId: string; running: boolean; compacting: boolean };
 type Options = {
@@ -42,6 +43,7 @@ export class MacDesktopControl implements DesktopControl {
   private compacting = new Set<string>();
   private closed = false;
   private lanes = new Map<string, Promise<void>>();
+  private titleJobs = new Map<string, AbortController>();
 
   constructor(
     private options: Options,
@@ -49,6 +51,7 @@ export class MacDesktopControl implements DesktopControl {
       native?: NativeControl;
       owner?: typeof requestOwnedThread;
       launch?: ConstructorParameters<typeof NativeRpc>[1];
+      generateTitle?: typeof generateSessionTitle;
     } = {},
   ) {
     this.native = dependencies.native ?? new NativeRpc(options.codexHome);
@@ -341,6 +344,40 @@ export class MacDesktopControl implements DesktopControl {
     return { threadId };
   }
 
+  private async nameNewSession(threadId: string, cwd: string, prompt: string, model?: string) {
+    if (this.closed || this.titleJobs.has(threadId)) return;
+    const job = new AbortController();
+    this.titleJobs.set(threadId, job);
+    try {
+      const name = await (this.dependencies.generateTitle ?? generateSessionTitle)({
+        codexHome: this.options.codexHome,
+        cwd,
+        prompt,
+        model,
+        signal: job.signal,
+      });
+      if (!name || this.closed || job.signal.aborted) return;
+      // Read metadata without acquiring the conversation's writer. Preserve any
+      // name the user or the desktop saved while generation was in progress.
+      const { thread } = await this.native.request('thread/read', {
+        threadId,
+        includeTurns: false,
+      });
+      if (this.closed || job.signal.aborted || thread?.id !== threadId || thread.name?.trim())
+        return;
+      await this.native.request('thread/name/set', { threadId, name });
+    } catch (error) {
+      if (!this.closed && !job.signal.aborted)
+        console.warn(
+          '自动生成会话标题失败：',
+          threadId,
+          error instanceof Error ? error.message : error,
+        );
+    } finally {
+      this.titleJobs.delete(threadId);
+    }
+  }
+
   async create(
     context: string,
     projectId: string,
@@ -397,6 +434,7 @@ export class MacDesktopControl implements DesktopControl {
         502,
       );
     }
+    void this.nameNewSession(thread.id, project.path, prompt, settings.model);
     return { threadId: thread.id };
   }
 
@@ -498,6 +536,8 @@ export class MacDesktopControl implements DesktopControl {
 
   close() {
     this.closed = true;
+    for (const job of this.titleJobs.values()) job.abort();
+    this.titleJobs.clear();
     this.approvals.close();
     this.fileChanges.clear();
     for (const runtime of new Set([

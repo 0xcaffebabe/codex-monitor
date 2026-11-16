@@ -46,7 +46,14 @@ export function installRealtime(
       const overview = await source.overview();
       if (closed) return;
       const list = await source.list({ limit: 1, archived: 'all', sort: 'recent' });
-      const fingerprint = `${overview.total}-${overview.running}-${list.sessions[0]?.updatedAt}`;
+      const newest = list.sessions[0];
+      const fingerprint = JSON.stringify([
+        overview.total,
+        overview.running,
+        newest?.id,
+        newest?.updatedAt,
+        newest?.title,
+      ]);
       const versions = new Map<string, string>();
       const failed = new Set<string>();
       for (const client of authorized) {

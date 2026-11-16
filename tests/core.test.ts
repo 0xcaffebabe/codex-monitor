@@ -447,6 +447,40 @@ test('authenticated API enforces setup, roles, ownership, revocation and input b
   }
 });
 
+test('native names and index titles refresh metadata versions without changing conversation activity', async () => {
+  const f = fixture();
+  f.state.exec('ALTER TABLE threads ADD COLUMN name TEXT');
+  const source = new CodexSource(f.home);
+  try {
+    const before = await source.get(ids.modern);
+    const version = await source.version(ids.modern);
+    writeFileSync(
+      path.join(f.home, 'session_index.jsonl'),
+      JSON.stringify({ id: ids.modern, thread_name: '自动概括的标题' }) + '\n',
+    );
+    await source.refresh(true);
+    assert.equal((await source.get(ids.modern))!.title, '自动概括的标题');
+    assert.notEqual(await source.version(ids.modern), version);
+    const indexedVersion = await source.version(ids.modern);
+    f.state.prepare('UPDATE threads SET name=? WHERE id=?').run('原生会话名称', ids.modern);
+    await source.refresh(true);
+    const renamed = await source.get(ids.modern);
+    assert.equal(renamed!.title, '原生会话名称');
+    assert.equal(renamed!.updatedAt, before!.updatedAt);
+    assert.notEqual(await source.version(ids.modern), indexedVersion);
+    assert.equal((await source.detail(ids.modern))!.session.title, '原生会话名称');
+    assert.equal(
+      f.state.prepare('SELECT first_user_message FROM threads WHERE id=?').get(ids.modern)!
+        .first_user_message,
+      '请开发这个应用',
+    );
+  } finally {
+    source.close();
+    f.close();
+    rmSync(f.root, { recursive: true, force: true });
+  }
+});
+
 test('local source reads modern/legacy formats, history pagination and real appended events', async () => {
   const f = fixture(),
     source = new CodexSource(f.home);
