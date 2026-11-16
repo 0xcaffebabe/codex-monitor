@@ -3,6 +3,7 @@ import { api } from '../../api';
 import type { User } from '../../types';
 import type { Project } from './types';
 import { useModelSettings } from './useModelSettings';
+import type { SessionPermissionMode } from '../../approval-types';
 
 export type NewSessionDialogProps = {
   user: User;
@@ -16,6 +17,8 @@ export function useNewSession({ initialPath }: NewSessionDialogProps) {
     [error, setError] = useState(''),
     [loading, setLoading] = useState(true),
     [refresh, setRefresh] = useState(0);
+  const [creationPermissions, setCreationPermissions] = useState(false);
+  const [permissionMode, setPermissionMode] = useState<SessionPermissionMode>('danger-full-access');
   const modelSettings = useModelSettings(true, 'new', refresh);
   const dialog = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -27,10 +30,17 @@ export function useNewSession({ initialPath }: NewSessionDialogProps) {
     let stopped = false;
     setLoading(true);
     setError('');
-    api<{ available: boolean; projects: Project[]; reason?: string }>('/api/control')
+    api<{
+      available: boolean;
+      projects: Project[];
+      reason?: string;
+      creationPermissions?: boolean;
+    }>('/api/control')
       .then((result) => {
         if (stopped) return;
         setProjects(result.projects);
+        setCreationPermissions(!!result.creationPermissions);
+        if (!result.creationPermissions) setPermissionMode('danger-full-access');
         setSelected(
           result.projects.find((p) => p.path === initialPath)?.id || result.projects[0]?.id || '',
         );
@@ -55,5 +65,8 @@ export function useNewSession({ initialPath }: NewSessionDialogProps) {
     setRefresh,
     dialog,
     modelSettings,
+    creationPermissions,
+    permissionMode,
+    setPermissionMode,
   };
 }

@@ -68,7 +68,7 @@ test('ordinary creation stays compatible with a client that rejects goal fields'
     creates++;
     const payload = route.request().postDataJSON();
     // The old client strictly rejected new fields, even when the checkbox was off.
-    if ('asGoal' in payload)
+    if ('asGoal' in payload || 'permissionMode' in payload)
       return route.fulfill({
         status: 400,
         contentType: 'application/json',

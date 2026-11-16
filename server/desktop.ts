@@ -3,7 +3,8 @@ import { readdir } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { ControlError, compactingError } from './control-error.js';
 import { NativeRpc, compactOwnedThread, interruptOwnedThread } from './native.js';
-import type { CodexModel, SessionModelSettings } from '../src/types.js';
+import type { CodexModel, SessionModelSettings, SessionCreationSettings } from '../src/types.js';
+import type { ApprovalControl } from '../src/approval-types.js';
 export { ControlError } from './control-error.js';
 export interface DesktopProject {
   id: string;
@@ -12,6 +13,8 @@ export interface DesktopProject {
 }
 export interface DesktopControl {
   contextRequired?: boolean;
+  approvals?: ApprovalControl;
+  creationPermissions?: boolean;
   projects(context: string): Promise<DesktopProject[]>;
   models(): Promise<CodexModel[]>;
   state(
@@ -28,7 +31,7 @@ export interface DesktopControl {
     context: string,
     projectId: string,
     prompt: string,
-    settings?: SessionModelSettings,
+    settings?: SessionCreationSettings,
   ): Promise<{ threadId: string }>;
   goal(
     threadId: string,

@@ -43,12 +43,13 @@ function cliPath() {
   return paths[0];
 }
 
-/** Read models and operate on persisted goals without resuming or taking over a thread. */
+/** CLI app-server connection with separate client calls and server approval callbacks. */
 export class NativeRpc {
   private process?: ChildProcessWithoutNullStreams;
   private ready?: Promise<void>;
   private disposed = false;
   private nextId = 1;
+  private serverRequests = new Map<string, AbortController>();
   private pending = new Map<
     number,
     {
@@ -64,6 +65,7 @@ export class NativeRpc {
     private events?: {
       notification?: (method: string, params: any) => void;
       disconnected?: () => void;
+      request?: (method: string, params: unknown, signal: AbortSignal) => Promise<unknown>;
     },
   ) {}
   private start() {
@@ -85,19 +87,45 @@ export class NativeRpc {
         const response = JSON.parse(line);
         if (typeof response.method === 'string') {
           if (response.id !== undefined) {
-            // Never silently approve a command, permission grant or elicitation.
-            // Unsupported interactive requests fail explicitly instead of hanging a turn.
-            child.stdin.write(
-              JSON.stringify({
-                id: response.id,
-                error: {
-                  code: -32601,
-                  message:
+            const key = `${typeof response.id}:${response.id}`;
+            if (this.serverRequests.has(key)) return;
+            const controller = new AbortController();
+            this.serverRequests.set(key, controller);
+            const reply = (value: object) => {
+              if (controller.signal.aborted || this.process !== child || !child.stdin.writable)
+                return;
+              child.stdin.write(JSON.stringify({ id: response.id, ...value }) + '\n', () => {});
+            };
+            void Promise.resolve()
+              .then(() => {
+                if (!this.events?.request)
+                  throw new Error(
                     'Codex Monitor cannot answer this interactive request. Use an interactive Codex client.',
-                },
-              }) + '\n',
-            );
-          } else this.events?.notification?.(response.method, response.params);
+                  );
+                return this.events.request(response.method, response.params, controller.signal);
+              })
+              .then(
+                (result) => reply({ result }),
+                (error) =>
+                  reply({
+                    error: {
+                      code: -32601,
+                      message:
+                        error instanceof Error ? error.message : 'Unsupported interactive request',
+                    },
+                  }),
+              )
+              .finally(() => {
+                if (this.serverRequests.get(key) === controller) this.serverRequests.delete(key);
+              });
+          } else {
+            if (response.method === 'serverRequest/resolved') {
+              const key = `${typeof response.params?.requestId}:${response.params?.requestId}`;
+              this.serverRequests.get(key)?.abort();
+              this.serverRequests.delete(key);
+            }
+            this.events?.notification?.(response.method, response.params);
+          }
           return;
         }
         const pending = this.pending.get(response.id);
@@ -128,7 +156,10 @@ export class NativeRpc {
     child.on('exit', disconnected);
     this.ready = this.requestRaw('initialize', {
       clientInfo: { name: 'codex_monitor', version: '1.1.0' },
-      capabilities: { experimentalApi: true },
+      capabilities: {
+        experimentalApi: true,
+        ...(this.events?.request ? { requiredHumanApproval: true } : {}),
+      },
     })
       .then(() => {
         child.stdin.write(JSON.stringify({ method: 'initialized' }) + '\n');
@@ -250,7 +281,6 @@ export class NativeRpc {
         }, 1000);
         force.unref();
       }, 3000);
-      timer.unref();
       this.close();
     });
   }
@@ -258,6 +288,8 @@ export class NativeRpc {
     const child = this.process;
     this.process = undefined;
     this.ready = undefined;
+    for (const controller of this.serverRequests.values()) controller.abort();
+    this.serverRequests.clear();
     this.events?.disconnected?.();
     for (const pending of this.pending.values()) {
       clearTimeout(pending.timer);

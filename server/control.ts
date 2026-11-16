@@ -8,6 +8,8 @@ import { MessageQueue, type ControlLane } from './message-queue.js';
 import { MAX_ATTACHMENTS, type UploadStore } from './uploads.js';
 import { reasoningEfforts, type SessionModelSettings } from '../src/types.js';
 import { validateModelSettings } from './model-settings.js';
+import { sessionPermissionModes } from '../src/approval-types.js';
+import type { SessionCreationSettings } from '../src/types.js';
 import type { Identity } from './http/access.js';
 import {
   creationReceipt,
@@ -123,7 +125,11 @@ export function installControl(
   const messages = new MessageQueue(db, source, bridge, context, inLane, authorization?.user);
   app.get('/api/control', admin, async (_req, res) => {
     try {
-      res.json({ available: true, projects: await bridge.projects(await context()) });
+      res.json({
+        available: true,
+        projects: await bridge.projects(await context()),
+        creationPermissions: !!bridge.creationPermissions,
+      });
     } catch (error) {
       res.json({
         available: false,
@@ -141,6 +147,55 @@ export function installControl(
         models: [],
         reason: error instanceof ControlError ? error.message : '暂时无法读取 Codex 模型列表',
       });
+    }
+  });
+  app.get('/api/sessions/:id/approvals', admin, async (req, res) => {
+    try {
+      await authorize(req);
+      const id = String(req.params.id);
+      if (!(await source.get(id))) return res.status(404).json({ error: '找不到此会话' });
+      res.json({ available: !!bridge.approvals, requests: bridge.approvals?.list(id) ?? [] });
+    } catch (error) {
+      if (!(error instanceof ControlError)) throw error;
+      res.status(error.status).json({ error: error.message });
+    }
+  });
+  app.get('/api/sessions/:id/approvals/:approval', admin, async (req, res) => {
+    try {
+      await authorize(req);
+      const id = String(req.params.id);
+      if (!(await source.get(id))) return res.status(404).json({ error: '找不到此会话' });
+      if (!bridge.approvals) throw new ControlError('此 client 暂不支持网页审批。', false, 409);
+      res.json(bridge.approvals.get(id, String(req.params.approval)));
+    } catch (error) {
+      if (!(error instanceof ControlError)) throw error;
+      res.status(error.status).json({ error: error.message });
+    }
+  });
+  app.post('/api/sessions/:id/approvals/:approval', admin, async (req, res) => {
+    const parsed = z
+      .object({ decision: z.enum(['accept', 'decline']) })
+      .strict()
+      .safeParse(req.body);
+    if (!parsed.success || !validId(String(req.params.approval)))
+      return res.status(400).json({ error: '审批答复无效。' });
+    try {
+      const id = String(req.params.id);
+      await writable(req, id);
+      if (!bridge.approvals) throw new ControlError('此 client 暂不支持网页审批。', false, 409);
+      const before = bridge.approvals.get(id, String(req.params.approval));
+      const result = bridge.approvals.answer(id, before.id, parsed.data.decision);
+      if (before.state === 'pending')
+        db.prepare('INSERT INTO audit(at,action,username,ip) VALUES(?,?,?,?)').run(
+          Date.now(),
+          `approval_${parsed.data.decision}:${before.id}`,
+          req.identity!.user.username,
+          req.ip ?? '',
+        );
+      res.json(result);
+    } catch (error) {
+      if (!(error instanceof ControlError)) throw error;
+      res.status(error.status).json({ error: error.message });
     }
   });
   app.get('/api/sessions/:id/control', admin, async (req, res) => {
@@ -397,7 +452,7 @@ export function installControl(
       attachments?: string[];
       turnId?: string;
       asGoal?: boolean;
-    } & SessionModelSettings,
+    } & SessionCreationSettings,
     target: string,
     operation: () => Promise<unknown>,
   ) {
@@ -411,6 +466,7 @@ export function installControl(
           ...(input.model ? [{ model: input.model, thinking: input.thinking }] : []),
           ...(input.turnId ? [{ turnId: input.turnId }] : []),
           ...(input.asGoal ? [{ asGoal: true }] : []),
+          ...(input.permissionMode ? [{ permissionMode: input.permissionMode }] : []),
         ]),
       )
       .digest('hex');
@@ -573,6 +629,7 @@ export function installControl(
       .extend({
         projectId: z.uuid(),
         asGoal: z.boolean().optional(),
+        permissionMode: z.enum(sessionPermissionModes).optional(),
         ...modelFields,
       })
       .refine(hasModelForThinking)
@@ -590,6 +647,10 @@ export function installControl(
     )
       return res.status(400).json({ error: '新会话目标需 1–4000 字符，请填写目标内容。' });
     const input = { ...parsed.data, prompt, asGoal };
+    if (input.permissionMode && !bridge.creationPermissions)
+      return res
+        .status(409)
+        .json({ error: '此 client 暂不支持会话权限设置，请更新 client 或沿用本机配置。' });
     await mutate(req, res, input, 'project:' + input.projectId, async () => {
       const caller = await context();
       const projects = await bridge.projects(caller);
@@ -606,6 +667,7 @@ export function installControl(
         {
           ...(model ? { model } : {}),
           ...(thinking ? { thinking } : {}),
+          ...(input.permissionMode ? { permissionMode: input.permissionMode } : {}),
         },
       );
       if (!validId(result.threadId))

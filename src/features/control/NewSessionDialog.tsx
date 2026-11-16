@@ -2,11 +2,23 @@ import { Plus, X } from 'lucide-react';
 import { PromptForm } from './PromptForm';
 import { NewSessionDialogProps, useNewSession } from './useNewSession';
 import { ModelSettings } from './ModelSettings';
+import type { SessionPermissionMode } from '../../approval-types';
 
 export function NewSessionDialog(props: NewSessionDialogProps) {
   const { user, onClose, onCreated } = props;
-  const { projects, selected, setSelected, error, loading, setRefresh, dialog, modelSettings } =
-    useNewSession(props);
+  const {
+    projects,
+    selected,
+    setSelected,
+    error,
+    loading,
+    setRefresh,
+    dialog,
+    modelSettings,
+    creationPermissions,
+    permissionMode,
+    setPermissionMode,
+  } = useNewSession(props);
   return (
     <div
       className="modal-backdrop"
@@ -65,6 +77,7 @@ export function NewSessionDialog(props: NewSessionDialogProps) {
           extra={{
             projectId: selected,
             ...modelSettings.overrides,
+            ...(creationPermissions && permissionMode ? { permissionMode } : {}),
           }}
           enabled={!loading && !!selected && !error}
           label="创建并发送"
@@ -93,6 +106,28 @@ export function NewSessionDialog(props: NewSessionDialogProps) {
             prefix="新会话"
             onRetry={() => setRefresh((value) => value + 1)}
           />
+          {creationPermissions && (
+            <label className="prompt-label">
+              会话权限
+              <select
+                aria-label="新会话权限"
+                value={permissionMode}
+                disabled={loading}
+                onChange={(event) => setPermissionMode(event.target.value as SessionPermissionMode)}
+              >
+                <option value="danger-full-access">完全访问（默认）</option>
+                <option value="inherit">沿用本机配置</option>
+                <option value="read-only">只读 · 额外权限在网页确认</option>
+                <option value="workspace-write">项目写入 · 联网时申请</option>
+                <option value="workspace-write-network">项目写入并允许联网</option>
+              </select>
+              <span className="control-hint">
+                {permissionMode === 'danger-full-access'
+                  ? '允许读写本机文件和联网，无需逐次审批。仅用于新会话。'
+                  : '仅用于新会话。受限模式的额外权限需在会话中确认。'}
+              </span>
+            </label>
+          )}
         </PromptForm>
       </div>
     </div>

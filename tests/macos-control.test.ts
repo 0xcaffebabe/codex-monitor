@@ -167,10 +167,14 @@ test('completed CLI threads release the writer for desktop handoff; active goals
   }
 });
 
-test('macOS creation uses native project identity, cwd and selected model without overriding permissions', async () => {
+test('macOS creation uses native project identity and preserves permissions when inherit is selected', async () => {
   const f = fixture();
   assert.deepEqual(
-    await f.control.create('context', 'project', 'hello', { model: 'model', thinking: 'high' }),
+    await f.control.create('context', 'project', 'hello', {
+      model: 'model',
+      thinking: 'high',
+      permissionMode: 'inherit',
+    }),
     { threadId: 'thread' },
   );
   assert.deepEqual(f.calls.find((c) => c.method === 'thread/start')?.params, {
@@ -186,6 +190,45 @@ test('macOS creation uses native project identity, cwd and selected model withou
   assert.equal(start.params.sandboxPolicy, undefined);
   assert.equal(f.ownerCalls.length, 0);
   await assert.rejects(f.control.create('context', 'missing-project', 'hello'), /项目不可用/);
+});
+
+test('explicit creation permissions configure the native sandbox and route approvals to the user', async () => {
+  const f = fixture();
+  try {
+    for (const permissionMode of [
+      'read-only',
+      'workspace-write',
+      'workspace-write-network',
+    ] as const) {
+      await f.control.create('', 'project', 'task', { permissionMode });
+      const start = f.calls.filter((call) => call.method === 'thread/start').at(-1)!.params;
+      assert.equal(start.sandbox, permissionMode === 'read-only' ? 'read-only' : 'workspace-write');
+      assert.equal(start.approvalPolicy, 'on-request');
+      assert.equal(start.approvalsReviewer, 'user');
+      assert.equal(
+        start.config['sandbox_workspace_write.network_access'],
+        permissionMode === 'workspace-write-network',
+      );
+      assert.equal(start.permissions, undefined);
+    }
+  } finally {
+    f.control.close();
+  }
+});
+
+test('macOS sessions default to full access with no per-command approval, including older callers', async () => {
+  const f = fixture();
+  try {
+    for (const settings of [{}, { permissionMode: 'danger-full-access' as const }]) {
+      await f.control.create('', 'project', 'task', settings);
+      const start = f.calls.filter((call) => call.method === 'thread/start').at(-1)!.params;
+      assert.equal(start.sandbox, 'danger-full-access');
+      assert.equal(start.approvalPolicy, 'never');
+      assert.equal(start.config, undefined);
+    }
+  } finally {
+    f.control.close();
+  }
 });
 
 test('existing desktop threads use the owner, and uncertain sends never fall back to a second writer', async () => {

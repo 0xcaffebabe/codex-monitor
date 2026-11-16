@@ -8,7 +8,8 @@ import {
   interruptOwnedThread,
   compactOwnedThread,
 } from './native.js';
-import type { SessionModelSettings } from '../src/types.js';
+import type { SessionModelSettings, SessionCreationSettings } from '../src/types.js';
+import { NativeApprovals } from './native-approvals.js';
 
 type Activity = { turnId: string; running: boolean; compacting: boolean };
 type Options = {
@@ -31,6 +32,9 @@ function noOwner(error: unknown) {
  * app-server for our threads and coordinate with existing desktop owners. */
 export class MacDesktopControl implements DesktopControl {
   readonly contextRequired = false;
+  readonly creationPermissions = true;
+  readonly approvals = new NativeApprovals();
+  private fileChanges = new Map<string, unknown>();
   private native: NativeControl;
   private runtimes = new Map<string, NativeControl>();
   private pendingRuntimes = new Set<NativeControl>();
@@ -58,7 +62,22 @@ export class MacDesktopControl implements DesktopControl {
       this.dependencies.native && !this.dependencies.launch
         ? this.dependencies.native
         : new NativeRpc(this.options.codexHome, this.dependencies.launch, {
+            request: (method, params, signal) => {
+              if (!identity.id || (params as any)?.threadId !== identity.id)
+                throw new ControlError('审批请求不属于此会话运行时。', false, 409);
+              return this.approvals.request(
+                method,
+                params,
+                signal,
+                this.fileChanges.get(
+                  `${(params as any)?.threadId}:${(params as any)?.turnId}:${(params as any)?.itemId}`,
+                ),
+              );
+            },
             disconnected: () => {
+              if (identity.id)
+                for (const key of this.fileChanges.keys())
+                  if (key.startsWith(`${identity.id}:`)) this.fileChanges.delete(key);
               if (identity.id && this.runtimes.get(identity.id) === runtime) {
                 this.runtimes.delete(identity.id);
                 this.turns.delete(identity.id);
@@ -66,7 +85,37 @@ export class MacDesktopControl implements DesktopControl {
               }
             },
             notification: (method, params) => {
+              if (method === 'item/started' && params.item?.type === 'fileChange') {
+                this.fileChanges.set(
+                  `${params.threadId}:${params.turnId}:${params.item.id}`,
+                  params.item.changes,
+                );
+                this.approvals.updateFileChanges(
+                  params.threadId,
+                  params.turnId,
+                  params.item.id,
+                  params.item.changes,
+                );
+              }
+              if (method === 'item/fileChange/patchUpdated') {
+                this.fileChanges.set(
+                  `${params.threadId}:${params.turnId}:${params.itemId}`,
+                  params.changes,
+                );
+                this.approvals.updateFileChanges(
+                  params.threadId,
+                  params.turnId,
+                  params.itemId,
+                  params.changes,
+                );
+              }
               if (method === 'turn/started' || method === 'turn/completed') {
+                if (method === 'turn/completed') {
+                  this.approvals.cancelTurn(params.threadId, params.turn.id);
+                  for (const key of this.fileChanges.keys())
+                    if (key.startsWith(`${params.threadId}:${params.turn.id}:`))
+                      this.fileChanges.delete(key);
+                }
                 this.turns.set(params.threadId, {
                   turnId: params.turn.id,
                   running: method === 'turn/started',
@@ -296,16 +345,37 @@ export class MacDesktopControl implements DesktopControl {
     context: string,
     projectId: string,
     prompt: string,
-    settings: SessionModelSettings = {},
+    settings: SessionCreationSettings = {},
   ) {
     const project = (await this.projects(context)).find((project) => project.id === projectId);
     if (!project) throw new ControlError('项目不可用，请刷新项目列表。', false, 400);
     const created = this.createRuntime();
+    const permissionMode = settings.permissionMode ?? 'danger-full-access';
+    const fullAccess = permissionMode === 'danger-full-access';
     let thread: any;
     try {
       ({ thread } = await created.runtime.request('thread/start', {
         cwd: project.path,
         projectId,
+        ...(permissionMode !== 'inherit'
+          ? {
+              sandbox: fullAccess
+                ? 'danger-full-access'
+                : permissionMode === 'read-only'
+                  ? 'read-only'
+                  : 'workspace-write',
+              approvalPolicy: fullAccess ? 'never' : 'on-request',
+              approvalsReviewer: 'user',
+              ...(!fullAccess
+                ? {
+                    config: {
+                      'sandbox_workspace_write.network_access':
+                        permissionMode === 'workspace-write-network',
+                    },
+                  }
+                : {}),
+            }
+          : {}),
         ...(settings.model ? { model: settings.model } : {}),
       }));
     } catch (error) {
@@ -428,6 +498,8 @@ export class MacDesktopControl implements DesktopControl {
 
   close() {
     this.closed = true;
+    this.approvals.close();
+    this.fileChanges.clear();
     for (const runtime of new Set([
       this.native,
       ...this.runtimes.values(),
