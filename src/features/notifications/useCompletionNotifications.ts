@@ -1,97 +1,141 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { api } from '../../api';
-import type { CompletionNotification, CompletionNotificationPage } from '../../types';
+import { useEffect, useRef, useState } from 'react';
+import { api, ApiError } from '../../api';
+import type { CompletionNotificationSnapshot } from '../../types';
 
-type Inbox = { cursor?: number; notifications: CompletionNotification[] };
-function restore(key: string): Inbox {
-  try {
-    const saved = JSON.parse(sessionStorage.getItem(key) || 'null');
-    if (
-      saved &&
-      Number.isSafeInteger(saved.cursor) &&
-      saved.cursor >= 0 &&
-      Array.isArray(saved.notifications)
-    )
-      return saved;
-  } catch {
-    /* Storage may be disabled or full. Polling still works in memory. */
-  }
-  return { notifications: [] };
-}
+type Actions = { dismiss: (ids?: number[]) => Promise<boolean> };
 
 export function useCompletionNotifications(userId: string) {
-  const key = `codex-monitor.completion-notifications.v1.${userId}`;
-  const [inbox, setInbox] = useState<Inbox>(() => restore(key));
-  const current = useRef(inbox);
-  const update = useCallback(
-    (next: Inbox) => {
-      current.current = next;
-      setInbox(next);
-      try {
-        sessionStorage.setItem(key, JSON.stringify(next));
-      } catch {
-        /* Optional. */
-      }
-    },
-    [key],
-  );
+  const [snapshot, setSnapshot] = useState<CompletionNotificationSnapshot>();
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState('');
+  const actions = useRef<Actions | null>(null);
 
   useEffect(() => {
-    const abort = new AbortController();
+    // Retire the former per-tab inbox; only Server decides which notices still exist.
+    try {
+      sessionStorage.removeItem(`codex-monitor.completion-notifications.v1.${userId}`);
+    } catch {
+      /* Optional cleanup. */
+    }
+    let stopped = false;
+    let version = 0;
+    let current: CompletionNotificationSnapshot | undefined;
+    let failed: { generation: string; ids: number[] } | undefined;
     let timer: ReturnType<typeof setTimeout> | undefined;
-    let request: AbortController | undefined;
-    let busy = false;
-    const poll = async () => {
-      if (abort.signal.aborted || busy) return;
-      busy = true;
+    let read: AbortController | undefined;
+    let mutation: AbortController | undefined;
+    setSnapshot(undefined);
+    setError('');
+    setPending(false);
+
+    const apply = (next: CompletionNotificationSnapshot) => {
+      if (current?.generation === next.generation && next.revision < current.revision) return;
+      if (
+        failed &&
+        (failed.generation !== next.generation ||
+          !next.notifications.some((item) => failed!.ids.includes(item.id)))
+      ) {
+        failed = undefined;
+        setError('');
+      }
+      current = next;
+      setSnapshot(next);
+    };
+    const cancelRead = () => {
+      version++;
+      read?.abort();
+      read = undefined;
       clearTimeout(timer);
-      request = new AbortController();
-      const timeout = setTimeout(() => request?.abort(), 15000);
-      let hasMore = false;
+    };
+    const refresh = async () => {
+      if (stopped || read || mutation) return;
+      const request = new AbortController();
+      read = request;
+      const token = ++version;
+      clearTimeout(timer);
+      const timeout = setTimeout(() => request.abort(), 15000);
       try {
-        const cursor = current.current.cursor;
-        const page = await api<CompletionNotificationPage>(
-          '/api/notifications/completions' + (cursor === undefined ? '' : `?after=${cursor}`),
-          { signal: request.signal },
-        );
-        if (abort.signal.aborted) return;
-        const seen = new Set(current.current.notifications.map((item) => item.id));
-        update({
-          cursor: page.cursor,
-          notifications: [
-            ...current.current.notifications,
-            ...page.notifications.filter((item) => !seen.has(item.id)),
-          ].slice(-50),
+        const next = await api<CompletionNotificationSnapshot>('/api/notifications/completions', {
+          signal: request.signal,
         });
-        hasMore = page.hasMore;
+        if (!stopped && token === version) apply(next);
       } catch {
-        /* Keep the cursor and retry after a temporary network/server failure. */
+        /* Keep the last confirmed snapshot and retry temporary failures. */
       } finally {
         clearTimeout(timeout);
-        busy = false;
-        if (!abort.signal.aborted) timer = setTimeout(poll, hasMore ? 0 : 3000);
+        if (read === request) {
+          read = undefined;
+          if (!stopped && !mutation) timer = setTimeout(refresh, 3000);
+        }
       }
     };
-    const resume = () => {
-      if (document.visibilityState === 'visible') void poll();
+    const dismiss = async (ids?: number[]) => {
+      if (stopped || mutation || !current) return false;
+      const observed = current;
+      const targets = ids ?? observed.notifications.map((item) => item.id);
+      if (!targets.length) return true;
+      // Invalidate reads already in flight, including responses whose bodies arrive after deletion.
+      cancelRead();
+      const request = new AbortController();
+      mutation = request;
+      const token = ++version;
+      const timeout = setTimeout(() => request.abort(), 15000);
+      setPending(true);
+      failed = undefined;
+      setError('');
+      try {
+        const next = await api<CompletionNotificationSnapshot>(
+          '/api/notifications/completions/dismiss',
+          {
+            method: 'POST',
+            signal: request.signal,
+            body: JSON.stringify({ generation: observed.generation, ids: targets }),
+          },
+        );
+        if (stopped || token !== version) return false;
+        apply(next);
+        return true;
+      } catch (error) {
+        if (!stopped) {
+          failed = { generation: observed.generation, ids: targets };
+          setError(
+            `关闭通知失败：${error instanceof ApiError ? error.message : '网络暂时不可用'}，请重试。`,
+          );
+        }
+        return false;
+      } finally {
+        clearTimeout(timeout);
+        if (mutation === request) {
+          mutation = undefined;
+          if (!stopped) {
+            setPending(false);
+            void refresh();
+          }
+        }
+      }
     };
-    void poll();
+    actions.current = { dismiss };
+    const resume = () => {
+      if (document.visibilityState === 'visible') void refresh();
+    };
+    void refresh();
     window.addEventListener('focus', resume);
     document.addEventListener('visibilitychange', resume);
     return () => {
-      abort.abort();
-      request?.abort();
-      clearTimeout(timer);
+      stopped = true;
+      cancelRead();
+      mutation?.abort();
+      actions.current = null;
       window.removeEventListener('focus', resume);
       document.removeEventListener('visibilitychange', resume);
     };
-  }, [update]);
+  }, [userId]);
 
-  const dismiss = (id: number) =>
-    update({
-      ...current.current,
-      notifications: current.current.notifications.filter((item) => item.id !== id),
-    });
-  const dismissAll = () => update({ ...current.current, notifications: [] });
-  return { notifications: inbox.notifications, dismiss, dismissAll };
+  return {
+    notifications: snapshot?.notifications ?? [],
+    pending,
+    error,
+    dismiss: (id: number) => actions.current?.dismiss([id]) ?? Promise.resolve(false),
+    dismissAll: () => actions.current?.dismiss() ?? Promise.resolve(false),
+  };
 }

@@ -162,10 +162,10 @@ export interface CompletionNotification {
   title: string;
   completedAt: number;
 }
-export interface CompletionNotificationPage {
-  cursor: number;
+export interface CompletionNotificationSnapshot {
+  generation: string;
+  revision: number;
   notifications: CompletionNotification[];
-  hasMore: boolean;
 }
 export interface UsageSummary {
   requests: number;

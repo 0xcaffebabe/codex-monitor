@@ -30,6 +30,19 @@ async function start(page: Page, request: APIRequestContext) {
       })
     ).ok(),
   ).toBeTruthy();
+  const pending = await (await request.get('/api/notifications/completions', { headers })).json();
+  if (pending.notifications.length)
+    expect(
+      (
+        await request.post('/api/notifications/completions/dismiss', {
+          headers,
+          data: {
+            generation: pending.generation,
+            ids: pending.notifications.map((item: { id: number }) => item.id),
+          },
+        })
+      ).ok(),
+    ).toBeTruthy();
   await page.addInitScript((token) => localStorage.setItem('codex-monitor.auth.v1', token), token);
   const baseline = page.waitForResponse(
     (r) => r.url().endsWith('/api/notifications/completions') && r.ok(),
@@ -99,12 +112,8 @@ test('HTTP pages show and dismiss completion cards, keep them through reload and
   await expect(page).toHaveURL(new RegExp(`workspace=local&session=${ids.modern}`));
   await expect(page.locator('.detail-header')).toContainText('开发 codex-monitor 实时监控');
   await expect(region).toHaveCount(0);
-  const feed = await (
-    await request.get('/api/notifications/completions?after=0', { headers })
-  ).json();
-  expect(
-    feed.notifications.filter((row: { sessionId: string }) => row.sessionId === ids.modern).length,
-  ).toBeGreaterThanOrEqual(2);
+  const snapshot = await (await request.get('/api/notifications/completions', { headers })).json();
+  expect(snapshot.notifications).toHaveLength(0);
 });
 
 test('a completion from another workspace opens that workspace and the matching session', async ({
@@ -134,7 +143,7 @@ test('polling recovers missed completions after a failed request without duplica
   const headers = await start(page, request);
   let disconnected = true,
     failures = 0;
-  await page.route('**/api/notifications/completions?after=*', async (route) => {
+  await page.route('**/api/notifications/completions', async (route) => {
     if (disconnected) {
       failures++;
       await route.abort('failed');
@@ -149,9 +158,7 @@ test('polling recovers missed completions after a failed request without duplica
   await page.reload();
   await expect(region.locator('article')).toHaveCount(2);
   // Observe another completed poll so duplicate delivery cannot hide behind the refresh assertion.
-  await page.waitForResponse(
-    (r) => r.url().includes('/api/notifications/completions?after=') && r.ok(),
-  );
+  await page.waitForResponse((r) => r.url().endsWith('/api/notifications/completions') && r.ok());
   await expect(region.locator('article')).toHaveCount(2);
   await region.getByRole('button', { name: '全部关闭', exact: true }).click();
   await expect(region).toHaveCount(0);

@@ -3,7 +3,7 @@ import { time } from '../../shared/format';
 import { useCompletionNotifications } from './useCompletionNotifications';
 
 export function CompletionNotifications({ userId }: { userId: string }) {
-  const { notifications, dismiss, dismissAll } = useCompletionNotifications(userId);
+  const { notifications, pending, error, dismiss, dismissAll } = useCompletionNotifications(userId);
   if (!notifications.length) return null;
   return (
     <section
@@ -15,7 +15,14 @@ export function CompletionNotifications({ userId }: { userId: string }) {
       {notifications.length > 1 && (
         <div className="completion-notifications-header">
           <span>{notifications.length} 条任务完成通知</span>
-          <button onClick={dismissAll}>全部关闭</button>
+          <button disabled={pending} onClick={() => void dismissAll()}>
+            全部关闭
+          </button>
+        </div>
+      )}
+      {error && (
+        <div className="completion-notification-error" role="alert">
+          {error}
         </div>
       )}
       {notifications
@@ -26,12 +33,17 @@ export function CompletionNotifications({ userId }: { userId: string }) {
             workspace: item.workspaceId,
             session: item.sessionId,
           });
+          const href = `${location.pathname}?${params}`;
           return (
             <article className="completion-notification" key={item.id}>
               <CheckCircle2 className="completion-notification-icon" size={21} aria-hidden="true" />
               <a
-                href={`${location.pathname}?${params}`}
-                onClick={() => dismiss(item.id)}
+                href={href}
+                aria-disabled={pending}
+                onClick={async (event) => {
+                  event.preventDefault();
+                  if (await dismiss(item.id)) location.assign(href);
+                }}
                 aria-label={`查看已完成会话：${item.title || '未命名会话'}`}
               >
                 <span className="completion-notification-label">任务已完成</span>
@@ -45,7 +57,8 @@ export function CompletionNotifications({ userId }: { userId: string }) {
               </a>
               <button
                 className="completion-notification-close"
-                onClick={() => dismiss(item.id)}
+                disabled={pending}
+                onClick={() => void dismiss(item.id)}
                 aria-label={`关闭通知：${item.title || '未命名会话'}`}
                 title="关闭通知"
               >
