@@ -1,5 +1,5 @@
 import type { User } from './types';
-import { workspaceUrl } from './workspace-scope';
+import { workspaceSignal, workspaceUrl } from './workspace-scope';
 const KEY = 'codex-monitor.auth.v1';
 export function getToken() {
   return localStorage.getItem(KEY) || sessionStorage.getItem(KEY) || '';
@@ -24,8 +24,10 @@ export class ApiError extends Error {
   }
 }
 export async function api<T = any>(url: string, options: RequestInit = {}): Promise<T> {
+  const signal = workspaceSignal(url, options.signal);
   const response = await fetch(workspaceUrl(url), {
     ...options,
+    signal,
     headers: {
       ...(options.body ? { 'Content-Type': 'application/json' } : {}),
       ...(getToken() ? { Authorization: `Bearer ${getToken()}` } : {}),
@@ -33,6 +35,7 @@ export async function api<T = any>(url: string, options: RequestInit = {}): Prom
     },
     cache: 'no-store',
   });
+  signal?.throwIfAborted();
   if (!response.ok) {
     let error = '请求失败，请稍后重试';
     let state: string | undefined;
@@ -41,11 +44,14 @@ export async function api<T = any>(url: string, options: RequestInit = {}): Prom
       error = result.error || error;
       state = result.state;
     } catch {}
+    signal?.throwIfAborted();
     if (response.status === 401 && !url.includes('/login')) clearToken();
     throw new ApiError(error, response.status, state);
   }
   if (response.status === 204) return undefined as T;
-  return response.json();
+  const result = await response.json();
+  signal?.throwIfAborted();
+  return result;
 }
 export const post = <T = any>(url: string, body?: unknown) =>
   api<T>(url, { method: 'POST', body: JSON.stringify(body ?? {}) });
@@ -57,10 +63,12 @@ export async function stream(
   onEvent: (event: string) => void,
   signal: AbortSignal,
 ) {
+  signal = workspaceSignal('/api/stream', signal)!;
   const response = await fetch(
     workspaceUrl(`/api/stream${session ? '?session=' + encodeURIComponent(session) : ''}`),
     { headers: { Authorization: `Bearer ${getToken()}` }, signal, cache: 'no-store' },
   );
+  signal.throwIfAborted();
   if (response.status === 401) {
     clearToken();
     return;

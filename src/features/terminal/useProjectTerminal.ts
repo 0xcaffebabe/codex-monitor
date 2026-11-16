@@ -4,6 +4,7 @@ import { FitAddon } from '@xterm/addon-fit';
 import { api, post } from '../../api';
 import type { ProjectTerminal, TerminalOutput } from '../../terminal-types';
 import { newRequestId } from '../control/request-id';
+import { workspaceUrl } from '../../workspace-scope';
 
 export function useProjectTerminal(sessionId: string) {
   const host = useRef<HTMLDivElement>(null);
@@ -15,7 +16,8 @@ export function useProjectTerminal(sessionId: string) {
   const [generation, setGeneration] = useState(0);
   useEffect(() => {
     const id = newRequestId();
-    const base = `/api/sessions/${sessionId}/terminal`;
+    // Cleanup must still close this terminal on its original client after a switch.
+    const base = workspaceUrl(`/api/sessions/${sessionId}/terminal`);
     const url = `${base}/${id}`;
     let disposed = false,
       failed = false,

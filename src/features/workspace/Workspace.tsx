@@ -180,6 +180,7 @@ export function Workspace(
         )}
         {tab === 'usage' && !hasDetail ? (
           <UsageDashboard
+            key={props.workspaceId}
             onSession={(id) => {
               setTab('all');
               select(id);
@@ -212,7 +213,7 @@ export function Workspace(
               />
               {hasDetail && (
                 <Detail
-                  key={creating ? 'new' : 'session'}
+                  key={`${props.workspaceId}:${creating ? 'new' : 'session'}`}
                   user={user}
                   newSession={
                     creating

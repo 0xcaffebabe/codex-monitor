@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, post } from '../../api';
 import type { ManagedWorkspace } from '../../workspaces';
-import { initializeWorkspace, navigateWorkspace } from '../../workspace-scope';
+import { initializeWorkspace, navigateWorkspace, subscribeNavigation } from '../../workspace-scope';
 import { copyText } from '../../shared/clipboard';
 
 export function useWorkspaces() {
@@ -51,15 +51,17 @@ export function useWorkspaces() {
     };
     void refresh();
     const timer = setInterval(() => void refresh(), 3000);
-    const pop = () => {
-      if (new URLSearchParams(location.search).get('workspace') !== selected.current)
-        location.reload();
-    };
-    window.addEventListener('popstate', pop);
+    const unsubscribe = subscribeNavigation(() => {
+      const id = new URLSearchParams(location.search).get('workspace') || '';
+      selected.current = id;
+      initializeWorkspace(id);
+      setActiveId(id);
+      if (!id) void refresh();
+    });
     return () => {
       abort.abort();
       clearInterval(timer);
-      window.removeEventListener('popstate', pop);
+      unsubscribe();
     };
   }, [load]);
   const showCommand = (id: string, key: string) => {

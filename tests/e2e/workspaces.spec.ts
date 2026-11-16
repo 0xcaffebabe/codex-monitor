@@ -94,6 +94,119 @@ async function enter(page: Page, request: APIRequestContext, query = '') {
   return token;
 }
 
+test('workspace and sidebar session navigation preserves the page and supports browser history', async ({
+  page,
+  request,
+  isMobile,
+}) => {
+  await enter(page, request, 'workspace=local&q=旧版本');
+  const rows = page.getByTestId('session-row');
+  await expect(rows).toHaveCount(2);
+  const documentRequests: string[] = [];
+  page.on('request', (request) => {
+    if (request.isNavigationRequest()) documentRequests.push(request.url());
+  });
+  for (const selector of ['html', '.app-shell', '#workspace-navigation', '#workspace-sessions'])
+    await page.locator(selector).evaluate((node) => node.setAttribute('data-preserved', 'true'));
+  const assertPreserved = async () => {
+    for (const selector of ['html', '.app-shell', '#workspace-navigation', '#workspace-sessions'])
+      await expect(page.locator(selector)).toHaveAttribute('data-preserved', 'true');
+    expect(documentRequests).toEqual([]);
+  };
+  await rows.filter({ hasText: '第二台测试电脑' }).click();
+  const workspace = page.getByLabel('切换工作空间', { exact: true });
+  await expect(workspace).toHaveValue(second);
+  await expect(page.locator('.detail-heading')).toContainText('检查旧版本会话解析');
+  await assertPreserved();
+  await workspace.selectOption('local');
+  await expect(page.locator('.detail-panel')).toHaveCount(0);
+  await expect(workspace).toHaveValue('local');
+  await page.goBack();
+  await expect(workspace).toHaveValue(second);
+  await expect(page.locator('.detail-heading')).toContainText('检查旧版本会话解析');
+  expect(new URL(page.url()).searchParams.get('q')).toBe('旧版本');
+  await assertPreserved();
+  await page.goBack();
+  await expect(workspace).toHaveValue('local');
+  await expect(page.locator('.detail-panel')).toHaveCount(0);
+  await expect(page.getByLabel('搜索会话', { exact: true })).toHaveValue('旧版本');
+  await page.goForward();
+  await expect(workspace).toHaveValue(second);
+  await expect(page.locator('.detail-heading')).toContainText('检查旧版本会话解析');
+  if (isMobile) {
+    await page.getByTitle('打开菜单').click();
+    await page.getByRole('button', { name: '打开会话：第二台电脑的独立会话', exact: true }).click();
+  } else {
+    await page.getByTitle('清除搜索', { exact: true }).click();
+    await rows.filter({ hasText: '第二台电脑的独立会话' }).click();
+  }
+  await expect(page.locator('.detail-heading')).toContainText('第二台电脑的独立会话');
+  await assertPreserved();
+  if (!isMobile) {
+    // Both clients have this session ID; selecting its other copy must reload only the detail.
+    await rows.filter({ hasText: '开发 codex-monitor' }).click();
+    await expect(workspace).toHaveValue('local');
+    await expect(page.locator('.detail-heading')).toContainText('开发 codex-monitor');
+    await expect(
+      rows.filter({ hasText: '本机工作空间' }).filter({ hasText: '开发 codex-monitor' }),
+    ).toHaveAttribute('aria-current', 'page');
+    await assertPreserved();
+  }
+});
+
+test('rapid workspace switches cancel delayed detail and overview requests', async ({
+  page,
+  request,
+}) => {
+  await enter(page, request, `workspace=${second}&session=${ids.modern}`);
+  await expect(page.locator('.detail-heading')).toContainText('第二台电脑的独立会话');
+  await page.getByLabel('发送给 Codex 的消息').fill('远端草稿保持不变');
+  let release = () => {};
+  const delayed = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const heldPaths = new Set([
+    '/api/workspaces/local/overview',
+    `/api/workspaces/local/sessions/${ids.modern}`,
+  ]);
+  const aborted: string[] = [];
+  page.on('requestfailed', (request) => {
+    const pathname = new URL(request.url()).pathname;
+    if (heldPaths.has(pathname)) aborted.push(pathname);
+  });
+  await page.route('**/api/workspaces/local/**', async (route) => {
+    if (!heldPaths.has(new URL(route.request().url()).pathname)) return route.continue();
+    const response = await route.fetch();
+    const body = await response.json();
+    if (body.session) body.session.title = '迟到的本机会话';
+    else body.projects[0].name = '迟到的本机项目';
+    await delayed;
+    await route.fulfill({ response, json: body });
+  });
+  const workspace = page.getByLabel('切换工作空间', { exact: true });
+  try {
+    const localOverview = page.waitForRequest('**/api/workspaces/local/overview');
+    await workspace.selectOption('local');
+    await localOverview;
+    const localDetail = page.waitForRequest(`**/api/workspaces/local/sessions/${ids.modern}`);
+    await page.getByTestId('session-row').filter({ hasText: '开发 codex-monitor' }).click();
+    await localDetail;
+    await workspace.selectOption(second);
+    await page.getByTestId('session-row').filter({ hasText: '第二台电脑的独立会话' }).click();
+    await expect(page.locator('.detail-heading')).toContainText('第二台电脑的独立会话');
+    await expect(page.getByLabel('发送给 Codex 的消息')).toHaveValue('远端草稿保持不变');
+    await expect.poll(() => [...new Set(aborted)].sort()).toEqual([...heldPaths].sort());
+    release();
+    await page.unrouteAll({ behavior: 'wait' });
+    await expect(page.locator('.detail-heading')).toContainText('第二台电脑的独立会话');
+    await expect(page.locator('.app-shell')).not.toContainText('迟到的本机');
+    await expect(page.locator('.detail-panel [role="alert"]')).toHaveCount(0);
+  } finally {
+    release();
+    await page.unrouteAll({ behavior: 'wait' });
+  }
+});
+
 test('new sessions select a workspace, load its projects and create on that client', async ({
   page,
   request,
@@ -629,7 +742,7 @@ test('registers a client with a fixed AES key, shows live status, renames it and
     ).toBeTruthy();
     await dialog.getByRole('button', { name: '关闭工作空间管理' }).click();
     await page.getByLabel('切换工作空间').selectOption(id);
-    await expect(page.getByRole('status')).toContainText('工作空间已离线');
+    await expect(page.locator('.workspace-notice')).toContainText('工作空间已离线');
     await page.screenshot({ path: test.info().outputPath('client-offline.png'), fullPage: true });
   } finally {
     await client.close();

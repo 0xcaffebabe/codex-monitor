@@ -5,6 +5,7 @@ export function useRealtime(
   selected: string | undefined,
   onUpdate: () => void,
   onReconcile: () => void,
+  workspaceId: string,
 ) {
   const [connected, setConnected] = useState(false);
   const updateRef = useRef(onUpdate),
@@ -12,6 +13,7 @@ export function useRealtime(
   updateRef.current = onUpdate;
   reconcileRef.current = onReconcile;
   useEffect(() => {
+    setConnected(false);
     const controller = new AbortController();
     let retry: ReturnType<typeof setTimeout> | undefined,
       delay = 1000;
@@ -43,7 +45,7 @@ export function useRealtime(
       controller.abort();
       clearTimeout(retry);
     };
-  }, [selected]);
+  }, [selected, workspaceId]);
   // Periodic reconciliation also catches renamed, archived or older sessions that are not the newest row.
   useEffect(() => {
     const t = setInterval(() => {

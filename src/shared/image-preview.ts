@@ -1,5 +1,5 @@
 import { clearToken, getToken } from '../api';
-import { workspaceUrl } from '../workspace-scope';
+import { workspaceSignal, workspaceUrl } from '../workspace-scope';
 
 // Decode once per document; fetch() does not advertise browser image codec support.
 const probes = {
@@ -31,10 +31,12 @@ export async function fetchImagePreview(
   variant: 'thumbnail' | 'preview' | 'original',
   signal: AbortSignal,
 ) {
+  const url = workspaceUrl(route);
+  signal = workspaceSignal(route, signal)!;
   const format = variant === 'original' ? 'original' : await preferredFormat();
   signal.throwIfAborted();
   const query = new URLSearchParams({ variant, format });
-  const response = await fetch(workspaceUrl(`${route}${route.includes('?') ? '&' : '?'}${query}`), {
+  const response = await fetch(`${url}${url.includes('?') ? '&' : '?'}${query}`, {
     headers: { Authorization: `Bearer ${getToken()}` },
     signal,
     cache: 'no-store',

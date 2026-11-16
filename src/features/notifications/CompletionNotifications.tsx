@@ -1,6 +1,7 @@
 import { ArrowUpRight, CheckCircle2, X } from 'lucide-react';
 import { time } from '../../shared/format';
 import { useCompletionNotifications } from './useCompletionNotifications';
+import { navigateWorkspace } from '../../workspace-scope';
 
 export function CompletionNotifications({ userId }: { userId: string }) {
   const { notifications, pending, error, dismiss, dismissAll } = useCompletionNotifications(userId);
@@ -42,7 +43,7 @@ export function CompletionNotifications({ userId }: { userId: string }) {
                 aria-disabled={pending}
                 onClick={async (event) => {
                   event.preventDefault();
-                  if (await dismiss(item.id)) location.assign(href);
+                  if (await dismiss(item.id)) navigateWorkspace(item.workspaceId, item.sessionId);
                 }}
                 aria-label={`查看已完成会话：${item.title || '未命名会话'}`}
               >

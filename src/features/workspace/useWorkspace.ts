@@ -7,7 +7,7 @@ import { useRealtime } from './useRealtime';
 import { useSessionList } from './useSessionList';
 import type { ReactNode } from 'react';
 import type { ManagedWorkspace } from '../../workspaces';
-import { navigateWorkspace } from '../../workspace-scope';
+import { navigateWorkspace, subscribeNavigation } from '../../workspace-scope';
 
 export type WorkspaceProps = {
   user: User;
@@ -53,7 +53,7 @@ export function useWorkspace(workspaceId: string, workspaces: ManagedWorkspace[]
     workspaces,
   });
   const { overview, recentSessions, recentLoaded, recentError, loadOverview, loadRecentSessions } =
-    useOverview();
+    useOverview(workspaceId);
   const {
     page,
     outlineData,
@@ -65,7 +65,7 @@ export function useWorkspace(workspaceId: string, workspaces: ManagedWorkspace[]
     loadOutline,
     loadOutlineEntry,
     navigatingOutline,
-  } = useSessionDetail(selected);
+  } = useSessionDetail(selected, workspaceId);
   const searchRef = useRef<HTMLInputElement>(null);
   const notify = useCallback((text: string) => setToast(text), []);
   useEffect(() => {
@@ -96,8 +96,10 @@ export function useWorkspace(workspaceId: string, workspaces: ManagedWorkspace[]
     if (menu) void loadRecentSessions();
   }, [menu, loadRecentSessions]);
   useEffect(() => {
-    const pop = () => {
+    return subscribeNavigation(() => {
       const params = new URLSearchParams(location.search);
+      setMenu(false);
+      setSettings(false);
       setCreating(params.get('view') === 'new' && !params.get('session'));
       setSelected(params.get('session') || undefined);
       setTab(
@@ -112,12 +114,13 @@ export function useWorkspace(workspaceId: string, workspaces: ManagedWorkspace[]
       setProject(params.get('project') || '');
       setSubagents(params.get('subagents') === 'true');
       setGroup(params.get('group') === 'project' ? 'project' : 'time');
-    };
-    window.addEventListener('popstate', pop);
-    return () => window.removeEventListener('popstate', pop);
+    });
   }, []);
   useEffect(() => {
     const params = new URLSearchParams(location.search);
+    if (params.get('workspace') !== workspaceId) return;
+    if (selected) params.set('session', selected);
+    else params.delete('session');
     if (creating) params.set('view', 'new');
     else if (tab === 'usage') params.set('view', 'usage');
     else params.delete('view');
@@ -133,7 +136,7 @@ export function useWorkspace(workspaceId: string, workspaces: ManagedWorkspace[]
       else params.delete(key);
     }
     history.replaceState(null, '', location.pathname + (params.size ? '?' + params : ''));
-  }, [tab, q, project, subagents, group, creating]);
+  }, [workspaceId, selected, tab, q, project, subagents, group, creating]);
   const reconcile = () => {
     void loadOverview();
   };
@@ -141,7 +144,7 @@ export function useWorkspace(workspaceId: string, workspaces: ManagedWorkspace[]
     reconcile();
     if (selected && !navigatingOutline.current) void loadDetail(selected);
   };
-  const connected = useRealtime(selected, refreshDetail, reconcile);
+  const connected = useRealtime(selected, refreshDetail, reconcile, workspaceId);
   const select = (id: string) => {
     setCreating(false);
     setSelected(id);
