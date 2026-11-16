@@ -1,8 +1,10 @@
 import { LoaderCircle, RefreshCw, Send } from 'lucide-react';
+import { useMediaQuery } from '../../shared/useMediaQuery';
 import { AttachmentPicker } from '../attachments/AttachmentPicker';
 import { PromptFormProps, usePromptForm } from './usePromptForm';
 
 export function PromptForm(props: PromptFormProps) {
+  const isMobile = useMediaQuery('(max-width: 760px)');
   const {
     label,
     enabled,
@@ -82,7 +84,7 @@ export function PromptForm(props: PromptFormProps) {
           placeholder={
             asGoal
               ? '输入本会话要完成的目标…'
-              : allowAttachments
+              : allowAttachments && !isMobile
                 ? '输入消息，可粘贴或拖入图片/文件…'
                 : '输入消息…'
           }
