@@ -84,22 +84,19 @@ npm run client -- --help
 
 1. 启动 Server，通过其 Web 页面创建管理员并登录。
 2. 顶栏点击“管理工作空间”，输入机器名称后“添加”。
-3. 将显示的配置保存到 client 机器的项目 `.env`。固定 AES 密钥只在创建或轮换成功时显示，不保存到浏览器存储。
+3. 复制显示的 client 启动命令，在 client 机器的项目目录中运行。命令包含 Server 地址、工作空间 ID 和固定 AES 密钥；密钥只在创建或轮换成功时显示，不保存到浏览器存储，请妥善保存。
 
-如果浏览器使用 `localhost` 或 `127.0.0.1` 访问 Server，复制到其他机器时，应把 `MONITOR_SERVER_URL` 改为 client 能访问的 Server 局域网 IP 或域名。
+如果浏览器使用 `localhost` 或 `127.0.0.1` 访问 Server，复制到其他机器时，应把命令中的 `--server-url` 改为 client 能访问的 Server 局域网 IP 或域名。
 
-```dotenv
-MONITOR_MODE=client
-MONITOR_SERVER_URL=ws://server-address:9902
-MONITOR_WORKSPACE_ID=注册界面生成的工作空间ID
-MONITOR_CLIENT_KEY=注册界面生成的43字符base64url密钥
-# 可选，指向此 client 运行 Codex 的用户目录
-# CODEX_HOME=C:\Users\your-name\.codex
+```sh
+npm run client -- --server-url "ws://server-address:9902" --workspace-id "注册界面生成的工作空间ID" --client-key "注册界面生成的43字符base64url密钥"
 ```
 
-也可将密钥单独保存到本地私有文本文件，使用 `MONITOR_CLIENT_KEY_FILE` 指定绝对路径，省略 `MONITOR_CLIENT_KEY`。文件模式优先于环境变量。启动器会限制 `.env`、密钥文件与数据目录的 Windows 权限。
+如需指定此 client 运行 Codex 的用户目录，可在命令末尾追加 `--codex-home "C:\Users\your-name\.codex"`。
 
-4. 在 client 机器运行 `start.cmd`，或设置相同环境变量后 `npm start`。Windows client 默认立即及每 15 秒检查同一登录会话中的 Codex 桌面主进程，缺失时自动启动；CLI 和桌面子进程不算运行中的桌面主进程。启动或检查失败后至少等待 60 秒再尝试启动，日志写入 client 数据目录的 `server.log`，不影响 client 连接和历史读取。该用户的桌面应用启动并登录后才能发送消息及执行控制命令。
+也可将密钥单独保存到本地私有文本文件，将命令中的 `--client-key "..."` 换成 `--client-key-file "密钥文件绝对路径"`。Windows 后台启动方式与 `.env` 配置仍可使用，见上文。
+
+4. 启动 client 后等待连接。Windows client 默认立即及每 15 秒检查同一登录会话中的 Codex 桌面主进程，缺失时自动启动；CLI 和桌面子进程不算运行中的桌面主进程。启动或检查失败后至少等待 60 秒再尝试启动，日志写入 client 数据目录的 `server.log`，不影响 client 连接和历史读取。该用户的桌面应用启动并登录后才能发送消息及执行控制命令。
 5. Server 页面显示该工作空间“在线”后，从顶栏切换即可查看和操作。
 
 Client 地址要求为 origin，不带路径、查询和用户名密码。可使用 `ws://`；本实现的 AES 保护 WebSocket 业务负载，握手不传共享密钥。若经过反向代理，代理须支持 WebSocket Upgrade；自定义 Server 域名需加入 `MONITOR_ORIGINS`。

@@ -126,23 +126,22 @@ export function ClientManager({ model }: { model: WorkspacesModel }) {
               </button>
             </div>
           </form>
-          {model.connectionConfig && (
-            <section className="client-config" aria-label="Client 连接配置">
-              <h3>保存 client 连接配置</h3>
+          {model.connectionCommand && (
+            <section className="client-config" aria-label="Client 连接命令">
+              <h3>client 启动命令</h3>
               <p className="help">
-                固定 AES 密钥只在此显示，请保存到 client 本地的
-                .env。两端使用同一密钥，重新连接不会更换密钥。
+                复制下方命令，在 client 机器的项目目录中运行。固定 AES 密钥只在此显示，请妥善保存。
               </p>
               <textarea
                 readOnly
-                aria-label="Client 环境配置"
-                value={model.connectionConfig}
+                aria-label="Client 启动命令"
+                value={model.connectionCommand}
                 rows={5}
                 spellCheck={false}
               />
               <button onClick={() => void model.copy()}>
                 <Copy size={15} />
-                {model.copied ? '已复制' : '复制 client 配置'}
+                {model.copied ? '已复制' : '复制 client 启动命令'}
               </button>
               <p className="help">
                 在 client 机器启动应用后，此工作空间将显示在线。关闭此窗口后不再显示密钥。

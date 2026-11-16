@@ -13,7 +13,7 @@ export function useWorkspaces() {
   const [managing, setManaging] = useState(false),
     [name, setName] = useState(''),
     [pending, setPending] = useState('');
-  const [connectionConfig, setConnectionConfig] = useState(''),
+  const [connectionCommand, setConnectionCommand] = useState(''),
     [copied, setCopied] = useState(false);
   const load = useCallback(async (signal?: AbortSignal) => {
     try {
@@ -62,10 +62,10 @@ export function useWorkspaces() {
       window.removeEventListener('popstate', pop);
     };
   }, [load]);
-  const showConfig = (id: string, key: string) => {
+  const showCommand = (id: string, key: string) => {
     const serverUrl = location.origin.replace(/^http/, 'ws');
-    setConnectionConfig(
-      `MONITOR_MODE=client\nMONITOR_SERVER_URL=${serverUrl}\nMONITOR_WORKSPACE_ID=${id}\nMONITOR_CLIENT_KEY=${key}\n`,
+    setConnectionCommand(
+      `npm run client -- --server-url "${serverUrl}" --workspace-id "${id}" --client-key "${key}"`,
     );
     setCopied(false);
   };
@@ -86,13 +86,13 @@ export function useWorkspaces() {
       const result = await post<{ workspace: ManagedWorkspace; key: string }>('/api/workspaces', {
         name,
       });
-      showConfig(result.workspace.id, result.key);
+      showCommand(result.workspace.id, result.key);
       setName('');
     });
   const rotate = (id: string) =>
     action(id, async () => {
       const result = await post<{ key: string }>(`/api/workspaces/${id}/rotate-key`);
-      showConfig(id, result.key);
+      showCommand(id, result.key);
     });
   const remove = (id: string) =>
     action(id, async () => {
@@ -104,7 +104,7 @@ export function useWorkspaces() {
     });
   const copy = async () => {
     try {
-      await copyText(connectionConfig);
+      await copyText(connectionCommand);
       setCopied(true);
     } catch (error) {
       setError((error as Error).message);
@@ -121,7 +121,7 @@ export function useWorkspaces() {
     name,
     setName,
     pending,
-    connectionConfig,
+    connectionCommand,
     copied,
     create,
     rotate,
@@ -130,7 +130,7 @@ export function useWorkspaces() {
     copy,
     close: () => {
       setManaging(false);
-      setConnectionConfig('');
+      setConnectionCommand('');
     },
     select: navigateWorkspace,
   };

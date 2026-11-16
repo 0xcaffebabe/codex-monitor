@@ -72,6 +72,21 @@ async function enter(page: Page, request: APIRequestContext, query = '') {
   }
   expect(result.ok()).toBeTruthy();
   const token = (await result.json()).token;
+  const headers = { Authorization: `Bearer ${token}` };
+  // Projects share a server; earlier sends can leave cards covering the mobile session list.
+  const pending = await (await request.get('/api/notifications/completions', { headers })).json();
+  if (pending.notifications.length)
+    expect(
+      (
+        await request.post('/api/notifications/completions/dismiss', {
+          headers,
+          data: {
+            generation: pending.generation,
+            ids: pending.notifications.map((item: { id: number }) => item.id),
+          },
+        })
+      ).ok(),
+    ).toBeTruthy();
   await page.addInitScript((token) => localStorage.setItem('codex-monitor.auth.v1', token), token);
   await page.goto('/?' + query);
   await expect(page.getByLabel('切换工作空间')).toBeVisible();
@@ -201,21 +216,33 @@ test('registers a client with a fixed AES key, shows live status, renames it and
   page,
   request,
   baseURL,
+  context,
 }) => {
   const token = await enter(page, request);
+  await context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: baseURL! });
   await page.getByRole('button', { name: '管理工作空间', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: '管理工作空间' });
   const name = `临时 client ${test.info().project.name}`;
   await dialog.getByLabel('添加工作空间').fill(name);
   await dialog.getByRole('button', { name: '添加', exact: true }).click();
-  const config = await dialog.getByLabel('Client 环境配置').inputValue();
-  const id = /MONITOR_WORKSPACE_ID=(.*)/.exec(config)![1];
-  const key = /MONITOR_CLIENT_KEY=(.*)/.exec(config)![1];
+  const commandField = dialog.getByLabel('Client 启动命令');
+  await expect(commandField).not.toBeEmpty();
+  const command = await commandField.inputValue();
+  const match =
+    /^npm run client -- --server-url "([^"]+)" --workspace-id "([^"]+)" --client-key "([^"]+)"$/.exec(
+      command,
+    );
+  expect(match).not.toBeNull();
+  const [, serverUrl, id, key] = match!;
+  expect(serverUrl).toBe(baseURL!.replace(/^http/, 'ws'));
   expect(key).toMatch(/^[A-Za-z0-9_-]{43}$/);
+  await dialog.getByRole('button', { name: '复制 client 启动命令' }).click();
+  await expect(dialog.getByRole('button', { name: '已复制', exact: true })).toBeVisible();
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(command);
   const f = fixture();
   const client = await MonitorClient.start({
     config: f.config,
-    serverUrl: baseURL!,
+    serverUrl,
     workspaceId: id,
     key,
     services: { control: new FixtureDesktop(f) },
@@ -229,7 +256,13 @@ test('registers a client with a fixed AES key, shows live status, renames it and
     await expect(row.locator('.client-heading strong')).toHaveText(name + ' 新名称');
     await row.getByRole('button', { name: '轮换密钥', exact: true }).click();
     await row.getByRole('button', { name: '确认轮换' }).click();
-    await expect(dialog.getByLabel('Client 环境配置')).not.toHaveValue(config);
+    await expect(commandField).not.toHaveValue(command);
+    const rotatedCommand = await commandField.inputValue();
+    expect(rotatedCommand).toContain(`--workspace-id "${id}"`);
+    expect(rotatedCommand).not.toContain(key);
+    await dialog.getByRole('button', { name: '复制 client 启动命令' }).click();
+    await expect(dialog.getByRole('button', { name: '已复制', exact: true })).toBeVisible();
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(rotatedCommand);
     await expect(row.locator('.client-heading').getByText('离线', { exact: true })).toBeVisible();
     const list = await (
       await request.get('/api/workspaces', { headers: { Authorization: `Bearer ${token}` } })
