@@ -200,6 +200,19 @@
     padding: 0 17px;
     gap: 10px;
   }
+  .mobile-topbar-actions {
+    align-items: center;
+    gap: 2px;
+    flex-shrink: 0;
+  }
+  .mobile-topbar-actions > .icon-button {
+    width: 32px;
+    height: 40px;
+    padding: 0;
+  }
+  .mobile-topbar-actions > .new-session-shortcut {
+    color: var(--accent);
+  }
   .has-detail .topbar {
     height: 40px;
     padding: 0 12px;

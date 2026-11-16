@@ -10,6 +10,7 @@ import {
   PanelsLeftBottom,
   RefreshCw,
   RotateCcw,
+  SquarePen,
   TriangleAlert,
 } from 'lucide-react';
 import { cx } from '../../shared/format';
@@ -58,6 +59,7 @@ export function Workspace(
     settings,
     setSettings,
     creating,
+    startSession,
     closeDetail,
     usageRevision,
     setUsageRevision,
@@ -122,16 +124,28 @@ export function Workspace(
               </button>
             )}
           </div>
-          <button
-            className="icon-button mobile-only"
-            title="打开菜单"
-            onClick={() => {
-              setSidebarView('recent');
-              setMenu(true);
-            }}
-          >
-            <Menu size={21} />
-          </button>
+          <div className="mobile-topbar-actions mobile-only">
+            <button
+              className="icon-button"
+              title="打开菜单"
+              onClick={() => {
+                setSidebarView('recent');
+                setMenu(true);
+              }}
+            >
+              <Menu size={21} />
+            </button>
+            {user.role === 'admin' && (
+              <button
+                className={cx('icon-button new-session-shortcut', creating && 'active')}
+                title="快速新建会话"
+                aria-label="快速新建会话"
+                onClick={startSession}
+              >
+                <SquarePen size={20} />
+              </button>
+            )}
+          </div>
           <div className="breadcrumb">
             <Monitor size={16} />
             {props.workspaceControls || <span>工作空间</span>}

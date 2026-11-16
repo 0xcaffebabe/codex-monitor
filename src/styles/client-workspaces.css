@@ -258,6 +258,9 @@
   }
 }
 @media (max-width: 350px) {
+  .topbar:has(.workspace-selector) {
+    gap: 4px;
+  }
   .workspace-selector select {
     width: 106px;
     max-width: 106px;
