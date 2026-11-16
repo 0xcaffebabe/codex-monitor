@@ -45,7 +45,15 @@ async function open(page: Page) {
   await expect(dialog.getByRole('button', { name: '执行', exact: true })).toHaveCount(0);
   await expect(dialog.locator('.project-terminal-command')).toHaveCount(0);
   if (windows) await expect(dialog.locator('.xterm-accessibility-tree')).toContainText('PS ');
-  else await command(dialog, "export PS1='CM_E2E_PROMPT> '", false);
+  else {
+    // macOS zsh binds End in application mode; normalize this disposable shell
+    // to xterm's normal-mode sequence for the keyboard forwarding assertions.
+    await command(
+      dialog,
+      "export PS1='CM_E2E_PROMPT> '; if [ -n \"${ZSH_VERSION:-}\" ]; then bindkey '^[[F' end-of-line; fi",
+      false,
+    );
+  }
   await waitForPrompt(dialog);
   return dialog;
 }
@@ -128,9 +136,6 @@ test('project terminal executes in the project, preserves shell state, accepts i
     .poll(async () => (await output(dialog).innerText()).match(/KEYBOARD_OK/g)?.length)
     .toBe(2);
   await waitForPrompt(dialog);
-  await page.keyboard.press('Escape');
-  await expect(dialog).toBeVisible();
-  await expect(input(dialog)).toBeFocused();
   await page.keyboard.type('cd chi');
   await page.keyboard.press('Tab');
   await expect(input(dialog)).toBeFocused();
@@ -212,6 +217,10 @@ test('project terminal executes in the project, preserves shell state, accepts i
   );
   await page.keyboard.press('Enter');
   await expect(output(dialog)).toContainText('DIRECT_INPUT_READY');
+  // Escape is also a shell key-sequence prefix, so check it after command input.
+  await page.keyboard.press('Escape');
+  await expect(dialog).toBeVisible();
+  await expect(input(dialog)).toBeFocused();
   await page.screenshot({ path: test.info().outputPath('project-terminal-inline.png') });
   await page.setViewportSize({ width: 520, height: 740 });
   await expect
