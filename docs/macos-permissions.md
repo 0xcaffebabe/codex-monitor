@@ -6,7 +6,7 @@
 
 ## 实现
 
-- `MacDesktopControl.create` 默认设置 `danger-full-access` 与 `never`，旧版网页省略权限字段也采用此默认值。显式 `inherit` 保留本机策略；已有会话不被批量改写。
+- `NativeDesktopControl.create`（原 `MacDesktopControl.create`）默认设置 `danger-full-access` 与 `never`，旧版网页省略权限字段也采用此默认值。显式 `inherit` 保留本机策略；已有会话不被批量改写。当前 Windows/macOS 共用实现见 [会话控制与审批](native-control.md)。
 - 受限模式使用原 CLI 回调等待用户决定，支持 `item/commandExecution/requestApproval`、`item/fileChange/requestApproval`、`item/permissions/requestApproval`。初始化支持原生人工确认能力。
 - 新增 `/api/sessions/:id/approvals` 及按审批 ID 查询、答复的接口，沿用加密工作空间传输。读取和答复都校验管理员、会话范围；答复前重新核对中央设备授权与会话状态，并记录审计。
 - 浏览器显示原因、命令、目录、网络目标、请求的文件权限和修改差异。“允许本次”只返回单次接受；额外权限只复制原请求范围并授予本轮。网页不能提交任意权限或持久命令规则。
@@ -39,7 +39,7 @@
 # 先构建；测试临时目录需先创建，且 MONITOR_TEST_ROOT 只能指向可重建的 fixture。
 TMPDIR=/private/tmp/codex-monitor-permissions \
   node --disable-warning=ExperimentalWarning --import tsx --test \
-  tests/approvals.test.ts tests/macos-control.test.ts tests/native-lifecycle.test.ts
+  tests/approvals.test.ts tests/native-control.test.ts tests/native-lifecycle.test.ts
 
 TMPDIR=/private/tmp/codex-monitor-permissions \
 MONITOR_TEST_APPROVALS=1 \

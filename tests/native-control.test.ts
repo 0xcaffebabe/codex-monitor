@@ -1,12 +1,46 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { MacDesktopControl } from '../server/macos-control.js';
+import { NativeDesktopControl } from '../server/native-control.js';
 import { ControlError } from '../server/control-error.js';
 import { EventEmitter } from 'node:events';
 import { PassThrough, Writable } from 'node:stream';
 import { setImmediate as nextTick } from 'node:timers/promises';
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import type { generateSessionTitle } from '../server/session-title.js';
+
+class AppServerProcess extends EventEmitter {
+  stdout = new PassThrough();
+  stderr = new PassThrough();
+  requests: { id?: number | string; method?: string; params?: any; result?: any; error?: any }[] =
+    [];
+  stdin = new Writable({
+    write: (data, _encoding, done) => {
+      const request = JSON.parse(String(data));
+      this.requests.push(request);
+      if (request.id !== undefined && request.method) {
+        const result =
+          request.method === 'thread/start' || request.method === 'thread/read'
+            ? { thread: { id: this.threadId, status: { type: 'active' } } }
+            : request.method === 'turn/start'
+              ? { turn: { id: 'turn', status: 'inProgress' } }
+              : {};
+        queueMicrotask(() => this.send({ id: request.id, result }));
+      }
+      done();
+    },
+  });
+  constructor(readonly threadId: string) {
+    super();
+  }
+  send(value: object) {
+    this.stdout.write(JSON.stringify(value) + '\n');
+  }
+  kill() {
+    this.emit('exit', 0);
+    return true;
+  }
+  unref() {}
+}
 
 function fixture(generateTitle: typeof generateSessionTitle = async () => undefined) {
   const calls: { method: string; params: any }[] = [],
@@ -48,7 +82,7 @@ function fixture(generateTitle: typeof generateSessionTitle = async () => undefi
     activity: { turnId: 'turn', running: true, compacting: false },
     ownerReply: { result: { turn: { id: 'turn' } } } as any,
     ownerError: undefined as Error | undefined,
-    control: null as unknown as MacDesktopControl,
+    control: null as unknown as NativeDesktopControl,
     setGoal(value: any) {
       goal = value;
     },
@@ -57,7 +91,7 @@ function fixture(generateTitle: typeof generateSessionTitle = async () => undefi
       status = value;
     },
   };
-  f.control = new MacDesktopControl(
+  f.control = new NativeDesktopControl(
     { codexHome: '/tmp/codex', activity: () => f.activity },
     {
       native,
@@ -82,7 +116,7 @@ test('completed CLI threads release the writer for desktop handoff; active goals
   let emit = (_value: object) => {};
   const metadata = fixture().native;
   metadata.get = async () => (activeGoal ? { status: 'active' } : null);
-  const control = new MacDesktopControl(
+  const control = new NativeDesktopControl(
     { codexHome: '/tmp/codex', activity: () => undefined },
     {
       native: metadata,
@@ -170,7 +204,7 @@ test('completed CLI threads release the writer for desktop handoff; active goals
   }
 });
 
-test('macOS creation uses native project identity and preserves permissions when inherit is selected', async () => {
+test('native creation uses project identity and preserves permissions when inherit is selected', async () => {
   const f = fixture();
   assert.deepEqual(
     await f.control.create('context', 'project', 'hello', {
@@ -296,7 +330,143 @@ test('explicit creation permissions configure the native sandbox and route appro
   }
 });
 
-test('macOS sessions default to full access with no per-command approval, including older callers', async () => {
+test('shared app-server sessions wait for human command, file, and permission decisions and reply on the original connection', async () => {
+  const f = fixture();
+  const child = new AppServerProcess('thread');
+  const control = new NativeDesktopControl(
+    { codexHome: '/unused/codex', activity: () => undefined },
+    {
+      native: f.native,
+      launch: () => child as unknown as ChildProcessWithoutNullStreams,
+      generateTitle: async () => undefined,
+    },
+  );
+  try {
+    await control.create('', 'project', 'task', { permissionMode: 'read-only' });
+    const initialize = child.requests.find((request) => request.method === 'initialize')!;
+    assert.equal(initialize.params.capabilities.requiredHumanApproval, true);
+    const threadStart = child.requests.find((request) => request.method === 'thread/start')!;
+    assert.equal(threadStart.params.approvalPolicy, 'on-request');
+    assert.equal(threadStart.params.approvalsReviewer, 'user');
+    for (const kind of ['commandExecution', 'fileChange', 'permissions'] as const) {
+      for (const decision of ['accept', 'decline'] as const) {
+        const requestId = `${kind}-${decision}`;
+        const params = {
+          threadId: 'thread',
+          turnId: 'turn',
+          itemId: requestId,
+          cwd: '/project',
+          ...(kind === 'commandExecution' ? { command: 'npm test' } : {}),
+          ...(kind === 'permissions' ? { permissions: { network: { enabled: true } } } : {}),
+        };
+        if (kind === 'fileChange')
+          child.send({
+            method: 'item/started',
+            params: {
+              threadId: 'thread',
+              turnId: 'turn',
+              item: {
+                id: requestId,
+                type: 'fileChange',
+                changes: [{ path: '/project/file.txt', diff: '+hello', kind: { type: 'add' } }],
+              },
+            },
+          });
+        child.send({ id: requestId, method: `item/${kind}/requestApproval`, params });
+        await nextTick();
+        const [approval] = control.approvals.list('thread');
+        assert.ok(approval, `${kind} reaches the shared web approval store`);
+        assert.equal(approval.canAccept, true);
+        assert.equal(
+          child.requests.some((request) => request.id === requestId),
+          false,
+          'the server request must wait for a human decision',
+        );
+        control.approvals.answer('thread', approval.id, decision);
+        await nextTick();
+        const reply = child.requests.find((request) => request.id === requestId);
+        assert.deepEqual(reply, {
+          id: requestId,
+          result:
+            kind === 'permissions'
+              ? {
+                  permissions: decision === 'accept' ? params.permissions : {},
+                  scope: 'turn',
+                }
+              : { decision },
+        });
+        assert.deepEqual(control.approvals.list('thread'), []);
+      }
+    }
+  } finally {
+    control.close();
+    f.control.close();
+  }
+});
+
+test('shared app-server approvals stay with their own thread and are cancelled when that runtime exits', async () => {
+  const f = fixture();
+  const children: AppServerProcess[] = [];
+  const control = new NativeDesktopControl(
+    { codexHome: '/unused/codex', activity: () => undefined },
+    {
+      native: f.native,
+      launch: () => {
+        const child = new AppServerProcess(`thread-${children.length}`);
+        children.push(child);
+        return child as unknown as ChildProcessWithoutNullStreams;
+      },
+      generateTitle: async () => undefined,
+    },
+  );
+  try {
+    await control.create('', 'project', 'first', { permissionMode: 'workspace-write' });
+    await control.create('', 'project', 'second', { permissionMode: 'workspace-write' });
+    for (const [index, child] of children.entries())
+      child.send({
+        id: 'same-server-request-id',
+        method: 'item/commandExecution/requestApproval',
+        params: {
+          threadId: `thread-${index}`,
+          turnId: 'turn',
+          itemId: 'command',
+          command: 'npm test',
+        },
+      });
+    await nextTick();
+    const [first] = control.approvals.list('thread-0');
+    const [second] = control.approvals.list('thread-1');
+    assert.ok(first);
+    assert.ok(second);
+    control.approvals.answer('thread-0', first.id, 'accept');
+    await nextTick();
+    assert.deepEqual(children[0].requests.at(-1), {
+      id: 'same-server-request-id',
+      result: { decision: 'accept' },
+    });
+    assert.equal(
+      children[1].requests.some((request) => request.id === 'same-server-request-id'),
+      false,
+    );
+    children[1].send({
+      id: 'wrong-thread',
+      method: 'item/commandExecution/requestApproval',
+      params: { threadId: 'thread-0', turnId: 'turn', itemId: 'command', command: 'npm test' },
+    });
+    await nextTick();
+    assert.match(children[1].requests.at(-1)!.error.message, /不属于此会话运行时/);
+    assert.deepEqual(control.approvals.list('thread-0'), []);
+    children[1].emit('exit', 1);
+    await nextTick();
+    assert.equal(control.approvals.get('thread-1', second.id).state, 'cancelled');
+    assert.throws(() => control.approvals.answer('thread-1', second.id, 'accept'), /过期或取消/);
+  } finally {
+    control.close();
+    f.control.close();
+  }
+});
+
+test('native sessions default to full access with no per-command approval, including older callers', async () => {
   const f = fixture();
   try {
     for (const settings of [{}, { permissionMode: 'danger-full-access' as const }]) {

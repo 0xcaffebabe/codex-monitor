@@ -29,9 +29,9 @@ function noOwner(error: unknown) {
   );
 }
 
-/** macOS tools sockets reject standalone Node peers. Use the CLI's public
- * app-server for our threads and coordinate with existing desktop owners. */
-export class MacDesktopControl implements DesktopControl {
+/** Share the CLI app-server and approval callbacks across Windows and macOS,
+ * while routing desktop-owned threads to their existing owner. */
+export class NativeDesktopControl implements DesktopControl {
   readonly contextRequired = false;
   readonly creationPermissions = true;
   readonly approvals = new NativeApprovals();

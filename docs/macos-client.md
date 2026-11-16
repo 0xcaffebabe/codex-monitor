@@ -2,6 +2,8 @@
 
 macOS 使用普通 Node.js 24+ 运行 client，由已安装 Codex 桌面包中的 CLI 提供原生控制。无需用桌面自带的签名 Node 运行 client，也不需要 tools 转发进程。Apple Silicon 真机验证环境为 Node 26.12.1、Codex 26.1111.21308 / CLI 0.169.0-alpha.11.1。
 
+会话控制器现已与 Windows 共用，统一行为及 Windows 验证边界见 [会话控制与审批](native-control.md)。本文中的 macOS 实机验证记录不代表 Windows 实机验收。
+
 ## 安装与连接
 
 ```bash

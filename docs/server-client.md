@@ -4,6 +4,8 @@ Server 提供统一 Web 界面、账户与设备授权、工作空间注册、�
 
 macOS 使用普通 Node 和原生 CLI 控制会话，后台启停使用 `start.sh` / `stop.sh`，详见 [macOS client](macos-client.md)。
 
+Windows 和 macOS 默认使用相同的 App Server 控制器，支持新会话权限选择和 Monitor 自有会话的网页审批。Windows 继续使用原后台启动器和桌面自动监测；控制、权限、CLI 发现及旧 pipe 兼容方式见 [会话控制与审批](native-control.md)。
+
 ```mermaid
 flowchart LR
   Browser[浏览器：切换工作空间] <-->|HTTP / SSE| Server[Server：Web、账户、工作空间]
@@ -58,7 +60,7 @@ npm start -- --mode client --server-url "ws://192.168.1.10:9902" --workspace-id 
 | `--codex-check-ms` | `-CodexCheckMs` | `MONITOR_CODEX_CHECK_MS` | 桌面检查间隔，默认 15,000 毫秒，范围 1,000–300,000 |
 | `--codex-desktop` | `-CodexDesktop` | `MONITOR_CODEX_DESKTOP` | 桌面 GUI 程序的绝对路径 |
 | `--codex-cli` | `-CodexCli` | `MONITOR_CODEX_CLI` | 原生 RPC 使用的 CLI 程序 |
-| `--codex-pipe` | `-CodexPipe` | `MONITOR_CODEX_PIPE` | 选择桌面实例的 pipe |
+| `--codex-pipe` | `-CodexPipe` | `MONITOR_CODEX_PIPE` | 显式使用旧桌面 tools 通道，不提供网页审批 |
 | `--host` / `--port` | `-ListenHost` / `-Port` | `HOST` / `PORT` | Server / 一体模式监听地址与端口 |
 
 配置优先级为 **命令行参数 > 当前进程环境变量 > 项目 `.env`（Windows/macOS 后台启动器）> 默认值**。显式 `--client-key` / `-ClientKey` 会覆盖继承的密钥文件设置；显式文件参数会覆盖继承的内联密钥。仅通过环境变量配置时，仍以密钥文件为先。后台启动器的相对路径以项目目录为基准，直接 npm / Node 命令以当前工作目录为基准；带空格的路径用引号包围。

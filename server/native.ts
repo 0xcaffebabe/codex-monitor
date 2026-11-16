@@ -1,6 +1,6 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { createInterface } from 'node:readline';
-import { existsSync, readdirSync, statSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import path from 'node:path';
 import net from 'node:net';
 import { randomUUID } from 'node:crypto';
@@ -8,6 +8,7 @@ import { ControlError, compactingError } from './control-error.js';
 import { reasoningEfforts, type CodexModel, type ReasoningEffort } from '../src/types.js';
 import os from 'node:os';
 import { macBundledCli, macDesktopBundle } from './macos-paths.js';
+import { windowsBundledCli } from './windows-paths.js';
 
 const readMethods = new Set([
   'initialize',
@@ -32,15 +33,9 @@ function cliPath() {
     if (bundle) return macBundledCli(bundle)!;
   }
   if (process.platform !== 'win32') return 'codex';
-  const root = path.join(process.env.LOCALAPPDATA || '', 'OpenAI', 'Codex', 'bin');
-  const paths = existsSync(root)
-    ? readdirSync(root)
-        .map((name) => path.join(root, name, 'codex.exe'))
-        .filter(existsSync)
-        .sort((a, b) => statSync(b).mtimeMs - statSync(a).mtimeMs)
-    : [];
-  if (!paths[0]) throw new ControlError('找不到 Codex 命令行，请在本机配置 MONITOR_CODEX_CLI。');
-  return paths[0];
+  const executable = windowsBundledCli();
+  if (!executable) throw new ControlError('找不到 Codex 命令行，请在本机配置 MONITOR_CODEX_CLI。');
+  return executable;
 }
 
 /** CLI app-server connection with separate client calls and server approval callbacks. */

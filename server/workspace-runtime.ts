@@ -2,8 +2,8 @@ import path from 'node:path';
 import type { Express } from 'express';
 import type { Config } from './config.js';
 import { installControl, type ControlAuthorization } from './control.js';
-import { DesktopBridge, type DesktopControl } from './desktop.js';
-import { MacDesktopControl } from './macos-control.js';
+import type { DesktopControl } from './desktop.js';
+import { createDesktopControl } from './desktop-control.js';
 import { DesktopWatchdog } from './desktop-watchdog.js';
 import type { WorkspaceAuth } from './http/access.js';
 import { installSessionRoutes } from './http/session-routes.js';
@@ -50,17 +50,12 @@ export function installWorkspaceRuntime(
     auth.db,
     source,
     services.control ??
-      (process.platform === 'darwin' && !process.env.MONITOR_CODEX_PIPE
-        ? new MacDesktopControl({
-            codexHome: config.codexHome,
-            activity: (id) => source.activity(id),
-            onCreated: scope.include,
-            projectPath: config.projectPath,
-          })
-        : new DesktopBridge({
-            codexHome: config.codexHome,
-            activity: (id) => source.activity(id),
-          })),
+      createDesktopControl({
+        codexHome: config.codexHome,
+        activity: (id) => source.activity(id),
+        onCreated: scope.include,
+        projectPath: config.projectPath,
+      }),
     uploads,
     services.authorization,
   );
