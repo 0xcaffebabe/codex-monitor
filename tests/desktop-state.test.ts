@@ -219,7 +219,11 @@ test('legacy item schemas preserve compaction detection and only use the newest 
     f.hist
       .prepare('INSERT INTO thread_turns VALUES(?,?,?,?,?,?)')
       .run(ids.modern, 'turn-2', 2000, 'inProgress', Date.now(), null);
-    assert.deepEqual(source.activity(ids.modern), { turnId: 'turn-2', compacting: false });
+    assert.deepEqual(source.activity(ids.modern), {
+      turnId: 'turn-2',
+      running: true,
+      compacting: false,
+    });
     f.hist
       .prepare(
         'INSERT INTO thread_items(thread_id,turn_id,item_id,rollout_ordinal,item_json) VALUES(?,?,?,?,?)',

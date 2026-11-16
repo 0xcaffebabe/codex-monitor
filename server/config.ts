@@ -14,9 +14,14 @@ export interface Config {
   desktopAutoStart?: boolean;
   desktopCheckMs?: number;
   desktopExecutable?: string;
+  sessionScope?: 'all' | 'created';
+  projectPath?: string;
 }
 export function configFromEnv(env: NodeJS.ProcessEnv = process.env): Config {
   const mode = env.MONITOR_MODE || 'standalone';
+  const sessionScope = env.MONITOR_SESSION_SCOPE || 'all';
+  if (!['all', 'created'].includes(sessionScope))
+    throw new Error('MONITOR_SESSION_SCOPE must be all or created');
   if (!['standalone', 'server', 'client'].includes(mode))
     throw new Error('MONITOR_MODE must be standalone, server or client');
   const port = Number(env.PORT || 4317);
@@ -35,6 +40,8 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): Config {
     throw new Error('MONITOR_POLL_MS must be 500–2147483647');
   return {
     mode: mode as Config['mode'],
+    sessionScope: sessionScope as Config['sessionScope'],
+    projectPath: env.MONITOR_PROJECT_PATH ? path.resolve(env.MONITOR_PROJECT_PATH) : undefined,
     codexHome: path.resolve(env.CODEX_HOME || path.join(os.homedir(), '.codex')),
     dataDir: path.resolve(
       env.MONITOR_DATA_DIR || (mode === 'client' ? '.monitor-client' : '.monitor'),
@@ -50,7 +57,9 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): Config {
     secure: env.MONITOR_HTTPS === 'true',
     pricingFile: path.resolve(env.MONITOR_PRICING_FILE || 'config/model-pricing.json'),
     desktopAutoStart:
-      mode !== 'server' && process.platform === 'win32' && desktopAutoStart !== 'false',
+      mode !== 'server' &&
+      ['win32', 'darwin'].includes(process.platform) &&
+      desktopAutoStart !== 'false',
     desktopCheckMs,
     desktopExecutable,
   };

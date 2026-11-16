@@ -11,14 +11,14 @@ const cpu = (user: number, idle: number, sys = 0): CpuInfo => ({
   times: { user, nice: 0, sys, idle, irq: 0 },
 });
 
-test('host CPU reports the interval average over all logical CPUs and memory reports bytes and percentage', () => {
+test('host CPU reports the interval average over all logical CPUs and memory reports bytes and percentage', async () => {
   let cpus = [cpu(100, 800, 100), cpu(100, 800, 100)];
   const sampler = new HostResourceSampler({
     cpus: () => cpus,
     totalmem: () => 8 * 2 ** 30,
     freemem: () => 2 * 2 ** 30,
   });
-  const first = sampler.sample(1000);
+  const first = await sampler.sample(1000);
   assert.equal(first.cpuPercent, null);
   assert.deepEqual(first.memory, {
     totalBytes: 8 * 2 ** 30,
@@ -27,40 +27,40 @@ test('host CPU reports the interval average over all logical CPUs and memory rep
   });
   // One core is 50% busy and the other is idle: host utilization is 25%.
   cpus = [cpu(500, 1300, 200), cpu(100, 1800, 100)];
-  assert.equal(sampler.sample(6000).cpuPercent, 25);
+  assert.equal((await sampler.sample(6000)).cpuPercent, 25);
   cpus = [cpu(500, 2300, 200), cpu(100, 2800, 100)];
-  assert.equal(sampler.sample(11000).cpuPercent, 0);
+  assert.equal((await sampler.sample(11000)).cpuPercent, 0);
   cpus = [cpu(1500, 2300, 200), cpu(1100, 2800, 100)];
-  assert.equal(sampler.sample(16000).cpuPercent, 100);
+  assert.equal((await sampler.sample(16000)).cpuPercent, 100);
 });
 
-test('CPU counter resets, missing counters, CPU count changes and long pauses require a new baseline', () => {
+test('CPU counter resets, missing counters, CPU count changes and long pauses require a new baseline', async () => {
   let cpus = [cpu(100, 100)];
   const sampler = new HostResourceSampler({
     cpus: () => cpus,
     totalmem: () => 100,
     freemem: () => 40,
   });
-  sampler.sample(1000);
-  assert.equal(sampler.sample(2000).cpuPercent, null, 'unchanged counters are unknown');
+  await sampler.sample(1000);
+  assert.equal((await sampler.sample(2000)).cpuPercent, null, 'unchanged counters are unknown');
   cpus = [cpu(10, 10)];
-  assert.equal(sampler.sample(3000).cpuPercent, null, 'reset counters are unknown');
+  assert.equal((await sampler.sample(3000)).cpuPercent, null, 'reset counters are unknown');
   cpus = [cpu(20, 20)];
-  assert.equal(sampler.sample(4000).cpuPercent, 50);
+  assert.equal((await sampler.sample(4000)).cpuPercent, 50);
   cpus = [];
-  assert.equal(sampler.sample(5000).cpuPercent, null);
+  assert.equal((await sampler.sample(5000)).cpuPercent, null);
   cpus = [cpu(30, 30)];
-  assert.equal(sampler.sample(6000).cpuPercent, null);
+  assert.equal((await sampler.sample(6000)).cpuPercent, null);
   cpus = [cpu(40, 40), cpu(40, 40)];
-  assert.equal(sampler.sample(7000).cpuPercent, null);
+  assert.equal((await sampler.sample(7000)).cpuPercent, null);
   cpus = [cpu(50, 50), cpu(50, 50)];
   const afterPause = 7000 + HOST_RESOURCE_STALE_MS + 1;
-  assert.equal(sampler.sample(afterPause).cpuPercent, null);
+  assert.equal((await sampler.sample(afterPause)).cpuPercent, null);
   cpus = [cpu(60, 60), cpu(60, 60)];
-  assert.equal(sampler.sample(afterPause + 5000).cpuPercent, 50);
+  assert.equal((await sampler.sample(afterPause + 5000)).cpuPercent, 50);
 });
 
-test('CPU and memory sampling failures are isolated, reported as unknown, and recover', () => {
+test('CPU and memory sampling failures are isolated, reported as unknown, and recover', async () => {
   let cpuFailed = true;
   let memoryFailed = false;
   let cpus = [cpu(100, 100)];
@@ -75,26 +75,26 @@ test('CPU and memory sampling failures are isolated, reported as unknown, and re
       return 25;
     },
   });
-  assert.deepEqual(sampler.sample(1000), {
+  assert.deepEqual(await sampler.sample(1000), {
     sampledAt: 1000,
     cpuPercent: null,
     memory: { totalBytes: 100, usedBytes: 75, usedPercent: 75 },
   });
   cpuFailed = false;
-  sampler.sample(2000);
+  await sampler.sample(2000);
   memoryFailed = true;
   cpus = [cpu(200, 200)];
-  assert.deepEqual(sampler.sample(7000), { sampledAt: 7000, cpuPercent: 50, memory: null });
+  assert.deepEqual(await sampler.sample(7000), { sampledAt: 7000, cpuPercent: 50, memory: null });
   memoryFailed = false;
   cpus = [cpu(Number.NaN, 300)];
-  assert.equal(sampler.sample(12000).cpuPercent, null);
+  assert.equal((await sampler.sample(12000)).cpuPercent, null);
   cpus = [cpu(300, 300)];
-  assert.equal(sampler.sample(17000).cpuPercent, null);
+  assert.equal((await sampler.sample(17000)).cpuPercent, null);
   cpus = [cpu(400, 400)];
-  assert.equal(sampler.sample(22000).cpuPercent, 50);
+  assert.equal((await sampler.sample(22000)).cpuPercent, 50);
 });
 
-test('unavailable or inconsistent system memory counters never become valid percentages', () => {
+test('unavailable or inconsistent system memory counters never become valid percentages', async () => {
   for (const [total, free] of [
     [0, 0],
     [100, 101],
@@ -107,8 +107,43 @@ test('unavailable or inconsistent system memory counters never become valid perc
       totalmem: () => total,
       freemem: () => free,
     });
-    assert.equal(sampler.sample().memory, null);
+    assert.equal((await sampler.sample()).memory, null);
   }
+});
+
+test('platform memory failures never fall back to inflated free-only usage or interrupt CPU sampling', async () => {
+  let cpus = [cpu(100, 100)];
+  let used: number | null | Error = 75;
+  let freeCalls = 0;
+  const sampler = new HostResourceSampler({
+    cpus: () => cpus,
+    totalmem: () => 100,
+    freemem: () => {
+      freeCalls++;
+      return 1;
+    },
+    usedmem: async (totalBytes) => {
+      assert.equal(totalBytes, 100);
+      if (used instanceof Error) throw used;
+      return used;
+    },
+  });
+  assert.deepEqual((await sampler.sample(1000)).memory, {
+    totalBytes: 100,
+    usedBytes: 75,
+    usedPercent: 75,
+  });
+  let now = 1000;
+  for (used of [new Error('vm_stat timed out'), null, NaN, Infinity, -1, 101, 0.5]) {
+    now += 5000;
+    cpus = [cpu(now, now)];
+    const sample = await sampler.sample(now);
+    assert.equal(sample.cpuPercent, 50);
+    assert.equal(sample.memory, null);
+  }
+  used = 80;
+  assert.equal((await sampler.sample(now + 5000)).memory?.usedPercent, 80);
+  assert.equal(freeCalls, 0, 'must not fall back to free-only memory');
 });
 
 test('resource frames validate numeric bounds and consistency and cannot claim a different workspace', () => {

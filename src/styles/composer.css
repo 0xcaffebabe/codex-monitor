@@ -271,3 +271,64 @@
   overflow: hidden;
   z-index: 10;
 }
+.approval-panel {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  padding: 12px;
+  margin: 10px 0;
+  overflow: hidden;
+}
+.message-composer > .approval-panel {
+  grid-column: 1 / -1;
+  min-width: 0;
+  max-height: min(40dvh, 380px);
+  overflow-y: auto;
+}
+.message-composer:has(> .approval-panel) {
+  max-height: min(70dvh, 650px);
+  overflow-y: auto;
+}
+.approval-panel > header,
+.approval-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.approval-panel > header strong {
+  flex: 1;
+}
+.approval-request {
+  border-top: 1px solid var(--line);
+  margin-top: 10px;
+  padding-top: 10px;
+}
+.approval-request p {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.approval-request dl {
+  margin: 8px 0;
+}
+.approval-request dt {
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 8px;
+}
+.approval-request dd {
+  margin: 4px 0;
+}
+.approval-request pre {
+  margin: 0;
+  padding: 8px;
+  border-radius: 6px;
+  background: var(--bg);
+  max-height: 220px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+}
+.approval-actions {
+  flex-wrap: wrap;
+}

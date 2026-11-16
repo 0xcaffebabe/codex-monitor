@@ -5,6 +5,7 @@ import { GoalDialog } from './GoalDialog';
 import { PromptForm } from './PromptForm';
 import { MessageComposerProps, useMessageComposer } from './useMessageComposer';
 import { ModelSettings } from './ModelSettings';
+import { ApprovalPanel } from './ApprovalPanel';
 
 export function MessageComposer(props: MessageComposerProps) {
   const { user, threadId, onAccepted } = props;
@@ -66,6 +67,7 @@ export function MessageComposer(props: MessageComposerProps) {
         </button>
         <span className="muted">/compact · /goal · /help</span>
       </div>
+      <ApprovalPanel key={threadId} threadId={threadId} />
       {(!state?.available || state.compacting) && (
         <p className="control-hint">{state?.reason || '正在连接 Codex…'}</p>
       )}

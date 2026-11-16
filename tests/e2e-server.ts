@@ -8,6 +8,7 @@ import { createMonitorServer } from '../server/server-app.js';
 import { MonitorClient } from '../server/client/connection.js';
 import { requestGuard } from '../server/http/security.js';
 import { FixtureDesktop } from './control-fixture.js';
+import { ApprovalFixtureDesktop } from './approval-fixture.js';
 const root = process.env.MONITOR_TEST_ROOT || path.join(os.tmpdir(), 'codex-monitor-e2e-01a1d7fa');
 const relative = path.relative(path.resolve(os.tmpdir()), path.resolve(root));
 if (
@@ -49,7 +50,10 @@ const client = await MonitorClient.start({
   key: local.key,
   services: {
     store: app.auth,
-    control: new FixtureDesktop(f, 5000),
+    control:
+      process.env.MONITOR_TEST_APPROVALS === '1'
+        ? new ApprovalFixtureDesktop(f, 5000)
+        : new FixtureDesktop(f, 5000),
   },
 });
 const secondFixture = fixture(path.join(root, 'client-b'));

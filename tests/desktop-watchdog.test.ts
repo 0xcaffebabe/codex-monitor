@@ -146,7 +146,7 @@ test('shutdown aborts an in-flight Windows helper and prevents subsequent launch
   assert.ok(!notices.some((message) => message.includes('aborted')));
 });
 
-test('configuration defaults to Windows clients, supports opt-out and validates overrides', (t) => {
+test('configuration defaults to Windows/macOS clients, supports opt-out and validates overrides', (t) => {
   const keys = [
     'MONITOR_MODE',
     'MONITOR_CODEX_AUTOSTART',
@@ -161,10 +161,10 @@ test('configuration defaults to Windows clients, supports opt-out and validates 
     }
   });
   for (const key of keys) delete process.env[key];
-  assert.equal(configFromEnv().desktopAutoStart, process.platform === 'win32');
+  assert.equal(configFromEnv().desktopAutoStart, ['win32', 'darwin'].includes(process.platform));
   assert.equal(configFromEnv().desktopCheckMs, 15000);
   process.env.MONITOR_MODE = 'client';
-  assert.equal(configFromEnv().desktopAutoStart, process.platform === 'win32');
+  assert.equal(configFromEnv().desktopAutoStart, ['win32', 'darwin'].includes(process.platform));
   process.env.MONITOR_MODE = 'server';
   assert.equal(configFromEnv().desktopAutoStart, false);
   process.env.MONITOR_MODE = 'standalone';

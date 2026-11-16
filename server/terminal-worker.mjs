@@ -31,12 +31,17 @@ process.on('message', (message) => {
             'System32/WindowsPowerShell/v1.0/powershell.exe',
           )
         : process.env.SHELL || '/bin/bash';
+      const env = { ...process.env };
+      // launchd and clean terminal launches can omit locale entirely. zsh then
+      // echoes UTF-8 input as individual invalid bytes even though output is valid.
+      if (process.platform === 'darwin' && !env.LANG && !env.LC_ALL && !env.LC_CTYPE)
+        env.LANG = 'en_US.UTF-8';
       terminal = spawn(shell, windows ? ['-NoLogo', '-NoProfile', '-NoExit'] : ['-i'], {
         name: 'xterm-256color',
         cwd: message.cwd,
         cols: message.cols,
         rows: message.rows,
-        env: process.env,
+        env,
       });
       terminal.onData((data) => {
         if (closing) return;

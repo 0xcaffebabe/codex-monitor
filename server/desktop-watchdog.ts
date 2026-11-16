@@ -1,10 +1,46 @@
 import { execFile } from 'node:child_process';
 import path from 'node:path';
 import { promisify } from 'node:util';
+import { readFile } from 'node:fs/promises';
+import { macDesktopBundle } from './macos-paths.js';
 
 const execute = promisify(execFile);
 const RETRY_MS = 60000;
 export type DesktopCheck = 'running' | 'started' | 'missing';
+
+export async function ensureMacDesktop(
+  allowStart: boolean,
+  configured?: string,
+  signal?: AbortSignal,
+): Promise<DesktopCheck> {
+  const bundle = macDesktopBundle(configured);
+  if (!bundle)
+    throw new Error('找不到 Codex 桌面应用，请配置 MONITOR_CODEX_DESKTOP 为 .app 的完整路径。');
+  const plist = await readFile(path.join(bundle, 'Contents/Info.plist'));
+  // PlistBuddy handles both binary and XML plists without a new dependency.
+  if (!plist.length) throw new Error('Codex 应用信息为空。');
+  const { stdout: name } = await execute(
+    '/usr/libexec/PlistBuddy',
+    ['-c', 'Print :CFBundleExecutable', path.join(bundle, 'Contents/Info.plist')],
+    { signal, timeout: 5000 },
+  );
+  const executable = path.join(bundle, 'Contents/MacOS', name.trim());
+  const { stdout } = await execute('/bin/ps', ['-axo', 'uid=,comm='], {
+    signal,
+    timeout: 5000,
+    maxBuffer: 4 * 1024 * 1024,
+  });
+  if (
+    stdout.split('\n').some((line) => {
+      const match = line.trim().match(/^(\d+)\s+(.+)$/);
+      return match && Number(match[1]) === process.getuid?.() && match[2] === executable;
+    })
+  )
+    return 'running';
+  if (!allowStart) return 'missing';
+  await execute('/usr/bin/open', ['-gj', bundle], { signal, timeout: 15000 });
+  return 'started';
+}
 
 // Read the installed package's identity instead of assuming that its GUI is
 // named Codex.exe. Some releases use ChatGPT.exe; resources/codex.exe is a CLI.
@@ -135,7 +171,12 @@ export class DesktopWatchdog {
   ) {
     this.ensure =
       dependencies.ensure ??
-      ((allow, signal) => ensureWindowsDesktop(allow, options.executable, signal));
+      ((allow, signal) =>
+        (process.platform === 'darwin' ? ensureMacDesktop : ensureWindowsDesktop)(
+          allow,
+          options.executable,
+          signal,
+        ));
     this.now = dependencies.now ?? Date.now;
     this.log = dependencies.log ?? console.log;
     this.timer = setInterval(() => void this.check(), options.intervalMs);

@@ -44,7 +44,16 @@ async function open(page: Page) {
   await expect(input(dialog)).toBeFocused();
   await expect(dialog.getByRole('button', { name: '执行', exact: true })).toHaveCount(0);
   await expect(dialog.locator('.project-terminal-command')).toHaveCount(0);
-  await expect(dialog.locator('.xterm-accessibility-tree')).toContainText(windows ? 'PS ' : /[$#]/);
+  if (windows) await expect(dialog.locator('.xterm-accessibility-tree')).toContainText('PS ');
+  else {
+    // macOS zsh binds End in application mode; normalize this disposable shell
+    // to xterm's normal-mode sequence for the keyboard forwarding assertions.
+    await command(
+      dialog,
+      "export PS1='CM_E2E_PROMPT> '; if [ -n \"${ZSH_VERSION:-}\" ]; then bindkey '^[[F' end-of-line; fi",
+      false,
+    );
+  }
   await waitForPrompt(dialog);
   return dialog;
 }
@@ -58,7 +67,7 @@ async function waitForPrompt(dialog: Locator) {
           .filter(Boolean)
           .at(-1) ?? '',
     )
-    .toMatch(windows ? />$/ : /[$#]$/);
+    .toMatch(windows ? />$/ : /CM_E2E_PROMPT>$/);
 }
 async function command(dialog: Locator, text: string, shell = true) {
   if (shell) await waitForPrompt(dialog);
@@ -127,9 +136,6 @@ test('project terminal executes in the project, preserves shell state, accepts i
     .poll(async () => (await output(dialog).innerText()).match(/KEYBOARD_OK/g)?.length)
     .toBe(2);
   await waitForPrompt(dialog);
-  await page.keyboard.press('Escape');
-  await expect(dialog).toBeVisible();
-  await expect(input(dialog)).toBeFocused();
   await page.keyboard.type('cd chi');
   await page.keyboard.press('Tab');
   await expect(input(dialog)).toBeFocused();
@@ -160,7 +166,7 @@ test('project terminal executes in the project, preserves shell state, accepts i
     dialog,
     windows
       ? "$reply=Read-Host 'INTERACTIVE_PROMPT'; Write-Output ('REPLY_' + $reply)"
-      : "read -p 'INTERACTIVE_PROMPT' reply; printf 'REPLY_%s\\n' \"$reply\"",
+      : "printf 'INTERACTIVE_PROMPT'; IFS= read -r reply; printf 'REPLY_%s\\n' \"$reply\"",
   );
   await expect(output(dialog)).toContainText('INTERACTIVE_PROMPT');
   await command(dialog, 'shell-answer', false);
@@ -182,7 +188,7 @@ test('project terminal executes in the project, preserves shell state, accepts i
   await expect(output(dialog)).toContainText('STREAM_BEGIN');
   await page.keyboard.press('Control+c');
   await expect(output(dialog)).toContainText(
-    windows ? /STREAM_BEGIN[\s\S]*PS / : /STREAM_BEGIN[\s\S]*[$#] /,
+    windows ? /STREAM_BEGIN[\s\S]*PS / : /STREAM_BEGIN[\s\S]*CM_E2E_PROMPT> /,
   );
   await command(
     dialog,
@@ -211,6 +217,10 @@ test('project terminal executes in the project, preserves shell state, accepts i
   );
   await page.keyboard.press('Enter');
   await expect(output(dialog)).toContainText('DIRECT_INPUT_READY');
+  // Escape is also a shell key-sequence prefix, so check it after command input.
+  await page.keyboard.press('Escape');
+  await expect(dialog).toBeVisible();
+  await expect(input(dialog)).toBeFocused();
   await page.screenshot({ path: test.info().outputPath('project-terminal-inline.png') });
   await page.setViewportSize({ width: 520, height: 740 });
   await expect

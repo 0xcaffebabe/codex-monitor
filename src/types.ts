@@ -20,6 +20,9 @@ export type SessionModelSettings = {
   model?: string;
   thinking?: ReasoningEffort;
 };
+export type SessionCreationSettings = SessionModelSettings & {
+  permissionMode?: import('./approval-types').SessionPermissionMode;
+};
 export interface Session {
   id: string;
   title: string;

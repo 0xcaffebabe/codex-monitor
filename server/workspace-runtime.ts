@@ -3,6 +3,7 @@ import type { Express } from 'express';
 import type { Config } from './config.js';
 import { installControl, type ControlAuthorization } from './control.js';
 import { DesktopBridge, type DesktopControl } from './desktop.js';
+import { MacDesktopControl } from './macos-control.js';
 import { DesktopWatchdog } from './desktop-watchdog.js';
 import type { WorkspaceAuth } from './http/access.js';
 import { installSessionRoutes } from './http/session-routes.js';
@@ -14,6 +15,9 @@ import { UsageStore } from './usage.js';
 import { ImagePreviews } from './image-previews.js';
 import { ProjectTerminals } from './terminal.js';
 import { installTerminalRoutes } from './http/terminal-routes.js';
+import { SessionScope } from './session-scope.js';
+import { ProjectGit } from './git.js';
+import { installGitRoutes } from './http/git-routes.js';
 
 export type WorkspaceServices = {
   control?: DesktopControl;
@@ -27,7 +31,8 @@ export function installWorkspaceRuntime(
   auth: WorkspaceAuth,
   services: WorkspaceServices = {},
 ) {
-  const source = new CodexSource(config.codexHome);
+  const scope = new SessionScope(config.dataDir, config.sessionScope);
+  const source = new CodexSource(config.codexHome, scope);
   const usage = new UsageStore(
     source,
     config.dataDir,
@@ -38,22 +43,36 @@ export function installWorkspaceRuntime(
   installUploads(app, uploads, previews);
   const terminals = new ProjectTerminals(auth, source, services.authorization);
   installTerminalRoutes(app, terminals);
+  const git = new ProjectGit(source);
+  installGitRoutes(app, git);
   const closeControl = installControl(
     app,
     auth.db,
     source,
     services.control ??
-      new DesktopBridge({
-        codexHome: config.codexHome,
-        activity: (id) => source.activity(id),
-      }),
+      (process.platform === 'darwin' && !process.env.MONITOR_CODEX_PIPE
+        ? new MacDesktopControl({
+            codexHome: config.codexHome,
+            activity: (id) => source.activity(id),
+            onCreated: scope.include,
+            projectPath: config.projectPath,
+          })
+        : new DesktopBridge({
+            codexHome: config.codexHome,
+            activity: (id) => source.activity(id),
+          })),
     uploads,
     services.authorization,
   );
   const recentCreation = auth.db.prepare(`SELECT 1 FROM control_requests WHERE state='succeeded'
     AND json_extract(result_json,'$.mode')='create' AND json_extract(result_json,'$.threadId')=?
     AND json_extract(result_json,'$.acceptedAt')>? LIMIT 1`);
-  installSessionRoutes(app, source, (id) => !!recentCreation.get(id, Date.now() - 120000), previews);
+  installSessionRoutes(
+    app,
+    source,
+    (id) => !!recentCreation.get(id, Date.now() - 120000),
+    previews,
+  );
   installUsageRoutes(app, usage);
   const closeRealtime = installRealtime(app, auth, source, config.pollMs);
   const desktopWatchdog = config.desktopAutoStart
@@ -68,6 +87,7 @@ export function installWorkspaceRuntime(
     closeControl();
     closeRealtime();
     terminals.close();
+    git.close();
     uploads.close();
     previews.close();
     source.close();

@@ -1,5 +1,7 @@
 # macOS client 可行性测试 Handoff
 
+> 后续实现与部署说明见 [macOS client](macos-client.md)，2026-11-15 至 16 日的最终结果见 [实现与验收报告](macos-client-implementation-report.md)。本文保留最初的实机测试步骤和当时的实现状态。
+
 编写于 2026-11-15，供在 macOS 真机上工作的 agent 接手。目标是验证当前 Codex Monitor client 的实际兼容范围，优先回答：**使用正常部署的 Node.js 进程，能否通过 macOS Codex 桌面的本机通信鉴权？**
 
 可直接交给接手 agent 的任务说明：

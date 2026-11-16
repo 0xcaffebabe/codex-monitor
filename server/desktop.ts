@@ -1,9 +1,10 @@
 import net from 'node:net';
 import { readdir } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
-import { ControlError } from './control-error.js';
+import { ControlError, compactingError } from './control-error.js';
 import { NativeRpc, compactOwnedThread, interruptOwnedThread } from './native.js';
-import type { CodexModel, SessionModelSettings } from '../src/types.js';
+import type { CodexModel, SessionModelSettings, SessionCreationSettings } from '../src/types.js';
+import type { ApprovalControl } from '../src/approval-types.js';
 export { ControlError } from './control-error.js';
 export interface DesktopProject {
   id: string;
@@ -11,6 +12,9 @@ export interface DesktopProject {
   path: string;
 }
 export interface DesktopControl {
+  contextRequired?: boolean;
+  approvals?: ApprovalControl;
+  creationPermissions?: boolean;
   projects(context: string): Promise<DesktopProject[]>;
   models(): Promise<CodexModel[]>;
   state(
@@ -27,7 +31,7 @@ export interface DesktopControl {
     context: string,
     projectId: string,
     prompt: string,
-    settings?: SessionModelSettings,
+    settings?: SessionCreationSettings,
   ): Promise<{ threadId: string }>;
   goal(
     threadId: string,
@@ -44,12 +48,8 @@ export interface DesktopControl {
 
 const MAX_FRAME = 8 * 1024 * 1024;
 function rejection(message: string) {
-  if (
-    /ActiveTurnNotSteerable[\s\S]{0,200}\bCompact\b|turn_kind["']?\s*:\s*["']?Compact\b/i.test(
-      message,
-    )
-  )
-    return new ControlError('会话正在压缩上下文，消息将排队等待。', false, 409, 'compacting');
+  const compacting = compactingError(message);
+  if (compacting) return compacting;
   if (/already has an active writer/i.test(message))
     return new ControlError('会话正在其他客户端中使用，请在原客户端处理后重试。', false, 409);
   return new ControlError(message.slice(0, 500), false, 502);

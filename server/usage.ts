@@ -62,12 +62,18 @@ export class UsageStore {
   };
   readonly pricing: PricingCatalog;
   constructor(
-    private source: Pick<CodexSource, 'home' | 'usageSessions'>,
+    private source: Pick<CodexSource, 'home' | 'usageSessions'> &
+      Partial<Pick<CodexSource, 'allowsSession'>>,
     dataDir: string,
     pricingFile: string,
   ) {
     mkdirSync(dataDir, { recursive: true });
     this.db = new DatabaseSync(path.join(dataDir, 'usage.sqlite'));
+    // Apply the scope at query time too: an existing cache can contain records
+    // collected before the client enabled a narrower session scope.
+    this.db.function('monitor_session_allowed', (id) =>
+      this.source.allowsSession?.(String(id)) === false ? 0 : 1,
+    );
     this.db.exec(`PRAGMA journal_mode=WAL;
       CREATE TABLE IF NOT EXISTS usage_files(file TEXT PRIMARY KEY,size INTEGER,mtime REAL,identity TEXT,offset INTEGER,state TEXT);
       CREATE TABLE IF NOT EXISTS usage_requests(id TEXT PRIMARY KEY,file TEXT NOT NULL,session_id TEXT NOT NULL,model TEXT NOT NULL,timestamp INTEGER NOT NULL,data TEXT NOT NULL);
@@ -91,6 +97,8 @@ export class UsageStore {
           const file = path.join(dir, item.name);
           if (item.isDirectory()) walk(file);
           else if (item.isFile() && /\.jsonl(?:\.zst)?$/.test(item.name)) {
+            const id = item.name.match(/[a-f\d]{8}-(?:[a-f\d]{4}-){3}[a-f\d]{12}/i)?.[0] ?? '';
+            if (this.source.allowsSession?.(id) === false) continue;
             const real = realpathSync(file),
               relative = path.relative(base, real);
             if (!relative.startsWith('..') && !path.isAbsolute(relative)) files.push(real);
@@ -235,6 +243,7 @@ export class UsageStore {
               );
               let changed = false;
               for (const row of result.records) {
+                if (this.source.allowsSession?.(row.sessionId) === false) continue;
                 const written = insert.run(
                   row.id,
                   file,
@@ -321,7 +330,7 @@ export class UsageStore {
     ]);
     const cached = this.queryCache.get(cacheKey);
     if (cached) return { ...cached, scan: { ...this.status }, warnings: this.warnings() };
-    const clauses: string[] = [],
+    const clauses: string[] = ['monitor_session_allowed(session_id)=1'],
       args: (string | number)[] = [];
     if (query.from !== undefined) {
       clauses.push('timestamp>=?');
@@ -347,7 +356,9 @@ export class UsageStore {
       query,
       this.pricing,
       this.db
-        .prepare('SELECT DISTINCT model FROM usage_requests ORDER BY model')
+        .prepare(
+          'SELECT DISTINCT model FROM usage_requests WHERE monitor_session_allowed(session_id)=1 ORDER BY model',
+        )
         .all()
         .map((row) => String(row.model)),
       this.status,

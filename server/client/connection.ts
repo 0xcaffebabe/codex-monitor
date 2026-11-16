@@ -357,20 +357,27 @@ export class MonitorClient {
   private startResourceReporting(socket: WebSocket) {
     clearInterval(this.resourceTimer);
     const sampler = new HostResourceSampler();
+    let sampling = false;
     let sending = false;
-    const report = () => {
-      if (socket !== this.socket || !this.ready || this.stopped) return;
-      const sample = sampler.sample();
-      // Keep sampling across congestion, but never queue up obsolete resource reports.
-      if (sending || socket.bufferedAmount > CHUNK_BYTES) return;
-      sending = true;
-      void sendFrame(socket, { type: 'host-resources', sample })
-        .catch(() => {})
-        .finally(() => {
-          sending = false;
-        });
+    const report = async () => {
+      if (sampling || socket !== this.socket || !this.ready || this.stopped) return;
+      sampling = true;
+      try {
+        const sample = await sampler.sample();
+        if (socket !== this.socket || !this.ready || this.stopped) return;
+        // Keep sampling across congestion, but never queue up obsolete resource reports.
+        if (sending || socket.bufferedAmount > CHUNK_BYTES) return;
+        sending = true;
+        void sendFrame(socket, { type: 'host-resources', sample })
+          .catch(() => {})
+          .finally(() => {
+            sending = false;
+          });
+      } finally {
+        sampling = false;
+      }
     };
-    report();
+    void report();
     this.resourceTimer = setInterval(report, HOST_RESOURCE_INTERVAL_MS);
     this.resourceTimer.unref();
   }
