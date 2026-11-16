@@ -221,7 +221,7 @@ test('native creation uses project identity and preserves permissions when inher
   });
   const start = f.calls.find((c) => c.method === 'turn/start')!;
   assert.equal(start.params.threadId, 'thread');
-  assert.deepEqual(start.params.input, [{ type: 'text', text: 'hello' }]);
+  assert.deepEqual(start.params.input, [{ type: 'text', text: 'hello', text_elements: [] }]);
   assert.equal(start.params.effort, 'high');
   assert.equal(start.params.approvalPolicy, undefined);
   assert.equal(start.params.sandboxPolicy, undefined);
@@ -486,6 +486,9 @@ test('existing desktop threads use the owner, and uncertain sends never fall bac
   await f.control.send('context', 'desktop-thread', 'append');
   assert.equal(f.ownerCalls[0][1], 'thread-follower-start-turn');
   assert.equal(f.ownerCalls[0][3], 2);
+  assert.deepEqual(f.ownerCalls[0][2].turnStart.request.input, [
+    { type: 'text', text: 'append', text_elements: [] },
+  ]);
   assert.equal(f.calls.length, 0);
   f.ownerError = new ControlError('connection lost after dispatch', true);
   await assert.rejects(f.control.send('context', 'desktop-thread', 'append'));
@@ -506,6 +509,10 @@ test('unloaded threads resume only after a definite missing owner, and retain th
   assert.equal(f.ownerCalls.length, 1);
   assert.equal(f.calls.filter((c) => c.method === 'thread/resume').length, 1);
   assert.equal(f.calls.filter((c) => c.method === 'turn/start').length, 2);
+  assert.deepEqual(
+    f.calls.filter((c) => c.method === 'turn/start').map((c) => c.params.input),
+    ['first', 'second'].map((text) => [{ type: 'text', text, text_elements: [] }]),
+  );
 });
 
 test('owner status distinguishes live turns from old persisted turn ids without reading full history', async () => {

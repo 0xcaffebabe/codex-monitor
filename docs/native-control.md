@@ -6,13 +6,13 @@ Windows 和 macOS 默认共用 `NativeDesktopControl`，通过本机 Codex CLI �
 
 在网页新建会话时可以选择以下权限；默认值与原 macOS client 一致。
 
-| 选项 | 行为 |
-| --- | --- |
-| 完全访问（默认） | `danger-full-access` / `never`，无逐次命令审批 |
-| 沿用本机配置 | 保留本机 Codex 的沙箱与审批配置 |
-| 只读 | 只读沙箱，额外权限交给用户审批 |
-| 项目写入 | 允许修改项目，联网等额外权限交给用户审批 |
-| 项目写入并允许联网 | 允许修改项目和联网，其他额外权限交给用户审批 |
+| 选项               | 行为                                           |
+| ------------------ | ---------------------------------------------- |
+| 完全访问（默认）   | `danger-full-access` / `never`，无逐次命令审批 |
+| 沿用本机配置       | 保留本机 Codex 的沙箱与审批配置                |
+| 只读               | 只读沙箱，额外权限交给用户审批                 |
+| 项目写入           | 允许修改项目，联网等额外权限交给用户审批       |
+| 项目写入并允许联网 | 允许修改项目和联网，其他额外权限交给用户审批   |
 
 权限选项只用于新会话；恢复已有会话保留其设置。受限模式将审批交给用户，不自动批准。操作系统权限及本机强制策略仍然有效。
 
@@ -24,9 +24,11 @@ Monitor 自己承载的 App Server 会话支持命令执行、文件修改、额
 
 由 Codex 桌面持有的会话通过 owner IPC 转发消息、停止与压缩，审批仍在桌面处理。结构化提问与 MCP elicitation 尚无网页答复入口。
 
+文本输入显式携带 `text_elements: []`，新建、恢复及桌面 owner 转发使用同一格式。桌面 owner 会保留原始输入用于渲染，不能依赖 CLI 补齐默认值；缺少该字段会使部分桌面版本在读取 `text_elements.length` 时触发会话页面错误。
+
 ## CLI 与旧通道
 
-`MONITOR_CODEX_CLI` / `--codex-cli` 可指定 Codex CLI；也支持桌面运行环境的 `CODEX_APP_RUNTIME_CLI_PATH`。Windows 自动检查指定桌面程序旁的 `resources/codex.exe`、已有 `OpenAI/Codex/bin` 运行时缓存、常见独立安装目录和可读取的 Windows Store 安装目录。找不到时明确提示配置 CLI 路径，不会将桌面 GUI 当作 CLI 启动。
+`MONITOR_CODEX_CLI` / `--codex-cli` 可指定 Codex CLI；也支持桌面运行环境的 `CODEX_APP_RUNTIME_CLI_PATH`。Windows 优先检查指定桌面程序旁的 `resources/codex.exe`，再通过 `Get-AppxPackage` 获取当前用户的 Store 安装位置，并检查常见独立安装目录和可读取的 Windows Store 安装目录，最后才使用已有 `OpenAI/Codex/bin` 运行时缓存。此顺序避免 `WindowsApps` 拒绝目录枚举时漏掉桌面安装，以及桌面升级后继续选中旧缓存。找不到时明确提示配置 CLI 路径，不会将桌面 GUI 当作 CLI 启动。
 
 macOS 沿用桌面 `.app` 内 CLI 自动发现。两端都沿用当前用户的 Codex 配置与登录，`CODEX_HOME` 控制读取及执行的数据目录。
 
@@ -42,4 +44,6 @@ macOS 沿用桌面 `.app` 内 CLI 自动发现。两端都沿用当前用户的 
 
 运行环境记录：Node 24.13.0 的全量测试在上传用例结束后报告 `EPIPE`；应用内置 Node 24.22.1 的 PTY 等原生依赖测试失败。普通 Node 26.12.1 下全量测试通过，与既有 macOS client 的验证环境一致。
 
-Windows 系统沙箱、Store 目录访问权限及当前桌面版本的 owner IPC 兼容性仍需在 Windows 实机验证；macOS 上通过模拟服务的测试不等同于 Windows 实机验收。
+2026-11-16 Windows 本机补充验证：从桌面异常堆栈定位到其实际文本渲染函数，复现缺失 `text_elements` 的输入会抛出 `Cannot read properties of undefined (reading 'length')`；新建、恢复与 owner 转发的修复后输入均通过该函数。36 项相关自动测试及构建通过。实机 `WindowsApps` 枚举返回 `EPERM`，通过安装信息已正确发现桌面自带的 `0.169.0-alpha.11.1`，不再选中 `0.167.0-alpha.4.1` 缓存。
+
+此验证未向真实会话发送测试消息，也未重启承载诊断会话的 client。已有会话的桌面页面恢复、Windows 系统沙箱及真实审批仍需在加载新构建后确认；模拟服务测试和独立渲染函数验证不等同于桌面端到端验收。

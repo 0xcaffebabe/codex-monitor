@@ -299,7 +299,8 @@ export class NativeDesktopControl implements DesktopControl {
     prompt: string,
     settings: SessionModelSettings,
   ) {
-    const input = [{ type: 'text', text: prompt }];
+    // Desktop owner IPC retains this input for rendering before CLI defaults apply.
+    const input = [{ type: 'text', text: prompt, text_elements: [] }];
     const request = {
       threadId,
       input,
