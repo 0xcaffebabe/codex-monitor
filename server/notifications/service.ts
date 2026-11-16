@@ -1,4 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite';
+import type { CompletionNotification } from '../../src/types.js';
 import { LarkDeliveryError, sendLark, type WebhookTransport } from './lark.js';
 import { NotificationStore, type NotificationInput, type PendingDelivery } from './store.js';
 import { notificationKey, type NotificationPolicy, type NotificationReport } from './events.js';
@@ -60,11 +61,17 @@ export class NotificationService {
   receive(workspace: { id: string; name: string }, report: NotificationReport) {
     const config = this.store.config();
     if (this.closed || report.revision !== config.revision) return false;
+    const pending: CompletionNotification[] = [];
     this.db.exec('BEGIN IMMEDIATE');
     try {
-      for (const event of report.completions ?? []) this.completions.receive(workspace, event);
+      for (const event of [
+        ...(report.completions ?? []),
+        ...report.events.filter((event) => event.kind === 'session.completed'),
+      ]) {
+        const notification = this.completions.record(workspace, event);
+        if (notification) pending.push(notification);
+      }
       for (const event of report.events) {
-        if (event.kind === 'session.completed') this.completions.receive(workspace, event);
         if (!config.enabled) continue;
         const key = `${workspace.id}:${notificationKey(event)}`;
         if (event.kind === 'session.input_resolved') {
@@ -94,6 +101,7 @@ export class NotificationService {
       this.db.exec('ROLLBACK');
       throw error;
     }
+    this.completions.publish(pending);
     if (report.monitorError)
       this.monitorErrors.set(workspace.id, `${workspace.name}：${report.monitorError}`);
     else this.monitorErrors.delete(workspace.id);

@@ -126,7 +126,8 @@ AES 加密范围是 Server 与 client 之间的 ws。浏览器与 Server 之间�
 
 ## 请求与故障语义
 
-- 工作空间受保护路由为 `/api/workspaces/:workspaceId/sessions`、`/overview`、`/control`、`/uploads`、`/usage`、`/stream`。账户、设备、工作空间管理和全局通知接口由 Server 本身处理，不经过 client 的 HTTP 转发；`/api/notifications`、`/api/notifications/test` 仅管理员可访问。`GET /api/notifications/completions` 面向所有已登录用户，仅返回完成通知的序号、工作空间、会话、标题和完成时间，不返回投递正文或凭据。
+- 工作空间受保护路由为 `/api/workspaces/:workspaceId/sessions`、`/overview`、`/control`、`/uploads`、`/usage`、`/stream`。账户、设备、工作空间管理和全局通知接口由 Server 本身处理，不经过 client 的 HTTP 转发；`/api/notifications`、`/api/notifications/test` 仅管理员可访问。所有已登录用户可通过 `GET /api/notifications/completions` 同步内存待通知列表，通过 `POST /api/notifications/completions/dismiss` 关闭其已观察到的通知；沿用 Bearer 登录校验、来源检查和 JSON 写请求保护。响应包含服务实例标识、列表版本，以及通知编号、工作空间、会话、标题和完成时间，不返回投递正文或凭据。
+- 网页待通知只保存在 Server 进程内存，最多 50 条，不从浏览器存储或旧数据库事件恢复。关闭请求携带服务实例标识和明确的通知 ID 集合；“全部关闭”不会删除请求外的新通知，旧实例请求返回 409。前端以完整快照替换列表，忽略较旧版本并取消关闭前的在途读取；关闭成功后才移除或跳转，其他端下次轮询同步。数据库接收记录和 Client outbox 继续用于去重与可靠上报，重启仅清空内存待通知，重复事件不会重新入队。
 - Client 只转发明确允许的本机能力路径，内部 HTTP 适配器绑定随机 loopback 端口，每个请求使用临时随机授权，不接收任意 URL、账户管理或任意文件路径。
 - Client 对初始身份和实际控制提交向 Server 做反向权限复核。浏览器退出或设备撤销后进行中的 SSE 会终止，尚未实际提交的命令重新检查设备权限；已受理消息队列按当前账户管理员权限处理。
 - 连接每 15 秒检测心跳，断开后按 1、2、4…30 秒退避重连。离线工作空间继续保留，页面显示离线；恢复后自动重建浏览器实时流。

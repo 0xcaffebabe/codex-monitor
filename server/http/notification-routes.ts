@@ -33,6 +33,13 @@ const settings = z
   })
   .strict();
 
+const dismissal = z
+  .object({
+    generation: z.uuid(),
+    ids: z.array(z.number().int().positive().max(Number.MAX_SAFE_INTEGER)).min(1).max(50),
+  })
+  .strict();
+
 export function installNotificationRoutes(
   app: Express,
   auth: WorkspaceAuth,
@@ -40,16 +47,16 @@ export function installNotificationRoutes(
   authorized?: (req: Request) => Promise<boolean>,
 ) {
   // All authenticated readers can already read sessions in every registered workspace.
-  app.get('/api/notifications/completions', (req, res) => {
-    const after = req.query.after;
-    if (
-      after !== undefined &&
-      (typeof after !== 'string' ||
-        !/^\d{1,16}$/.test(after) ||
-        !Number.isSafeInteger(Number(after)))
-    )
-      return fail(res, 400, '通知游标无效');
-    res.json(notifications.completions.page(after === undefined ? undefined : Number(after)));
+  app.get('/api/notifications/completions', (_req, res) => {
+    res.json(notifications.completions.snapshot());
+  });
+  app.post('/api/notifications/completions/dismiss', (req, res) => {
+    const parsed = dismissal.safeParse(req.body);
+    if (!parsed.success) return fail(res, 400, '通知关闭请求无效，请刷新后重试');
+    // Dismiss only IDs observed by the caller, so a concurrent new completion survives “close all”.
+    const result = notifications.completions.dismiss(parsed.data.generation, parsed.data.ids);
+    if (!result) return fail(res, 409, '服务已重启，通知列表已更新，请刷新后重试');
+    res.json(result);
   });
   app.get('/api/notifications', admin, (_req, res) => res.json(notifications.state()));
   app.put('/api/notifications', admin, async (req, res) => {

@@ -1,10 +1,14 @@
 import type { DatabaseSync } from 'node:sqlite';
-import type { CompletionNotificationPage } from '../../src/types.js';
+import { randomUUID } from 'node:crypto';
+import type { CompletionNotification, CompletionNotificationSnapshot } from '../../src/types.js';
 import { notificationKey, type CompletionEvent } from './events.js';
 
-/** Server-owned feed. Its sequence is independent of delivery attempts and wall-clock precision. */
+/** Pending notices live only in this process; SQLite retains receipts solely for deduplication. */
 export class CompletionNotifications {
   readonly since: number;
+  private readonly generation = randomUUID();
+  private revision = 0;
+  private pending = new Map<number, CompletionNotification>();
   constructor(private db: DatabaseSync) {
     db.exec(`CREATE TABLE IF NOT EXISTS browser_notification_state (
       id INTEGER PRIMARY KEY CHECK(id=1), since INTEGER NOT NULL
@@ -19,9 +23,10 @@ export class CompletionNotifications {
     );
     this.since = Number(db.prepare('SELECT since FROM browser_notification_state').get()!.since);
   }
-  receive(workspace: { id: string; name: string }, event: CompletionEvent) {
+  /** Call inside the report transaction; publish only after that transaction commits. */
+  record(workspace: { id: string; name: string }, event: CompletionEvent) {
     if (event.occurredAt < this.since) return;
-    this.db
+    const result = this.db
       .prepare(
         `INSERT OR IGNORE INTO browser_notifications
       (event_key,workspace_id,workspace_name,session_id,title,completed_at) VALUES(?,?,?,?,?,?)`,
@@ -34,30 +39,42 @@ export class CompletionNotifications {
         event.title,
         event.occurredAt,
       );
+    if (!result.changes) return;
+    return {
+      id: Number(result.lastInsertRowid),
+      workspaceId: workspace.id,
+      workspaceName: workspace.name,
+      sessionId: event.sessionId,
+      title: event.title,
+      completedAt: event.occurredAt,
+    };
+  }
+  publish(notifications: CompletionNotification[]) {
+    if (!notifications.length) return;
+    for (const notification of notifications) this.pending.set(notification.id, notification);
+    while (this.pending.size > 50) this.pending.delete(this.pending.keys().next().value!);
+    this.revision++;
   }
   forgetWorkspace(id: string) {
-    this.db.prepare('DELETE FROM browser_notifications WHERE workspace_id=?').run(id);
+    const ids = [...this.pending.values()]
+      .filter((item) => item.workspaceId === id)
+      .map((item) => item.id);
+    this.dismiss(this.generation, ids);
   }
-  page(after?: number): CompletionNotificationPage {
-    const latest = Number(
-      this.db.prepare('SELECT COALESCE(MAX(seq),0) AS n FROM browser_notifications').get()!.n,
-    );
-    // The first request establishes a baseline; it never floods a new viewer with old completions.
-    if (after === undefined || after > latest)
-      return { cursor: latest, notifications: [], hasMore: false };
-    const rows = this.db
-      .prepare(
-        `SELECT seq AS id,workspace_id AS workspaceId,
-      workspace_name AS workspaceName,session_id AS sessionId,title,completed_at AS completedAt
-      FROM browser_notifications WHERE seq>? ORDER BY seq LIMIT 51`,
-      )
-      .all(after);
-    const hasMore = rows.length > 50;
-    const notifications = rows.slice(
-      0,
-      50,
-    ) as unknown as CompletionNotificationPage['notifications'];
-    return { cursor: hasMore ? notifications.at(-1)!.id : latest, notifications, hasMore };
+  snapshot(): CompletionNotificationSnapshot {
+    return {
+      generation: this.generation,
+      revision: this.revision,
+      notifications: [...this.pending.values()],
+    };
+  }
+  dismiss(generation: string, ids: number[]) {
+    // An old page cannot clear notices belonging to a restarted Server.
+    if (generation !== this.generation) return undefined;
+    let changed = false;
+    for (const id of ids) if (this.pending.delete(id)) changed = true;
+    if (changed) this.revision++;
+    return this.snapshot();
   }
 }
 

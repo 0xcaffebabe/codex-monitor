@@ -8,6 +8,7 @@ import { rmSync } from 'node:fs';
 import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { CompletionNotifications } from '../server/notifications/completions.js';
+import { NotificationService } from '../server/notifications/service.js';
 import type { CompletionEvent } from '../server/notifications/events.js';
 import { createApp } from '../server/app.js';
 import { createMonitorServer } from '../server/server-app.js';
@@ -42,38 +43,87 @@ async function until(check: () => boolean | Promise<boolean>) {
   }
 }
 
-test('completion feed baselines old events, pages equal timestamps without gaps and scopes deduplication by workspace', () => {
+function publish(
+  feed: CompletionNotifications,
+  workspace: { id: string; name: string },
+  completion = event(),
+) {
+  const notification = feed.record(workspace, completion);
+  if (notification) feed.publish([notification]);
+  return notification;
+}
+
+test('shared pending snapshots close observed IDs without deleting concurrent completions or requeuing retries', () => {
   const db = new DatabaseSync(':memory:');
   try {
     const feed = new CompletionNotifications(db),
       workspace = { id: 'a', name: '电脑 A' };
-    const old = event();
-    feed.receive(workspace, { ...old, occurredAt: feed.since - 1 });
-    assert.deepEqual(feed.page(), { cursor: 0, notifications: [], hasMore: false });
+    publish(feed, workspace, { ...event(), occurredAt: feed.since - 1 });
+    assert.equal(feed.snapshot().notifications.length, 0);
     const shared = event();
-    feed.receive(workspace, shared);
-    feed.receive(workspace, shared);
-    feed.receive({ id: 'b', name: '电脑 B' }, shared);
-    const baseline = feed.page();
-    assert.equal(baseline.notifications.length, 0);
-    const timestamp = Date.now();
-    for (let i = 0; i < 60; i++) feed.receive(workspace, { ...event(), occurredAt: timestamp });
-    const first = feed.page(baseline.cursor),
-      second = feed.page(first.cursor);
-    assert.equal(first.notifications.length, 50);
-    assert.equal(first.hasMore, true);
-    assert.equal(second.notifications.length, 10);
-    assert.equal(second.hasMore, false);
-    assert.equal(
-      new Set([...first.notifications, ...second.notifications].map((row) => row.id)).size,
-      60,
+    publish(feed, workspace, shared);
+    publish(feed, workspace, shared);
+    publish(feed, { id: 'b', name: '电脑 B' }, shared);
+    const observed = feed.snapshot();
+    assert.equal(observed.notifications.length, 2, 'first open receives all pending notices');
+    const nextTurn = publish(feed, workspace)!;
+    const afterClose = feed.dismiss(
+      observed.generation,
+      observed.notifications.map((item) => item.id),
+    )!;
+    assert.deepEqual(
+      afterClose.notifications,
+      [nextTurn],
+      'close all cannot remove a concurrent new turn',
     );
-    assert.equal(feed.page(0).notifications.filter((row) => row.workspaceId === 'b').length, 1);
-    assert.doesNotMatch(JSON.stringify(first), /PRIVATE_COMPLETION_SUMMARY|turnId|event_key/);
-    assert.deepEqual(feed.page(second.cursor).notifications, []);
-    assert.equal(feed.page(Number.MAX_SAFE_INTEGER).cursor, second.cursor);
+    assert.ok(afterClose.revision > observed.revision);
+    publish(feed, workspace, shared);
+    publish(feed, { id: 'b', name: '电脑 B' }, shared);
+    assert.deepEqual(feed.snapshot(), afterClose, 'closed events remain deduplicated');
+    assert.deepEqual(
+      feed.dismiss(
+        observed.generation,
+        observed.notifications.map((item) => item.id),
+      ),
+      afterClose,
+      'retrying an acknowledged deletion is idempotent',
+    );
+    assert.doesNotMatch(JSON.stringify(afterClose), /PRIVATE_COMPLETION_SUMMARY|turnId|event_key/);
+    publish(feed, { id: 'b', name: '电脑 B' });
     feed.forgetWorkspace('b');
-    assert.ok(feed.page(0).notifications.every((row) => row.workspaceId !== 'b'));
+    assert.ok(feed.snapshot().notifications.every((row) => row.workspaceId !== 'b'));
+    for (let i = 0; i < 60; i++) publish(feed, workspace);
+    assert.equal(feed.snapshot().notifications.length, 50, 'pending memory is bounded');
+  } finally {
+    db.close();
+  }
+});
+
+test('Server restart empties pending memory, retains deduplication receipts and rejects old-page deletions', () => {
+  const db = new DatabaseSync(':memory:');
+  try {
+    const workspace = { id: 'local', name: '本机' },
+      previous = new CompletionNotifications(db);
+    const old = event();
+    publish(previous, workspace, old);
+    const oldPage = previous.snapshot();
+    const restarted = new CompletionNotifications(db);
+    assert.notEqual(restarted.snapshot().generation, oldPage.generation);
+    assert.equal(
+      restarted.snapshot().notifications.length,
+      0,
+      'persistent event rows never restore pending notices',
+    );
+    publish(restarted, workspace, old);
+    assert.equal(
+      restarted.snapshot().notifications.length,
+      0,
+      'a replay cannot restore an old event',
+    );
+    const fresh = publish(restarted, workspace)!;
+    assert.ok(fresh.id > oldPage.notifications[0].id);
+    assert.equal(restarted.dismiss(oldPage.generation, [fresh.id]), undefined);
+    assert.deepEqual(restarted.snapshot().notifications, [fresh]);
   } finally {
     db.close();
   }
@@ -105,8 +155,7 @@ test('authenticated viewers poll completions with webhook disabled; old, failed,
     const url = base + '/api/notifications/completions';
     assert.equal((await fetch(url)).status, 401);
     assert.equal((await fetch(base + '/api/notifications', { headers })).status, 403);
-    const start = await (await fetch(url, { headers })).json();
-    assert.equal(start.notifications.length, 0);
+    assert.equal((await (await fetch(url, { headers })).json()).notifications.length, 0);
     assert.equal(service.notifications.policy().enabled, false);
     assert.ok(service.notifications.policy().completionSince);
     complete(f);
@@ -116,7 +165,7 @@ test('authenticated viewers poll completions with webhook disabled; old, failed,
     complete(f, ids.archived);
     await service.pollNotifications();
     await service.pollNotifications();
-    const result = await fetch(url + `?after=${start.cursor}`, { headers });
+    const result = await fetch(url, { headers });
     assert.match(result.headers.get('Cache-Control')!, /no-store/);
     const page = await result.json();
     assert.equal(page.notifications.length, 1);
@@ -124,11 +173,52 @@ test('authenticated viewers poll completions with webhook disabled; old, failed,
     assert.equal(page.notifications[0].workspaceId, 'local');
     assert.equal(sends, 0);
     assert.equal(service.notifications.state().deliveries.length, 0);
-    for (const invalid of ['-1', '1.5', 'abc', '9007199254740992', '1&after=2'])
-      assert.equal((await fetch(url + '?after=' + invalid, { headers })).status, 400, invalid);
-    assert.equal((await fetch(url + `?after=${page.cursor}`, { headers })).status, 200);
+    const dismissal = { generation: page.generation, ids: [page.notifications[0].id] };
+    const close = (
+      body: unknown,
+      extraHeaders: Record<string, string> = {},
+      authenticated = true,
+    ) =>
+      fetch(url + '/dismiss', {
+        method: 'POST',
+        headers: {
+          ...(authenticated ? headers : {}),
+          'Content-Type': 'application/json',
+          ...extraHeaders,
+        },
+        body: JSON.stringify(body),
+      });
+    assert.equal((await close(dismissal, {}, false)).status, 401);
+    assert.equal(
+      (
+        await close(dismissal, {
+          Origin: 'http://untrusted.example',
+          'Sec-Fetch-Site': 'cross-site',
+        })
+      ).status,
+      403,
+    );
+    for (const invalid of [
+      {},
+      { ...dismissal, generation: 'invalid' },
+      { ...dismissal, ids: [] },
+      { ...dismissal, ids: [0] },
+      { ...dismissal, ids: [-1] },
+      { ...dismissal, ids: [1.5] },
+      { ...dismissal, ids: [Number.MAX_SAFE_INTEGER + 1] },
+      { ...dismissal, ids: Array(51).fill(1) },
+      { ...dismissal, all: true },
+    ])
+      assert.equal((await close(invalid)).status, 400, JSON.stringify(invalid));
+    assert.equal((await close({ ...dismissal, generation: randomUUID() })).status, 409);
+    assert.equal((await (await fetch(url, { headers })).json()).notifications.length, 1);
+    const closed = await close(dismissal);
+    assert.equal(closed.status, 200, 'authenticated viewers can dismiss shared notices');
+    assert.equal((await closed.json()).notifications.length, 0);
+    assert.equal((await close(dismissal)).status, 200);
     service.auth.db.prepare('DELETE FROM sessions WHERE user_id=?').run(viewerId);
     assert.equal((await fetch(url, { headers })).status, 401);
+    assert.equal((await close(dismissal)).status, 401);
   } finally {
     await service.close();
     server.closeAllConnections();
@@ -168,7 +258,7 @@ test('browser-only completions traverse the encrypted client tunnel and lost ack
   };
   try {
     client = await connect();
-    const start = service.notifications.completions.page().cursor;
+    const generation = service.notifications.completions.snapshot().generation;
     const receive = service.notifications.receive.bind(service.notifications);
     service.notifications.receive = (origin, report) => {
       receive(origin, report);
@@ -180,7 +270,12 @@ test('browser-only completions traverse the encrypted client tunnel and lost ack
       return client!.notifications.completions.pending().length === 1;
     });
     assert.equal(client.notifications.completions.pending().length, 1);
-    assert.equal(service.notifications.completions.page(start).notifications.length, 1);
+    const first = service.notifications.completions.snapshot();
+    assert.equal(first.notifications.length, 1);
+    service.notifications.completions.dismiss(
+      first.generation,
+      first.notifications.map((item) => item.id),
+    );
     await stop();
     service = createMonitorServer(config);
     server = createServer(service.app);
@@ -193,7 +288,12 @@ test('browser-only completions traverse the encrypted client tunnel and lost ack
       return client!.notifications.completions.pending().length === 0;
     });
     assert.equal(client.notifications.completions.pending().length, 0);
-    assert.equal(service.notifications.completions.page(start).notifications.length, 1);
+    assert.notEqual(service.notifications.completions.snapshot().generation, generation);
+    assert.equal(
+      service.notifications.completions.snapshot().notifications.length,
+      0,
+      'an unacknowledged report must not resurrect a notice closed before restart',
+    );
     assert.equal(service.notifications.state().deliveries.length, 0);
     // A webhook generation change does not reset or lose browser-only completions.
     complete(f);
@@ -226,15 +326,47 @@ test('browser-only completions traverse the encrypted client tunnel and lost ack
       'a repeated policy request must wait for the actual client acknowledgement',
     );
     assert.ok(releasePolicy);
-    assert.ok(releasePolicy);
     releasePolicy();
     await Promise.all([configuration, duplicate]);
     await client.notifications.poll();
-    assert.equal(service.notifications.completions.page(start).notifications.length, 2);
+    assert.equal(service.notifications.completions.snapshot().notifications.length, 1);
   } finally {
     releasePolicy?.();
     await stop();
     f.close();
     rmSync(f.root, { recursive: true, force: true });
+  }
+});
+
+test('a rolled-back report never publishes notices or consumes their deduplication receipts', async () => {
+  const db = new DatabaseSync(':memory:');
+  const service = new NotificationService(db, 60000, async () => Response.json({ code: 0 }));
+  try {
+    await service.configure({
+      enabled: true,
+      publicUrl: '',
+      webhookUrl:
+        'https://open.larksuite.com/open-apis/bot/v2/hook/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
+    });
+    const completion = event();
+    const report = {
+      revision: service.policy().revision,
+      events: [completion],
+      monitorError: '' as const,
+    };
+    const enqueue = service.store.enqueue.bind(service.store);
+    service.store.enqueue = () => {
+      throw new Error('simulated transaction failure');
+    };
+    assert.throws(() => service.receive({ id: 'local', name: '本机' }, report), /simulated/);
+    assert.equal(service.completions.snapshot().notifications.length, 0);
+    assert.equal(db.prepare('SELECT COUNT(*) AS n FROM browser_notifications').get()!.n, 0);
+    service.store.enqueue = enqueue;
+    assert.equal(service.receive({ id: 'local', name: '本机' }, report), true);
+    assert.equal(service.completions.snapshot().notifications.length, 1);
+    assert.equal(service.state().deliveries.length, 1);
+  } finally {
+    await service.close();
+    db.close();
   }
 });

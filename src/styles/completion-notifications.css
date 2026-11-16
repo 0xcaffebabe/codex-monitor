@@ -27,6 +27,18 @@
 .completion-notifications-header button {
   color: var(--accent);
 }
+.completion-notification-error {
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  color: #b6493e;
+  font-size: 12px;
+}
+.completion-notification a[aria-disabled='true'] {
+  cursor: wait;
+  opacity: 0.55;
+}
 .completion-notification {
   display: flex;
   align-items: flex-start;
