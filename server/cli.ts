@@ -52,7 +52,7 @@ Client settings:
 
 Server settings:
   --host <address>                Listen address (default: 0.0.0.0)
-  --port <number>                 Listen port (default: 4317)
+  --port <number>                 Listen port (default: 9902)
 
   --check-config                  Validate configuration and exit without starting
   -h, --help                      Show this help without starting

@@ -32,13 +32,13 @@ Windows：双击 `start.cmd` 或运行 `powershell -NoProfile -ExecutionPolicy B
 
 ```powershell
 # Windows 后台启动，无需先编辑 .env
-.\start.cmd -Mode client -ServerUrl "ws://192.168.1.10:4317" -WorkspaceId "注册的工作空间ID" -ClientKey "注册的AES密钥"
+.\start.cmd -Mode client -ServerUrl "ws://192.168.1.10:9902" -WorkspaceId "注册的工作空间ID" -ClientKey "注册的AES密钥"
 
 # 前台启动，Windows / Linux / macOS 通用，Ctrl+C 停止
-npm run client -- --server-url "ws://192.168.1.10:4317" --workspace-id "注册的工作空间ID" --client-key "注册的AES密钥"
+npm run client -- --server-url "ws://192.168.1.10:9902" --workspace-id "注册的工作空间ID" --client-key "注册的AES密钥"
 
 # 等价的通用入口
-npm start -- --mode client --server-url "ws://192.168.1.10:4317" --workspace-id "注册的工作空间ID" --client-key "注册的AES密钥"
+npm start -- --mode client --server-url "ws://192.168.1.10:9902" --workspace-id "注册的工作空间ID" --client-key "注册的AES密钥"
 ```
 
 密钥保存在单独文件时，将 `-ClientKey` 换成 `-ClientKeyFile "D:\private\client.key"`；npm 使用 `--client-key-file "D:\private\client.key"`。同一次调用中只指定一种密钥来源。
@@ -65,14 +65,14 @@ npm start -- --mode client --server-url "ws://192.168.1.10:4317" --workspace-id 
 
 ```powershell
 # 自定义目录并关闭桌面自动启动
-.\start.cmd -Mode client -ServerUrl "ws://192.168.1.10:4317" -WorkspaceId "注册的工作空间ID" -ClientKeyFile "D:\private\client.key" -CodexHome "D:\Codex Home" -DataDir "D:\private\monitor-client" -CodexAutoStart false
+.\start.cmd -Mode client -ServerUrl "ws://192.168.1.10:9902" -WorkspaceId "注册的工作空间ID" -ClientKeyFile "D:\private\client.key" -CodexHome "D:\Codex Home" -DataDir "D:\private\monitor-client" -CodexAutoStart false
 
 # 停止对应的后台 client；自定义过 DataDir 时须使用相同目录
 .\stop.cmd -Mode client -DataDir "D:\private\monitor-client"
 
 # 查看帮助；检查配置会验证参数及密钥文件后退出，不启动 client
 .\start.cmd -Help
-.\start.cmd -Mode client -ServerUrl "ws://192.168.1.10:4317" -WorkspaceId "注册的工作空间ID" -ClientKeyFile "D:\private\client.key" -CheckConfig
+.\start.cmd -Mode client -ServerUrl "ws://192.168.1.10:9902" -WorkspaceId "注册的工作空间ID" -ClientKeyFile "D:\private\client.key" -CheckConfig
 npm run client -- --help
 ```
 
@@ -90,7 +90,7 @@ npm run client -- --help
 
 ```dotenv
 MONITOR_MODE=client
-MONITOR_SERVER_URL=ws://server-address:4317
+MONITOR_SERVER_URL=ws://server-address:9902
 MONITOR_WORKSPACE_ID=注册界面生成的工作空间ID
 MONITOR_CLIENT_KEY=注册界面生成的43字符base64url密钥
 # 可选，指向此 client 运行 Codex 的用户目录

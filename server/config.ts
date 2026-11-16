@@ -24,7 +24,7 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): Config {
     throw new Error('MONITOR_SESSION_SCOPE must be all or created');
   if (!['standalone', 'server', 'client'].includes(mode))
     throw new Error('MONITOR_MODE must be standalone, server or client');
-  const port = Number(env.PORT || 4317);
+  const port = Number(env.PORT || 9902);
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('PORT must be 1–65535');
   const desktopAutoStart = env.MONITOR_CODEX_AUTOSTART;
   if (desktopAutoStart !== undefined && !['true', 'false'].includes(desktopAutoStart))

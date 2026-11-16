@@ -11,7 +11,7 @@ macOS 支持独立后台 client、原生会话控制与 zsh 项目终端，使�
 需要 **Node.js 24 或以上版本**。首次启动会安装依赖并生成生产构建。
 
 1. 双击 `start.cmd`，或在此目录运行 `powershell -NoProfile -ExecutionPolicy Bypass -File .\start.ps1`。
-2. 电脑访问 **http://localhost:4317**；同网络手机访问启动信息中的 LAN 地址。
+2. 电脑访问 **http://localhost:9902**；同网络手机访问启动信息中的 LAN 地址。
 3. 初次启动会生成一次性初始化密钥。通过启动日志中的初始化链接创建管理员。通过命令行创建或重置账户时，临时凭据位于 **`.monitor/initial-credentials.txt`**。
 4. 保持勾选“记住此设备”，登录凭据保存在此浏览器本地，有效期 **90 天**。退出、撤销设备、账户删除及到期后需重新登录。不同地址、端口和浏览器分别登录。
 5. 双击 `stop.cmd` 停止服务；再次启动仍保留账户和设备授权。
@@ -22,9 +22,9 @@ macOS 支持独立后台 client、原生会话控制与 zsh 项目终端，使�
 
 ```powershell
 # Windows 后台启动
-.\start.cmd -Mode client -ServerUrl "ws://server-address:4317" -WorkspaceId "工作空间ID" -ClientKey "AES密钥"
+.\start.cmd -Mode client -ServerUrl "ws://server-address:9902" -WorkspaceId "工作空间ID" -ClientKey "AES密钥"
 # 或跨平台前台启动
-npm run client -- --server-url "ws://server-address:4317" --workspace-id "工作空间ID" --client-key "AES密钥"
+npm run client -- --server-url "ws://server-address:9902" --workspace-id "工作空间ID" --client-key "AES密钥"
 # 停止后台 client
 .\stop.cmd -Mode client
 ```
@@ -135,7 +135,7 @@ Codex 提出需要选择或回答的结构化问题时，发送“需要你选�
 | 变量                                   | 默认值                      | 用途                               |
 | -------------------------------------- | --------------------------- | ---------------------------------- |
 | `HOST`                                 | `0.0.0.0`                   | 监听网卡                           |
-| `PORT`                                 | `4317`                      | 监听端口                           |
+| `PORT`                                 | `9902`                      | 监听端口                           |
 | `MONITOR_MODE`                         | `standalone`                | 一体启动；`server` 只提供 Web；`client` 只主动连接 |
 | `MONITOR_SERVER_URL`                   | 空                          | client 使用的 `ws://` Server 地址 |
 | `MONITOR_WORKSPACE_ID`                 | 空                          | client 对应的注册工作空间 ID |
@@ -165,7 +165,7 @@ server {
     ssl_certificate /etc/letsencrypt/live/codex.example.com/fullchain.pem;
     ssl_certificate_key /etc/letsencrypt/live/codex.example.com/privkey.pem;
     location / {
-        proxy_pass http://127.0.0.1:4317;
+        proxy_pass http://127.0.0.1:9902;
         proxy_set_header Host $http_host;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;

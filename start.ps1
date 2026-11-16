@@ -26,8 +26,8 @@ if($Help){
   Write-Output @'
 Codex Monitor Windows background launcher
 
-  .\start.cmd -Mode client -ServerUrl ws://server:4317 -WorkspaceId <id> -ClientKey <key>
-  .\start.ps1 -Mode client -ServerUrl ws://server:4317 -WorkspaceId <id> -ClientKeyFile "D:\private\client.key"
+  .\start.cmd -Mode client -ServerUrl ws://server:9902 -WorkspaceId <id> -ClientKey <key>
+  .\start.ps1 -Mode client -ServerUrl ws://server:9902 -WorkspaceId <id> -ClientKeyFile "D:\private\client.key"
 
   -Mode standalone|server|client    Default: standalone
   -ServerUrl <url>                  Server http(s) or ws(s) origin
@@ -140,7 +140,7 @@ foreach($taskPrivateDirectory in @($taskData,$taskPrivateData) | Select-Object -
 foreach($taskKeyPath in @((Join-Path $PSScriptRoot '.env'),$env:MONITOR_CLIENT_KEY_FILE)){
   if($taskKeyPath -and (Test-Path -LiteralPath $taskKeyPath -PathType Leaf)){Protect-MonitorPrivatePath ([System.IO.Path]::GetFullPath($taskKeyPath)) $false}
 }
-$taskPort=if($env:PORT){[int]$env:PORT}else{4317}
+$taskPort=if($env:PORT){[int]$env:PORT}else{9902}
 $taskScheme=if($env:MONITOR_HTTPS -eq 'true'){'https'}else{'http'}
 $taskUrl="$($taskScheme)://localhost:$taskPort"
 $taskHealthUrl="$($taskScheme)://127.0.0.1:$taskPort/api/health"
