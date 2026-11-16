@@ -119,6 +119,7 @@ export function DetailHeader({
               className={cx('icon-button', outline && 'active')}
               title="对话目录"
               aria-expanded={outline}
+              aria-controls="conversation-outline"
               onClick={() => setOutline(!outline)}
             >
               <BookOpen size={17} />

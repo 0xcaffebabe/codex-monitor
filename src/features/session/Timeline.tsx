@@ -1,4 +1,5 @@
 import { ArrowDown, Clock, Code2, LoaderCircle, Search } from 'lucide-react';
+import type { ReactNode } from 'react';
 import { date, time } from '../../shared/format';
 import { ActivityGroup } from './ActivityGroup';
 import { EventCard } from './EventCard';
@@ -14,9 +15,11 @@ export function Timeline({
   connected,
   model,
   copied,
+  children,
 }: Pick<DetailProps, 'page' | 'loading' | 'syncing' | 'error' | 'connected'> & {
   model: TimelineModel;
   copied: (text: string) => void;
+  children?: ReactNode;
 }) {
   const {
     find,
@@ -115,6 +118,7 @@ export function Timeline({
           )}
         </div>
       </div>
+      {children}
       {!follow && (
         <button className="jump-latest" onClick={jumpToLatest}>
           <ArrowDown size={14} />

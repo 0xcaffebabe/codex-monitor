@@ -79,11 +79,6 @@
     bottom: 60px;
     right: 16px;
   }
-  .outline {
-    top: 80px;
-    width: 270px;
-    max-width: calc(100% - 25px);
-  }
   .modal-backdrop {
     padding: 14px;
     align-items: center;

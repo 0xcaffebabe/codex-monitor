@@ -203,13 +203,16 @@ test('web controls preserve delegated launch input in conversation, directory an
     await expect(page.locator('.timeline')).not.toContainText('<codex_delegation>');
     if (!(await page.locator('.outline').isVisible()))
       await page.getByTitle('对话目录', { exact: true }).click();
+    const marker = page.locator('.outline-entry').first();
+    if (test.info().project.name === 'mobile') await marker.tap();
+    else await marker.hover();
     await expect(page.locator('.outline-question')).toHaveText(prompt);
-    await expect(page.locator('.outline-entry').first()).toContainText('你 ·');
+    await expect(page.locator('.outline-popover')).toContainText('你 ·');
     await page.screenshot({
       path: test.info().outputPath('initial-message-directory.png'),
       fullPage: true,
     });
-    await page.getByTitle('关闭目录').click();
+    await page.getByTitle('对话目录', { exact: true }).click();
     await question.scrollIntoViewIfNeeded();
     await page.screenshot({
       path: test.info().outputPath('initial-message-conversation.png'),
@@ -1259,7 +1262,7 @@ test('conversation keeps messages visible, folds activity, searches details and 
   if (!(await page.locator('.outline').isVisible()))
     await page.getByTitle('对话目录', { exact: true }).click();
   await expect(page.locator('.outline')).toBeVisible();
-  await page.getByTitle('关闭目录').click();
+  await page.getByTitle('对话目录', { exact: true }).click();
   await expect(page.locator('.outline')).toHaveCount(0);
   await page.locator('.activity-summary').scrollIntoViewIfNeeded();
   await page.screenshot({
@@ -1859,7 +1862,110 @@ test('automatic history loading retries failures and continues through invisible
   }
 });
 
-test('full conversation directory stays docked on desktop and locates unloaded history', async ({
+test('conversation rail previews long conversations and tracks the reading position', async ({
+  page,
+  request,
+  isMobile,
+}) => {
+  const timestamp = Date.now();
+  const entries = Array.from({ length: 36 }, (_, index) => ({
+    id: `rail-user-${index}`,
+    ordinal: index,
+    timestamp: timestamp + index * 2000,
+    prompt: `第 ${index + 1} 轮：检查目录预览和会话定位，较长的提问应当自动省略。`,
+    reply: `第 ${index + 1} 轮回复：已完成对应调整，可以通过目录快速回到这条消息。`,
+    tools: index + 1,
+    status: 'completed',
+  }));
+  await page.route(`**/api/workspaces/local/sessions/${ids.modern}/outline`, (route) =>
+    route.fulfill({ json: { sessionId: ids.modern, entries, version: 'rail-test' } }),
+  );
+  await page.route(new RegExp(`/api/workspaces/local/sessions/${ids.modern}(?:\\?.*)?$`), async (route) => {
+    const response = await route.fetch();
+    const data = await response.json();
+    await route.fulfill({
+      json: {
+        ...data,
+        before: null,
+        total: entries.length * 2,
+        version: 'rail-test',
+        events: entries.flatMap((entry, index) => [
+          { id: entry.id, kind: 'user', timestamp: entry.timestamp, text: entry.prompt },
+          {
+            id: `rail-answer-${index}`,
+            kind: 'assistant',
+            timestamp: entry.timestamp + 1000,
+            text: `${entry.reply}\n\n${'正文内容用于验证滚动时目录能够标记当前阅读位置。\n\n'.repeat(5)}`,
+          },
+        ]),
+      },
+    });
+  });
+  await enter(page, request);
+  await page.getByTestId('session-row').filter({ hasText: '开发 codex-monitor' }).click();
+  if (isMobile) await page.getByTitle('对话目录', { exact: true }).click();
+  const markers = page.locator('.outline-entry');
+  const reader = page.locator('.timeline-scroll');
+  const popover = page.locator('.outline-popover');
+  await expect(markers).toHaveCount(entries.length);
+  await expect(markers.last()).toHaveAttribute('aria-current', 'location');
+  const scrollBeforePreview = await reader.evaluate((element) => element.scrollTop);
+  await markers.first().scrollIntoViewIfNeeded();
+  if (isMobile) await markers.first().tap();
+  else await markers.first().hover();
+  await expect(popover).toContainText(entries[0].prompt);
+  await expect(popover).toContainText(entries[0].reply);
+  expect(await reader.evaluate((element) => element.scrollTop)).toBe(scrollBeforePreview);
+  const card = (await popover.boundingBox())!;
+  const bounds = (await page.locator('.timeline-reader').boundingBox())!;
+  expect(card.x).toBeGreaterThanOrEqual(bounds.x);
+  expect(card.y).toBeGreaterThanOrEqual(bounds.y);
+  expect(card.x + card.width).toBeLessThanOrEqual(bounds.x + bounds.width);
+  expect(card.y + card.height).toBeLessThanOrEqual(bounds.y + bounds.height);
+  if (isMobile) {
+    await popover.tap();
+    await expect(page.locator('[id="event-rail-user-0"]')).toBeInViewport();
+  } else {
+    await popover.hover();
+    await expect(popover).toBeVisible();
+    await markers.first().focus();
+    await markers.first().press('ArrowUp');
+    await expect(markers.last()).toBeFocused();
+    await expect(popover).toContainText(entries.at(-1)!.prompt);
+    await page.keyboard.press('ArrowDown');
+    await expect(markers.first()).toBeFocused();
+    await expect(popover).toContainText(entries[0].prompt);
+    await markers.first().press('ArrowDown');
+    await expect(markers.nth(1)).toBeFocused();
+    await expect(popover).toContainText(entries[1].prompt);
+    await page.keyboard.press('Escape');
+    await expect(popover).toHaveCount(0);
+    await page.keyboard.press('Enter');
+    await expect(page.locator('[id="event-rail-user-1"]')).toBeInViewport();
+  }
+  await page.locator('[id="event-rail-user-16"]').evaluate((element) =>
+    element.scrollIntoView({ block: 'start', behavior: 'instant' }),
+  );
+  await expect(markers.nth(16)).toHaveAttribute('aria-current', 'location');
+  if (isMobile) await markers.nth(16).tap();
+  else await markers.nth(16).hover();
+  await expect(popover).toContainText(entries[16].reply);
+  await page.screenshot({
+    path: test.info().outputPath('codex-outline-light.png'),
+    animations: 'disabled',
+  });
+  await page.evaluate(() => (document.documentElement.dataset.theme = 'dark'));
+  await expect(popover).toHaveCSS('background-color', 'rgb(32, 42, 46)');
+  await page.screenshot({
+    path: test.info().outputPath('codex-outline-dark.png'),
+    animations: 'disabled',
+  });
+  await page.getByTitle('对话目录', { exact: true }).click();
+  await expect(page.locator('.outline')).toHaveCount(0);
+  await expect(popover).toHaveCount(0);
+});
+
+test('conversation rail previews turns and locates unloaded history', async ({
   page,
   request,
 }) => {
@@ -1900,7 +2006,7 @@ test('full conversation directory stays docked on desktop and locates unloaded h
       JSON.stringify({
         type: 'userMessage',
         id: userId,
-        content: [{ type: 'text', text: '第二轮：验证右侧对话目录' }],
+        content: [{ type: 'text', text: '第二轮：验证对话目录' }],
       }),
       now,
       now,
@@ -1926,17 +2032,22 @@ test('full conversation directory stays docked on desktop and locates unloaded h
       await page.getByTitle('对话目录', { exact: true }).click();
     await expect(page.locator('.outline')).toBeVisible();
     await expect(page.locator('.outline-entry')).toHaveCount(2);
-    await expect(page.locator('.outline')).toContainText('82 次调用');
-    await expect(page.locator('.outline')).toContainText('目录第二轮验证完成。');
+    const first = page.getByRole('button', { name: '定位第 1 次提问', exact: true });
+    const second = page.getByRole('button', { name: '定位第 2 次提问', exact: true });
+    if (test.info().project.name === 'mobile') await first.tap();
+    else await first.hover();
+    await expect(page.locator('.outline-popover')).toContainText('82 次调用');
+    if (test.info().project.name === 'mobile') await second.tap();
+    else await second.hover();
+    await expect(page.locator('.outline-popover')).toContainText('目录第二轮验证完成。');
     await expect(page.locator('[id="event-user-1"]')).toHaveCount(0);
-    await page.getByRole('button', { name: '定位第 1 次提问', exact: true }).click();
+    if (test.info().project.name === 'mobile') {
+      await first.tap();
+      await page.getByRole('button', { name: '跳转到第 1 次提问', exact: true }).tap();
+    } else await first.click();
     await expect(page.locator('[id="event-user-1"]')).toBeInViewport();
-    if (
-      test.info().project.name === 'desktop' &&
-      (await page.locator('.detail-panel').boundingBox())!.width > 1120
-    )
-      await expect(page.locator('.outline')).toBeVisible();
-    else await expect(page.locator('.outline')).toHaveCount(0);
+    await expect(page.locator('.outline')).toBeVisible();
+    await expect(first).toHaveAttribute('aria-current', 'location');
     await page.screenshot({
       path: `test-results/${test.info().project.name}-directory.png`,
       fullPage: true,

@@ -131,7 +131,17 @@ export function Detail(
               connected={connected}
               model={model}
               copied={actions.copied}
-            />
+            >
+              {outline && !focusMode && (
+                <Outline
+                  key={session?.id}
+                  outlineData={outlineData}
+                  outlineError={outlineError}
+                  page={page}
+                  model={model}
+                />
+              )}
+            </Timeline>
           )}
           {newSession && user.role === 'admin' ? (
             <NewSessionComposer user={user} {...newSession} />
@@ -148,22 +158,6 @@ export function Detail(
             />
           ) : null}
         </div>
-
-        {outline && !focusMode && !newSession && (
-          <>
-            <button
-              className="outline-backdrop"
-              aria-label="关闭对话目录"
-              onClick={() => model.setOutline(false)}
-            />
-            <Outline
-              outlineData={outlineData}
-              outlineError={outlineError}
-              page={page}
-              model={model}
-            />
-          </>
-        )}
       </div>
       <footer className="detail-footer">
         <span className={cx('green-dot', !connected && 'offline')} />

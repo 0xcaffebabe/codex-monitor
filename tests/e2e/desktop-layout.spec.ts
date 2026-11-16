@@ -66,7 +66,7 @@ test.describe('PC layout', () => {
         'aria-expanded',
         'false',
       );
-      expect(await page.locator('.outline').count()).toBe(width >= 1800 ? 1 : 0);
+      await expect(page.locator('.outline')).toBeVisible();
       expect(
         await page.evaluate(() => ({
           overflowX: document.documentElement.scrollWidth > innerWidth,
@@ -142,22 +142,24 @@ test.describe('PC layout', () => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await expect(page.locator('.sidebar')).toHaveCSS('width', '64px');
     await expect(page.locator('.session-panel')).toBeVisible();
-    await expect(page.locator('.outline')).toHaveCount(0);
+    await expect(page.locator('.outline')).toBeVisible();
   });
 
-  test('floats the directory when expanded panels leave insufficient room', async ({
+  test('keeps the conversation rail within the reader without changing its width', async ({
     page,
     request,
   }) => {
     await enter(page, request, 1440, 900);
     const readerWidth = (await page.locator('.timeline-column').boundingBox())!.width;
     await page.getByTitle('对话目录', { exact: true }).click();
+    await expect(page.locator('.outline')).toHaveCount(0);
+    expect((await page.locator('.timeline-column').boundingBox())!.width).toBe(readerWidth);
+    await page.getByTitle('对话目录', { exact: true }).click();
     await expect(page.locator('.outline')).toHaveCSS('position', 'absolute');
     expect((await page.locator('.timeline-column').boundingBox())!.width).toBe(readerWidth);
-    await page.getByTitle('关闭目录', { exact: true }).click();
     await page.setViewportSize({ width: 1920, height: 960 });
-    await page.getByTitle('对话目录', { exact: true }).click();
-    await expect(page.locator('.outline')).toHaveCSS('position', 'relative');
+    await expect(page.locator('.timeline-reader > .outline')).toBeVisible();
+    await expect(page.locator('.outline')).toHaveCSS('position', 'absolute');
     await page.getByRole('button', { name: '会话信息', exact: true }).click();
     await expect(page.getByRole('button', { name: /会话用量/ })).toBeVisible();
     await page.getByRole('button', { name: '会话信息', exact: true }).click();

@@ -257,17 +257,6 @@
     flex: 1;
   }
 }
-.outline {
-  position: relative;
-  width: 240px;
-  flex-shrink: 0;
-  display: flex;
-  flex-direction: column;
-  border-left: 1px solid var(--line);
-  background: var(--surface);
-  overflow: hidden;
-  z-index: 10;
-}
 .approval-panel {
   border: 1px solid var(--line);
   border-radius: 10px;

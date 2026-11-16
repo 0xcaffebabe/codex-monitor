@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, type HTMLAttributes } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type HTMLAttributes } from 'react';
 import type { OutlineEntry, SessionOutline, SessionPage, User } from '../../types';
 import { useMediaQuery } from '../../shared/useMediaQuery';
 import { groupTimelineEvents } from './session-model';
@@ -36,7 +36,7 @@ export function useTimeline({
     [olderBusy, setOlderBusy] = useState(false),
     [olderFailed, setOlderFailed] = useState(false),
     [infoExpanded, setInfoExpanded] = useState(false);
-  const defaultOutline = useMediaQuery('(min-width: 1800px)');
+  const defaultOutline = useMediaQuery('(min-width: 761px)');
   const outline = outlinePreference ?? defaultOutline;
   const setOutline = (visible: boolean) => setOutlinePreference(visible);
   const scrollRef = useRef<HTMLDivElement>(null),
@@ -56,6 +56,11 @@ export function useTimeline({
     top: number;
   } | null>(null);
   const session = page?.session;
+  useLayoutEffect(() => {
+    // Opening the rail changes text wrapping; keep the latest message in view when following.
+    const el = scrollRef.current;
+    if (follow && el) el.scrollTop = el.scrollHeight;
+  }, [outline]);
   useEffect(() => {
     setFind('');
     setFollow(true);
@@ -162,10 +167,6 @@ export function useTimeline({
       await onOutlineEntry(entry);
       setFollow(false);
       setActiveEntry(entry.id);
-      const detailWidth = scrollRef.current
-        ?.closest('.detail-panel')
-        ?.getBoundingClientRect().width;
-      if (detailWidth != null && detailWidth <= 1120) setOutline(false);
       setJumpTarget(entry.id);
     } catch (error) {
       scrollLock.current = false;
@@ -217,19 +218,54 @@ export function useTimeline({
         !find ||
         `${e.text} ${e.name || ''} ${e.title || ''}`.toLowerCase().includes(find.toLowerCase()),
     ) ?? [];
-  const turns = page?.events.filter((e) => e.kind === 'user') ?? [],
-    toolCount = page?.events.filter((e) => e.kind === 'tool').length ?? 0;
-  const outlineEntries =
-    outlineData?.entries ??
-    turns.map((event, index) => ({
-      id: event.id,
-      ordinal: index,
-      timestamp: event.timestamp,
-      prompt: event.text,
-      reply: '',
-      tools: 0,
-      status: session?.status ?? 'idle',
-    }));
+  const toolCount = page?.events.filter((e) => e.kind === 'tool').length ?? 0;
+  const outlineEntries = useMemo(
+    () =>
+      outlineData?.entries ??
+      (page?.events.filter((e) => e.kind === 'user') ?? []).map((event, index) => ({
+        id: event.id,
+        ordinal: index,
+        timestamp: event.timestamp,
+        prompt: event.text,
+        reply: '',
+        tools: 0,
+        status: session?.status ?? 'idle',
+      })),
+    [outlineData, page?.events, session?.status],
+  );
+  useEffect(() => {
+    if (!scrollRef.current || find) return;
+    const el = scrollRef.current;
+    const anchors = outlineEntries.flatMap((entry) => {
+      const node = document.getElementById('event-' + entry.id);
+      return node && el.contains(node) ? [{ id: entry.id, node }] : [];
+    });
+    let frame = 0;
+    function schedule() {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        if (scrollLock.current || !anchors.length) return;
+        const readingLine = el.getBoundingClientRect().top + Math.min(el.clientHeight * 0.2, 100);
+        let current = anchors[0].id;
+        for (const anchor of anchors) {
+          if (anchor.node.getBoundingClientRect().top > readingLine) break;
+          current = anchor.id;
+        }
+        if (el.scrollHeight - el.scrollTop - el.clientHeight < 8) current = anchors.at(-1)!.id;
+        setActiveEntry(current);
+      });
+    }
+    el.addEventListener('scroll', schedule, { passive: true });
+    const observer = new ResizeObserver(schedule);
+    observer.observe(el);
+    if (el.firstElementChild) observer.observe(el.firstElementChild);
+    schedule();
+    return () => {
+      cancelAnimationFrame(frame);
+      el.removeEventListener('scroll', schedule);
+      observer.disconnect();
+    };
+  }, [outlineEntries, page, find]);
 
   const scrollHandlers: HTMLAttributes<HTMLDivElement> = {
     onWheel(event) {
