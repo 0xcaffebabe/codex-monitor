@@ -28,6 +28,7 @@
 @import './styles/running-switcher.css';
 @import './styles/context-and-recent-sessions.css';
 @import './styles/desktop-layout.css';
+@import './styles/new-session.css';
 @import './styles/computer-use.css';
 @import './styles/client-workspaces.css';
 @import './styles/project-terminal.css';

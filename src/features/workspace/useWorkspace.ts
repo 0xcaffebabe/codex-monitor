@@ -96,6 +96,7 @@ export function useWorkspace() {
   useEffect(() => {
     const pop = () => {
       const params = new URLSearchParams(location.search);
+      setCreating(false);
       setSelected(params.get('session') || undefined);
       setTab(params.get('view') === 'usage' ? 'usage' : 'all');
     };
@@ -118,12 +119,22 @@ export function useWorkspace() {
   };
   const connected = useRealtime(selected, refreshDetail, reconcile);
   const select = (id: string) => {
+    setCreating(false);
     setSelected(id);
     setMenu(false);
   };
+  const startSession = () => {
+    setSelected(undefined);
+    setCreating(true);
+    setMenu(false);
+  };
+  const closeDetail = () => {
+    setCreating(false);
+    setSelected(undefined);
+  };
   const changeTab = (value: string) => {
     setTab(value);
-    setSelected(undefined);
+    closeDetail();
     setProject('');
     setMenu(false);
   };
@@ -159,7 +170,6 @@ export function useWorkspace() {
     subagents,
     setSubagents,
     selected,
-    setSelected,
     page,
     outlineData,
     outlineError,
@@ -174,7 +184,8 @@ export function useWorkspace() {
     settings,
     setSettings,
     creating,
-    setCreating,
+    startSession,
+    closeDetail,
     usageRevision,
     setUsageRevision,
     toast,

@@ -8,7 +8,8 @@ export function SessionRows({
   rows,
   selected,
   select,
-}: Pick<WorkspaceModel, 'rows' | 'selected' | 'select'>) {
+  compact = !!selected,
+}: Pick<WorkspaceModel, 'rows' | 'selected' | 'select'> & { compact?: boolean }) {
   return (
     <>
       {rows.map(({ session: s, heading }) => {
@@ -39,14 +40,14 @@ export function SessionRows({
                     {s.preview || s.model || s.id.slice(0, 8)}
                   </span>
                 </div>
-                {selected && (
+                {compact && (
                   <div className="compact-meta">
                     <Status status={s.status} />
                     <span>{relative(s.updatedAt)}</span>
                   </div>
                 )}
               </div>
-              {!selected && (
+              {!compact && (
                 <>
                   <Status status={s.status} />
                   <span className="tokens">

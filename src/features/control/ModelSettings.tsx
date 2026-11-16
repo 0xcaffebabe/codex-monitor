@@ -18,11 +18,13 @@ export function ModelSettings({
   prefix,
   onRetry,
   continuing = false,
+  compact = false,
 }: {
   settings: ReturnType<typeof useModelSettings>;
   prefix: string;
   onRetry: () => void;
   continuing?: boolean;
+  compact?: boolean;
 }) {
   const defaultLabel = continuing ? '沿用当前会话设置' : '跟随 Codex 默认设置';
   const modelSelect = (
@@ -67,7 +69,7 @@ export function ModelSettings({
       ))}
     </select>
   );
-  if (continuing)
+  if (continuing || compact)
     return (
       <div className="session-model-settings">
         <span
@@ -77,7 +79,9 @@ export function ModelSettings({
         >
           <Cpu size={15} aria-hidden="true" />
           <span className="composer-choice-label" aria-hidden="true">
-            {settings.loading ? '加载模型…' : settings.selectedModel?.displayName || '当前模型'}
+            {settings.loading
+              ? '加载模型…'
+              : settings.selectedModel?.displayName || (continuing ? '当前模型' : '默认模型')}
           </span>
           <ChevronDown size={11} aria-hidden="true" />
           {modelSelect}
@@ -102,7 +106,7 @@ export function ModelSettings({
             type="button"
             className="icon-button"
             aria-label="重新加载模型"
-            title={`模型列表暂不可用，可沿用当前会话设置发送。${settings.error}`}
+            title={`模型列表暂不可用，${continuing ? '可沿用当前会话设置发送' : '可使用默认设置创建'}。${settings.error}`}
             onClick={onRetry}
           >
             <RefreshCw size={13} />

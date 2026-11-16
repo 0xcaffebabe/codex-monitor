@@ -13,7 +13,6 @@ import {
   TriangleAlert,
 } from 'lucide-react';
 import { cx } from '../../shared/format';
-import { NewSessionDialog } from '../control/NewSessionDialog';
 import { Detail } from '../session/SessionDetail';
 import { Settings } from '../settings/Settings';
 import { UsageDashboard } from '../usage/UsageDashboard';
@@ -38,7 +37,6 @@ export function Workspace(props: WorkspaceProps) {
     project,
     setProject,
     selected,
-    setSelected,
     page,
     outlineData,
     outlineError,
@@ -51,7 +49,7 @@ export function Workspace(props: WorkspaceProps) {
     settings,
     setSettings,
     creating,
-    setCreating,
+    closeDetail,
     usageRevision,
     setUsageRevision,
     toast,
@@ -65,12 +63,13 @@ export function Workspace(props: WorkspaceProps) {
     changeTab,
     title,
   } = model;
-  const layout = useDesktopLayout(selected, model.searchRef);
+  const hasDetail = !!selected || creating;
+  const layout = useDesktopLayout(creating ? 'new' : selected, model.searchRef);
   return (
     <div
       className={cx(
         'app-shell',
-        !!selected && 'has-detail',
+        hasDetail && 'has-detail',
         layout.navigationCollapsed && 'navigation-collapsed',
         !layout.sessionsVisible && 'sessions-collapsed',
         layout.focusMode && 'focus-mode',
@@ -95,7 +94,7 @@ export function Workspace(props: WorkspaceProps) {
                 <PanelLeftClose size={18} />
               )}
             </button>
-            {selected && (
+            {hasDetail && (
               <button
                 className={cx(
                   'icon-button',
@@ -127,10 +126,10 @@ export function Workspace(props: WorkspaceProps) {
             <Monitor size={16} />
             {props.workspaceControls || <span>工作空间</span>}
             <ChevronRight size={13} />
-            <strong>{selected ? '会话详情' : title}</strong>
+            <strong>{creating ? '新建会话' : selected ? '会话详情' : title}</strong>
           </div>
           <div className="desktop-only desktop-layout-actions">
-            {selected && (
+            {hasDetail && (
               <button
                 className={cx('layout-focus-button', layout.focusMode && 'active')}
                 title={layout.focusMode ? '退出专注模式（Esc）' : '专注模式'}
@@ -169,7 +168,7 @@ export function Workspace(props: WorkspaceProps) {
             {props.workspaceNotice}
           </div>
         )}
-        {tab === 'usage' && !selected ? (
+        {tab === 'usage' && !hasDetail ? (
           <UsageDashboard
             onSession={(id) => {
               setTab('all');
@@ -179,15 +178,17 @@ export function Workspace(props: WorkspaceProps) {
           />
         ) : (
           <>
-            {!selected && <OverviewCards title={title} overview={overview} changeTab={changeTab} />}
+            {!hasDetail && (
+              <OverviewCards title={title} overview={overview} changeTab={changeTab} />
+            )}
             {overview?.source.warnings.map((w) => (
               <div key={w} className="alert warning source-warning">
                 <TriangleAlert size={16} />
                 {w}
               </div>
             ))}
-            <div className={cx('content', !!selected && 'split')}>
-              {selected && layout.sessionDrawerOpen && (
+            <div className={cx('content', hasDetail && 'split')}>
+              {hasDetail && layout.sessionDrawerOpen && (
                 <button
                   className="session-list-backdrop desktop-only"
                   aria-label="关闭会话列表"
@@ -199,9 +200,27 @@ export function Workspace(props: WorkspaceProps) {
                 model={model}
                 onSessionSelected={layout.closeSessionDrawer}
               />
-              {selected && (
+              {hasDetail && (
                 <Detail
+                  key={creating ? 'new' : 'session'}
                   user={user}
+                  newSession={
+                    creating
+                      ? {
+                          initialPath: project,
+                          onCreated: (id) => {
+                            select(id);
+                            setTab('all');
+                            setQ('');
+                            setQuery('');
+                            setProject('');
+                            void loadList(false, true);
+                            void loadOverview();
+                            notify('新会话已创建并发送');
+                          },
+                        }
+                      : undefined
+                  }
                   onMessageSent={() => {
                     void loadList(false, true);
                     void loadOverview();
@@ -210,16 +229,22 @@ export function Workspace(props: WorkspaceProps) {
                       void loadOutline(selected);
                     }
                   }}
-                  page={page}
-                  outlineData={outlineData}
-                  outlineError={outlineError}
+                  page={creating ? undefined : page}
+                  outlineData={creating ? undefined : outlineData}
+                  outlineError={creating ? '' : outlineError}
                   onOutlineEntry={loadOutlineEntry}
-                  loading={detailBusy}
-                  syncing={detailSyncing}
-                  error={detailError}
-                  onBack={() => setSelected(undefined)}
-                  onRetry={() => void loadDetail(selected)}
-                  onOlder={() => loadDetail(selected, true, page?.before ?? undefined)}
+                  loading={!creating && detailBusy}
+                  syncing={!creating && detailSyncing}
+                  error={creating ? '' : detailError}
+                  onBack={closeDetail}
+                  onRetry={() => {
+                    if (selected) void loadDetail(selected);
+                  }}
+                  onOlder={() =>
+                    selected
+                      ? loadDetail(selected, true, page?.before ?? undefined)
+                      : Promise.resolve()
+                  }
                   notify={notify}
                   connected={connected}
                   focusMode={layout.focusMode}
@@ -227,7 +252,7 @@ export function Workspace(props: WorkspaceProps) {
                 />
               )}
             </div>
-            {!selected && (
+            {!hasDetail && (
               <footer className="workspace-footer">
                 <span>
                   CODEX MONITOR <span className="muted">/ 本机会话观测台</span>
@@ -250,24 +275,6 @@ export function Workspace(props: WorkspaceProps) {
           overview={overview}
           onClose={() => setSettings(false)}
           notify={notify}
-        />
-      )}
-      {creating && (
-        <NewSessionDialog
-          user={user}
-          initialPath={project}
-          onClose={() => setCreating(false)}
-          onCreated={(id) => {
-            setCreating(false);
-            setSelected(id);
-            setTab('all');
-            setQ('');
-            setQuery('');
-            setProject('');
-            void loadList(false, true);
-            void loadOverview();
-            notify('新会话已创建并发送');
-          }}
         />
       )}
       {toast && (

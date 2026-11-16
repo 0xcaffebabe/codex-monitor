@@ -47,7 +47,7 @@ export function Sidebar({
     | 'setQuery'
     | 'setTab'
     | 'select'
-    | 'setSelected'
+    | 'closeDetail'
     | 'setSettings'
   >;
 }) {
@@ -70,7 +70,7 @@ export function Sidebar({
     setQuery,
     setTab,
     select,
-    setSelected,
+    closeDetail,
     setSettings,
   } = model;
   return (
@@ -212,7 +212,7 @@ export function Sidebar({
               onClick={() => {
                 setProject(p.path);
                 setTab('all');
-                setSelected(undefined);
+                closeDetail();
                 setMenu(false);
               }}
             >

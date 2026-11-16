@@ -9,6 +9,9 @@ import { ids } from '../fixture.js';
 const root = process.env.MONITOR_TEST_ROOT || path.join(os.tmpdir(), 'codex-monitor-e2e-01a1d7fa');
 
 async function enter(page: Page, request: APIRequestContext) {
+  await page.route('**/api/notifications/completions', (route) =>
+    route.fulfill({ json: { generation: 'session-sync-test', revision: 0, notifications: [] } }),
+  );
   const status = await (await request.get('/api/auth/status')).json();
   const credentials = { username: 'owner', password: 'monitor-e2e-password!' };
   const login = () =>
@@ -59,8 +62,7 @@ test('a generated title updates the conversation heading and recent sessions wit
       await expect(
         page.getByRole('button', { name: `打开会话：${title}`, exact: true }),
       ).toBeVisible();
-    } else
-      await expect(page.getByTestId('session-row').filter({ hasText: title })).toBeVisible();
+    } else await expect(page.getByTestId('session-row').filter({ hasText: title })).toBeVisible();
   } finally {
     writeFileSync(index, original);
   }
@@ -102,7 +104,7 @@ test('new sessions wait for synchronization, survive reload and recover without 
     );
     await page.getByRole('button', { name: '创建并发送' }).click();
     createdId = (await (await created).json()).threadId;
-    await expect(page.getByRole('dialog')).toHaveCount(0);
+    await expect(page.getByRole('region', { name: '新建会话', exact: true })).toHaveCount(0);
     await expect(page.getByRole('status').filter({ hasText: '正在同步记录' })).toBeVisible();
     await expect(page.getByRole('alert')).toHaveCount(0);
     await expect.poll(() => reads).toBeGreaterThanOrEqual(2);

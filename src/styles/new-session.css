@@ -1,0 +1,120 @@
+.new-session-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 24px;
+  text-align: center;
+  color: var(--muted);
+}
+
+.new-session-empty > svg {
+  color: var(--accent);
+}
+
+.new-session-empty h2 {
+  margin: 4px 0 0;
+  color: var(--ink);
+  font-size: clamp(20px, 2vw, 26px);
+  font-weight: 500;
+}
+
+.new-session-empty p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.new-session-composer {
+  max-height: min(60dvh, 560px);
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+
+.new-session-options {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
+  gap: 10px 16px;
+  grid-column: 1 / -1;
+  margin-bottom: 8px;
+}
+
+.new-session-options .prompt-label {
+  min-width: 0;
+  gap: 6px;
+}
+
+.new-session-options select {
+  padding: 8px 10px;
+}
+
+.new-session-options .control-hint {
+  margin: 0;
+  font-size: 11px;
+}
+
+.new-session-composer > .control-error {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+
+.new-session-composer > .prompt-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px 12px;
+}
+
+.new-session-composer > .prompt-form > .new-session-goal-toggle {
+  grid-column: 1 / -1;
+  grid-row: 1;
+  font-size: 12px;
+}
+
+.new-session-composer > .prompt-form > .prompt-label {
+  grid-column: 1 / -1;
+  grid-row: 2;
+}
+
+.new-session-composer > .prompt-form > .attachment-picker {
+  grid-column: 1;
+  grid-row: 3;
+}
+
+.new-session-composer > .prompt-form > .prompt-actions {
+  grid-column: 2;
+  grid-row: 3;
+}
+
+.new-session-composer > .prompt-form.has-receipt > .prompt-actions {
+  grid-column: 1 / -1;
+  grid-row: auto;
+}
+
+@media (max-width: 760px) {
+  .new-session-empty {
+    gap: 8px;
+    padding: 16px;
+  }
+
+  .new-session-composer > .prompt-form > .prompt-label {
+    grid-column: 1;
+  }
+
+  .new-session-composer > .prompt-form textarea {
+    height: 96px;
+    min-height: 96px;
+  }
+
+  .new-session-composer > .prompt-form > .prompt-actions {
+    grid-row: 2;
+  }
+
+  .new-session-composer > .prompt-form > .attachment-picker {
+    grid-column: 1 / -1;
+  }
+
+  .new-session-composer > .prompt-form.has-receipt > .prompt-label {
+    grid-column: 1 / -1;
+  }
+}

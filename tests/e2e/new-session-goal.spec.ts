@@ -3,12 +3,16 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { DatabaseSync } from 'node:sqlite';
+import { ids } from '../fixture.js';
 
 const root = process.env.MONITOR_TEST_ROOT || path.join(os.tmpdir(), 'codex-monitor-e2e-01a1d7fa');
 let previousIds: unknown[] = [];
 const mutations = new Set<Request>();
 
 test.beforeEach(async ({ page }) => {
+  await page.route('**/api/notifications/completions', (route) =>
+    route.fulfill({ json: { generation: 'new-session-test', revision: 0, notifications: [] } }),
+  );
   const state = new DatabaseSync(path.join(root, 'codex', 'state_5.sqlite'));
   previousIds = state
     .prepare('SELECT id FROM threads')
@@ -55,8 +59,56 @@ async function enter(page: Page, request: APIRequestContext) {
   await page.goto('/');
   await expect(page.getByRole('heading', { name: '全部会话', exact: true })).toBeVisible();
   await page.getByRole('button', { name: '新建会话', exact: true }).click();
-  return page.getByRole('dialog', { name: '新建会话' });
+  return page.getByRole('region', { name: '新建会话', exact: true });
 }
+
+test('new sessions use the detail page and preserve separate drafts while navigating', async ({
+  page,
+  request,
+  isMobile,
+}) => {
+  let creates = 0;
+  page.on('request', (req) => {
+    if (req.method() === 'POST' && req.url().endsWith('/api/workspaces/local/sessions')) creates++;
+  });
+  const newSession = await enter(page, request);
+  await expect(newSession).toHaveClass(/detail-panel/);
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await expect(newSession.getByRole('heading', { name: '新建会话', exact: true })).toBeVisible();
+  await expect(newSession.locator('.timeline')).toHaveCount(0);
+  await expect(newSession.getByTitle('复制恢复命令')).toHaveCount(0);
+  await expect(newSession.getByLabel('新会话项目')).not.toHaveValue('');
+  await expect(newSession.getByRole('button', { name: '创建并发送', exact: true })).toBeDisabled();
+  await expect(page.locator('.app-shell')).toHaveClass(/has-detail/);
+  await expect(page.locator('.session-panel .tokens')).toHaveCount(0);
+  if (isMobile) await expect(page.locator('.session-panel')).toBeHidden();
+  else await expect(newSession.getByLabel('发送给 Codex 的消息')).toBeFocused();
+  await newSession.getByLabel('发送给 Codex 的消息').fill('新会话的独立草稿');
+  await page.screenshot({ path: test.info().outputPath('new-session-detail.png'), fullPage: true });
+  expect(
+    await page.evaluate(() => ({
+      overflowX: document.documentElement.scrollWidth > innerWidth,
+      overflowY: document.documentElement.scrollHeight > innerHeight,
+    })),
+  ).toEqual({ overflowX: false, overflowY: false });
+  await newSession.getByTitle('返回会话列表').click();
+  await page.getByTestId('session-row').filter({ hasText: '开发 codex-monitor' }).click();
+  await expect(page).toHaveURL(new RegExp(`session=${ids.modern}`));
+  const existingInput = page.getByLabel('发送给 Codex 的消息');
+  await expect(existingInput).toBeEmpty();
+  await existingInput.fill('已有会话的独立草稿');
+  if (isMobile) await page.getByTitle('返回会话列表').click();
+  await page.getByRole('button', { name: '新建会话', exact: true }).click();
+  await expect(newSession.getByLabel('发送给 Codex 的消息')).toHaveValue('新会话的独立草稿');
+  await expect(newSession.locator('.timeline')).toHaveCount(0);
+  await expect(page).not.toHaveURL(/session=/);
+  if (isMobile) await page.getByTitle('打开菜单', { exact: true }).click();
+  await page.getByRole('button', { name: '全部会话', exact: true }).click();
+  await expect(newSession).toHaveCount(0);
+  await page.getByTestId('session-row').filter({ hasText: '开发 codex-monitor' }).click();
+  await expect(existingInput).toHaveValue('已有会话的独立草稿');
+  expect(creates).toBe(0);
+});
 
 test('ordinary creation stays compatible with a client that rejects goal fields', async ({
   page,
@@ -76,13 +128,13 @@ test('ordinary creation stays compatible with a client that rejects goal fields'
       });
     return route.continue();
   });
-  const dialog = await enter(page, request);
-  await expect(dialog.getByLabel('新会话项目')).not.toHaveValue('');
-  await expect(dialog.getByRole('checkbox', { name: '将首条消息设为目标' })).not.toBeChecked();
+  const newSession = await enter(page, request);
+  await expect(newSession.getByLabel('新会话项目')).not.toHaveValue('');
+  await expect(newSession.getByRole('checkbox', { name: '将首条消息设为目标' })).not.toBeChecked();
   const prompt = '现在任务推送webhook的流程什么样的 ' + test.info().project.name;
-  await dialog.getByLabel('发送给 Codex 的消息').fill(prompt);
-  await dialog.getByRole('button', { name: '创建并发送', exact: true }).click();
-  await expect(dialog).toHaveCount(0);
+  await newSession.getByLabel('发送给 Codex 的消息').fill(prompt);
+  await newSession.getByRole('button', { name: '创建并发送', exact: true }).click();
+  await expect(newSession).toHaveCount(0);
   await expect(page.locator('.timeline').getByText(prompt, { exact: true })).toBeVisible();
   expect(creates).toBe(1);
 });
@@ -98,35 +150,35 @@ test('a goal mode draft survives reopening and creates one native goal with atta
     if (req.url().endsWith('/api/workspaces/local/sessions')) creates++;
     if (/\/sessions\/[^/]+\/(messages|commands)$/.test(req.url())) extraMessages++;
   });
-  const dialog = await enter(page, request);
-  const toggle = dialog.getByRole('checkbox', { name: '将首条消息设为目标' });
+  const newSession = await enter(page, request);
+  const toggle = newSession.getByRole('checkbox', { name: '将首条消息设为目标' });
   await expect(toggle).not.toBeChecked();
   await toggle.check();
   const objective = 'goal-first attachment ' + test.info().project.name;
-  await dialog.getByLabel('目标内容', { exact: true }).fill(objective);
-  await dialog.locator('input[type=file]').setInputFiles({
+  await newSession.getByLabel('目标内容', { exact: true }).fill(objective);
+  await newSession.locator('input[type=file]').setInputFiles({
     name: 'goal-spec.txt',
     mimeType: 'text/plain',
     buffer: Buffer.from('Finish the attached requirements'),
   });
-  await expect(dialog.getByText('goal-spec.txt', { exact: true })).toBeVisible();
-  await dialog.getByTitle('关闭新建会话').click();
+  await expect(newSession.getByText('goal-spec.txt', { exact: true })).toBeVisible();
+  await newSession.getByTitle('返回会话列表').click();
   await page.getByRole('button', { name: '新建会话', exact: true }).click();
   await expect(toggle).toBeChecked();
-  await expect(dialog.getByLabel('目标内容', { exact: true })).toHaveValue(objective);
-  await expect(dialog.getByText('goal-spec.txt', { exact: true })).toBeVisible();
-  await expect(dialog.getByRole('button', { name: '创建并执行目标' })).toBeEnabled();
+  await expect(newSession.getByLabel('目标内容', { exact: true })).toHaveValue(objective);
+  await expect(newSession.getByText('goal-spec.txt', { exact: true })).toBeVisible();
+  await expect(newSession.getByRole('button', { name: '创建并执行目标' })).toBeEnabled();
   await page.screenshot({ path: test.info().outputPath('new-session-goal.png'), fullPage: true });
   const response = page.waitForResponse(
     (res) =>
       res.request().method() === 'POST' && res.url().endsWith('/api/workspaces/local/sessions'),
   );
-  await dialog.getByRole('button', { name: '创建并执行目标' }).click();
+  await newSession.getByRole('button', { name: '创建并执行目标' }).click();
   const receipt = await (await response).json();
   expect(receipt.goalState).toBe('saved');
   expect(receipt.goal.objective).toContain(objective);
   expect(receipt.goal.objective).toContain('附件（已上传到本机临时目录）');
-  await expect(dialog).toHaveCount(0);
+  await expect(newSession).toHaveCount(0);
   await expect(page.getByLabel('会话目标').locator('.goal-objective')).toContainText(objective);
   await expect(page.locator('.timeline .user-message')).toContainText(`/goal ${objective}`);
   expect(creates).toBe(1);
@@ -137,19 +189,19 @@ test('goal validation keeps long drafts and a first /goal command uses the goal 
   page,
   request,
 }) => {
-  const dialog = await enter(page, request);
-  await dialog.getByLabel('发送给 Codex 的消息').fill('x'.repeat(4001));
-  await dialog.getByRole('checkbox', { name: '将首条消息设为目标' }).check();
-  await expect(dialog.getByLabel('目标内容', { exact: true })).toHaveValue('x'.repeat(4001));
-  await expect(dialog.getByRole('button', { name: '创建并执行目标' })).toBeDisabled();
-  await expect(dialog.getByRole('alert')).toContainText('目标最多 4000 字符');
-  await dialog.getByRole('checkbox', { name: '将首条消息设为目标' }).uncheck();
+  const newSession = await enter(page, request);
+  await newSession.getByLabel('发送给 Codex 的消息').fill('x'.repeat(4001));
+  await newSession.getByRole('checkbox', { name: '将首条消息设为目标' }).check();
+  await expect(newSession.getByLabel('目标内容', { exact: true })).toHaveValue('x'.repeat(4001));
+  await expect(newSession.getByRole('button', { name: '创建并执行目标' })).toBeDisabled();
+  await expect(newSession.getByRole('alert')).toContainText('目标最多 4000 字符');
+  await newSession.getByRole('checkbox', { name: '将首条消息设为目标' }).uncheck();
   const objective = 'goal-first slash ' + test.info().project.name;
-  await dialog.getByLabel('发送给 Codex 的消息').fill(`/goal ${objective}`);
-  await expect(dialog.getByRole('checkbox', { name: '将首条消息设为目标' })).toBeChecked();
-  await expect(dialog.getByRole('alert')).toHaveCount(0);
-  await dialog.getByRole('button', { name: '创建并执行目标' }).click();
-  await expect(dialog).toHaveCount(0);
+  await newSession.getByLabel('发送给 Codex 的消息').fill(`/goal ${objective}`);
+  await expect(newSession.getByRole('checkbox', { name: '将首条消息设为目标' })).toBeChecked();
+  await expect(newSession.getByRole('alert')).toHaveCount(0);
+  await newSession.getByRole('button', { name: '创建并执行目标' }).click();
+  await expect(newSession).toHaveCount(0);
   await expect(page.getByLabel('会话目标').locator('.goal-objective')).toHaveText(objective);
 });
 
@@ -164,24 +216,24 @@ test('a lost goal creation receipt survives reload and is queried without anothe
     await route.fetch();
     await route.abort('failed');
   });
-  const dialog = await enter(page, request);
-  await dialog.getByRole('checkbox', { name: '将首条消息设为目标' }).check();
+  const newSession = await enter(page, request);
+  await newSession.getByRole('checkbox', { name: '将首条消息设为目标' }).check();
   const objective = 'goal-first lost response ' + test.info().project.name;
-  await dialog.getByLabel('目标内容', { exact: true }).fill(objective);
-  await dialog.getByRole('button', { name: '创建并执行目标' }).click();
-  await expect(dialog.getByRole('button', { name: '查询发送结果' })).toBeVisible();
-  await expect(dialog.getByRole('checkbox')).toBeDisabled();
+  await newSession.getByLabel('目标内容', { exact: true }).fill(objective);
+  await newSession.getByRole('button', { name: '创建并执行目标' }).click();
+  await expect(newSession.getByRole('button', { name: '查询发送结果' })).toBeVisible();
+  await expect(newSession.getByRole('checkbox')).toBeDisabled();
   await page.reload();
   await page.getByRole('button', { name: '新建会话', exact: true }).click();
-  await expect(dialog.getByRole('checkbox', { name: '将首条消息设为目标' })).toBeChecked();
-  await expect(dialog.getByLabel('目标内容', { exact: true })).toHaveValue(objective);
-  await dialog.getByRole('button', { name: '查询发送结果' }).click();
-  await expect(dialog).toHaveCount(0);
+  await expect(newSession.getByRole('checkbox', { name: '将首条消息设为目标' })).toBeChecked();
+  await expect(newSession.getByLabel('目标内容', { exact: true })).toHaveValue(objective);
+  await newSession.getByRole('button', { name: '查询发送结果' }).click();
+  await expect(newSession).toHaveCount(0);
   await expect(page.getByLabel('会话目标').locator('.goal-objective')).toHaveText(objective);
   expect(creates).toBe(1);
 });
 
-test('a partial goal receipt keeps its thread and offers recovery after closing the dialog', async ({
+test('a partial goal receipt keeps its thread and offers recovery after leaving the new session page', async ({
   page,
   request,
 }) => {
@@ -205,30 +257,30 @@ test('a partial goal receipt keeps its thread and offers recovery after closing 
   page.on('request', (req) => {
     if (req.method() === 'POST' && /\/control\/requests\/[^/]+\/goal$/.test(req.url())) retries++;
   });
-  const dialog = await enter(page, request);
-  await dialog.getByRole('checkbox', { name: '将首条消息设为目标' }).check();
+  const newSession = await enter(page, request);
+  await newSession.getByRole('checkbox', { name: '将首条消息设为目标' }).check();
   const objective = 'goal-first recovery ' + test.info().project.name;
-  await dialog.getByLabel('目标内容', { exact: true }).fill(objective);
-  await dialog.getByRole('button', { name: '创建并执行目标' }).click();
-  await expect(dialog.getByRole('button', { name: '打开已创建会话' })).toBeVisible();
-  await expect(dialog.getByRole('button', { name: '创建并执行目标' })).toHaveCount(0);
-  await dialog.getByTitle('关闭新建会话').click();
+  await newSession.getByLabel('目标内容', { exact: true }).fill(objective);
+  await newSession.getByRole('button', { name: '创建并执行目标' }).click();
+  await expect(newSession.getByRole('button', { name: '打开已创建会话' })).toBeVisible();
+  await expect(newSession.getByRole('button', { name: '创建并执行目标' })).toHaveCount(0);
+  await newSession.getByTitle('返回会话列表').click();
   await page.getByRole('button', { name: '新建会话', exact: true }).click();
-  await expect(dialog.getByRole('alert')).toContainText('目标保存状态待确认');
+  await expect(newSession.getByRole('alert')).toContainText('目标保存状态待确认');
   await page.route(/\/control\/requests\/[^/]+$/, (route) =>
     route.fulfill({ status: 404, json: { error: '找不到该发送请求' } }),
   );
-  await dialog.getByRole('button', { name: '查询发送结果' }).click();
-  await expect(dialog.getByRole('alert')).toContainText('请打开已创建会话核对目标');
-  await expect(dialog.getByRole('button', { name: '创建并执行目标' })).toHaveCount(0);
-  await dialog.getByRole('button', { name: '打开已创建会话' }).click();
-  await expect(dialog).toHaveCount(0);
+  await newSession.getByRole('button', { name: '查询发送结果' }).click();
+  await expect(newSession.getByRole('alert')).toContainText('请打开已创建会话核对目标');
+  await expect(newSession.getByRole('button', { name: '创建并执行目标' })).toHaveCount(0);
+  await newSession.getByRole('button', { name: '打开已创建会话' }).click();
+  await expect(newSession).toHaveCount(0);
   await expect(page.getByLabel('会话目标').locator('.goal-objective')).toHaveText(objective);
   await page.getByTitle('返回会话列表').click();
   await page.getByRole('button', { name: '新建会话', exact: true }).click();
-  await expect(dialog.getByRole('button', { name: '重试保存目标' })).toBeVisible();
-  await dialog.getByRole('button', { name: '重试保存目标' }).click();
-  await expect(dialog).toHaveCount(0);
+  await expect(newSession.getByRole('button', { name: '重试保存目标' })).toBeVisible();
+  await newSession.getByRole('button', { name: '重试保存目标' }).click();
+  await expect(newSession).toHaveCount(0);
   await expect(page.getByLabel('会话目标').locator('.goal-objective')).toHaveText(objective);
   expect(creates).toBe(1);
   expect(retries).toBe(1);

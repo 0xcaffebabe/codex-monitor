@@ -250,9 +250,6 @@
   .control-dialog {
     padding: 18px;
   }
-  .new-session-dialog .prompt-label textarea {
-    min-height: 110px;
-  }
   .control-dialog .prompt-actions {
     align-items: stretch;
   }

@@ -10,6 +10,7 @@ export function PromptForm(props: PromptFormProps) {
     enabled,
     children,
     inputLabel = '发送给 Codex 的消息',
+    autoFocus = false,
     submitOnEnter = false,
     maxLength = 12000,
     allowAttachments = false,
@@ -81,6 +82,7 @@ export function PromptForm(props: PromptFormProps) {
         {promptLabel === '发送给 Codex 的消息' ? '消息' : promptLabel}
         <textarea
           aria-label={promptLabel}
+          autoFocus={autoFocus && !isMobile}
           placeholder={
             asGoal
               ? '输入本会话要完成的目标…'

@@ -14,6 +14,7 @@ export type PromptFormProps = {
   onAccepted: (receipt: Receipt) => void;
   children?: React.ReactNode;
   inputLabel?: string;
+  autoFocus?: boolean;
   submitOnEnter?: boolean;
   maxLength?: number;
   allowAttachments?: boolean;

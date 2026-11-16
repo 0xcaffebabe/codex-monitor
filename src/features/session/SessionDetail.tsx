@@ -1,7 +1,9 @@
-import { Shield, TriangleAlert } from 'lucide-react';
+import { MessageSquare, Shield, TriangleAlert } from 'lucide-react';
 import { lazy, Suspense, useEffect, useState } from 'react';
 import { cx } from '../../shared/format';
 import { MessageComposer } from '../control/MessageComposer';
+import { NewSessionComposer } from '../control/NewSessionComposer';
+import type { NewSessionProps } from '../control/useNewSession';
 import { DetailHeader } from './DetailHeader';
 import { Outline } from './Outline';
 import { Timeline } from './Timeline';
@@ -11,7 +13,13 @@ import { ComputerUseTimeline } from './ComputerUseTimeline';
 const ProjectTerminal = lazy(() => import('../terminal/ProjectTerminal'));
 const GitDiff = lazy(() => import('../git/GitDiff'));
 
-export function Detail(props: DetailProps & { focusMode?: boolean; onExitFocus?: () => void }) {
+export function Detail(
+  props: DetailProps & {
+    focusMode?: boolean;
+    onExitFocus?: () => void;
+    newSession?: Omit<NewSessionProps, 'user'>;
+  },
+) {
   const {
     user,
     onMessageSent,
@@ -27,6 +35,7 @@ export function Detail(props: DetailProps & { focusMode?: boolean; onExitFocus?:
     connected,
     focusMode,
     onExitFocus,
+    newSession,
   } = props;
   const model = useTimeline(props);
   const { outline, setFollow, session } = model;
@@ -38,13 +47,17 @@ export function Detail(props: DetailProps & { focusMode?: boolean; onExitFocus?:
   useEffect(() => setTerminalSession(''), [session?.id]);
   useEffect(() => setGitSession(''), [session?.id]);
   return (
-    <section className="detail-panel" aria-label="会话详情">
+    <section
+      className={cx('detail-panel', !!newSession && 'new-session-detail')}
+      aria-label={newSession ? '新建会话' : '会话详情'}
+    >
       <DetailHeader
+        creating={!!newSession}
         page={page}
         onBack={onBack}
         model={{
           ...model,
-          outline: outline && !focusMode,
+          outline: outline && !focusMode && !newSession,
           setOutline: (visible) => {
             if (visible) onExitFocus?.();
             model.setOutline(visible);
@@ -103,16 +116,26 @@ export function Detail(props: DetailProps & { focusMode?: boolean; onExitFocus?:
       ))}
       <div className="detail-layout">
         <div className={cx('timeline-column', user.role === 'admin' && 'with-composer')}>
-          <Timeline
-            page={page}
-            loading={loading}
-            syncing={syncing}
-            error={error}
-            connected={connected}
-            model={model}
-            copied={actions.copied}
-          />
-          {session && (
+          {newSession ? (
+            <div className="timeline-scroll new-session-empty">
+              <MessageSquare size={32} strokeWidth={1.3} aria-hidden="true" />
+              <h2>开始一个新会话</h2>
+              <p>选择项目，输入消息或设定目标。</p>
+            </div>
+          ) : (
+            <Timeline
+              page={page}
+              loading={loading}
+              syncing={syncing}
+              error={error}
+              connected={connected}
+              model={model}
+              copied={actions.copied}
+            />
+          )}
+          {newSession && user.role === 'admin' ? (
+            <NewSessionComposer user={user} {...newSession} />
+          ) : session ? (
             <MessageComposer
               key={session.id}
               user={user}
@@ -123,10 +146,10 @@ export function Detail(props: DetailProps & { focusMode?: boolean; onExitFocus?:
                 onMessageSent();
               }}
             />
-          )}
+          ) : null}
         </div>
 
-        {outline && !focusMode && (
+        {outline && !focusMode && !newSession && (
           <>
             <button
               className="outline-backdrop"
@@ -145,7 +168,9 @@ export function Detail(props: DetailProps & { focusMode?: boolean; onExitFocus?:
       <footer className="detail-footer">
         <span className={cx('green-dot', !connected && 'offline')} />
         {connected ? '执行记录实时同步' : '连接中断，自动重试中'}
-        <span className="detail-footer-count">已显示 {page?.events.length ?? 0} 条记录</span>
+        {!newSession && (
+          <span className="detail-footer-count">已显示 {page?.events.length ?? 0} 条记录</span>
+        )}
         <Shield size={12} />
       </footer>
     </section>

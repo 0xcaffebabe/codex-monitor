@@ -44,7 +44,8 @@ export function SessionPanel({
     | 'listBusy'
     | 'select'
     | 'sessions'
-    | 'setCreating'
+    | 'creating'
+    | 'startSession'
   >;
 }) {
   const {
@@ -68,32 +69,37 @@ export function SessionPanel({
     listBusy,
     select,
     sessions,
-    setCreating,
+    creating,
+    startSession,
   } = model;
+  const hasDetail = !!selected || creating;
   return (
     <section
       id="workspace-sessions"
       aria-label="会话记录"
-      className={cx('session-panel', !!selected && 'compact')}
+      className={cx('session-panel', hasDetail && 'compact')}
     >
       <div className="list-toolbar">
         <div className="list-heading">
-          <h2>{selected ? '会话记录' : '会话记录'}</h2>
+          <h2>会话记录</h2>
           <span className="count">{total}</span>
-          {!selected && <span className="muted list-hint">最近活动优先</span>}
+          {!hasDetail && <span className="muted list-hint">最近活动优先</span>}
         </div>
         <div className="list-actions">
           {user.role === 'admin' && (
             <button
               className="secondary new-session-button"
               aria-label="新建会话"
-              onClick={() => setCreating(true)}
+              onClick={() => {
+                startSession();
+                onSessionSelected?.();
+              }}
             >
               <Plus size={15} />
               <span>新建会话</span>
             </button>
           )}
-          {!selected && (
+          {!hasDetail && (
             <label className="toggle-sub">
               <input
                 type="checkbox"
@@ -110,7 +116,7 @@ export function SessionPanel({
               onClick={() => setGroup('time')}
             >
               <Clock size={14} />
-              {!selected && '时间'}
+              {!hasDetail && '时间'}
             </button>
             <button
               title="按项目分组"
@@ -118,7 +124,7 @@ export function SessionPanel({
               onClick={() => setGroup('project')}
             >
               <Folder size={14} />
-              {!selected && '项目'}
+              {!hasDetail && '项目'}
             </button>
           </div>
         </div>
@@ -128,7 +134,7 @@ export function SessionPanel({
         <input
           ref={searchRef}
           aria-label="搜索会话"
-          placeholder={selected ? '搜索会话…' : '搜索标题、项目、首条消息或会话 ID…'}
+          placeholder={hasDetail ? '搜索会话…' : '搜索标题、项目、首条消息或会话 ID…'}
           value={q}
           onChange={(e) => setQ(e.target.value)}
         />
@@ -140,7 +146,7 @@ export function SessionPanel({
           <kbd>/</kbd>
         )}
       </div>
-      {!selected && (
+      {!hasDetail && (
         <div className="filter-row">
           <div className="filter-tabs">
             <button className={cx(tab === 'all' && 'active')} onClick={() => changeTab('all')}>
@@ -178,7 +184,7 @@ export function SessionPanel({
         </div>
       )}
       <div className="session-list">
-        {!selected && !!rows.length && (
+        {!hasDetail && !!rows.length && (
           <div className="table-head">
             <span>会话 / 项目</span>
             <span>状态</span>
@@ -221,6 +227,7 @@ export function SessionPanel({
           <SessionRows
             rows={rows}
             selected={selected}
+            compact={hasDetail}
             select={(id) => {
               select(id);
               onSessionSelected?.();

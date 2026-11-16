@@ -1,17 +1,16 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { api } from '../../api';
 import type { User } from '../../types';
 import type { Project } from './types';
 import { useModelSettings } from './useModelSettings';
 import type { SessionPermissionMode } from '../../approval-types';
 
-export type NewSessionDialogProps = {
+export type NewSessionProps = {
   user: User;
   initialPath?: string;
-  onClose: () => void;
   onCreated: (id: string) => void;
 };
-export function useNewSession({ initialPath }: NewSessionDialogProps) {
+export function useNewSession({ initialPath }: Pick<NewSessionProps, 'initialPath'>) {
   const [projects, setProjects] = useState<Project[]>([]),
     [selected, setSelected] = useState(''),
     [error, setError] = useState(''),
@@ -20,12 +19,6 @@ export function useNewSession({ initialPath }: NewSessionDialogProps) {
   const [creationPermissions, setCreationPermissions] = useState(false);
   const [permissionMode, setPermissionMode] = useState<SessionPermissionMode>('danger-full-access');
   const modelSettings = useModelSettings(true, 'new', refresh);
-  const dialog = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    const focus = document.activeElement as HTMLElement;
-    dialog.current?.focus();
-    return () => focus?.focus();
-  }, []);
   useEffect(() => {
     let stopped = false;
     setLoading(true);
@@ -63,7 +56,6 @@ export function useNewSession({ initialPath }: NewSessionDialogProps) {
     error,
     loading,
     setRefresh,
-    dialog,
     modelSettings,
     creationPermissions,
     permissionMode,

@@ -15,6 +15,9 @@ async function create(
   kind: string,
   permissionMode = 'workspace-write-network',
 ) {
+  await page.route('**/api/notifications/completions', (route) =>
+    route.fulfill({ json: { generation: 'approvals-test', revision: 0, notifications: [] } }),
+  );
   const status = await (await request.get('/api/auth/status')).json();
   const credentials = { username: 'owner', password: 'monitor-e2e-password!' };
   const login = await request.post(status.configured ? '/api/auth/login' : '/api/auth/setup', {
@@ -30,7 +33,7 @@ async function create(
   await page.addInitScript((value) => localStorage.setItem('codex-monitor.auth.v1', value), token);
   await page.goto('/');
   await page.getByRole('button', { name: '新建会话', exact: true }).click();
-  const dialog = page.getByRole('dialog', { name: '新建会话' });
+  const dialog = page.getByRole('region', { name: '新建会话', exact: true });
   await expect(dialog.getByLabel('新会话权限')).toHaveValue('danger-full-access');
   if (permissionMode !== 'danger-full-access')
     await dialog.getByLabel('新会话权限').selectOption(permissionMode);

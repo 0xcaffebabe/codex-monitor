@@ -12,6 +12,10 @@ let cachedToken = '';
 let restoreControlFixture: (() => void) | undefined;
 const pendingMutations = new Set<Request>();
 test.beforeEach(async ({ page }, info) => {
+  if (info.title.startsWith('web controls'))
+    await page.route('**/api/notifications/completions', (route) =>
+      route.fulfill({ json: { generation: 'controls-test', revision: 0, notifications: [] } }),
+    );
   pendingMutations.clear();
   page.on('request', (request) => { if (request.method() === 'POST' && request.url().includes('/api/workspaces/')) pendingMutations.add(request); });
   page.on('requestfinished', (request) => pendingMutations.delete(request));
@@ -305,12 +309,12 @@ test('web controls paste clipboard images and files into continued and new conve
   const attachments = page.getByRole('list', { name: '待发送附件' });
   await input.fill('请查看：');
   await page.evaluate(() => navigator.clipboard.writeText('普通文字\n第二行'));
-  await input.press('Control+V');
+  await input.press('ControlOrMeta+V');
   await expect(input).toHaveValue('请查看：普通文字\n第二行');
   await expect(attachments).toHaveCount(0);
 
   await copyImage(page);
-  await input.press('Control+V');
+  await input.press('ControlOrMeta+V');
   await expect(attachments.getByRole('listitem')).toHaveCount(1);
   await expect(attachments.locator('img')).toBeVisible();
   expect(
@@ -340,17 +344,17 @@ test('web controls paste clipboard images and files into continued and new conve
 
   await page.getByTitle('返回会话列表').click();
   await page.getByRole('button', { name: '新建会话', exact: true }).click();
-  const dialog = page.getByRole('dialog', { name: '新建会话' });
+  const dialog = page.getByRole('region', { name: '新建会话', exact: true });
   const newInput = dialog.getByLabel('发送给 Codex 的消息');
   const newAttachments = dialog.getByRole('list', { name: '待发送附件' });
   await expect(dialog.getByRole('button', { name: '添加附件', exact: true })).toBeEnabled();
   await copyImage(page);
-  await newInput.press('Control+V');
+  await newInput.press('ControlOrMeta+V');
   await expect(newAttachments.getByRole('listitem')).toHaveCount(1);
   await expect(newAttachments.locator('img')).toBeVisible();
   expect(await transferFiles(newInput, [{ name: '首条消息.txt' }], { itemsOnly: true })).toBe(true);
   await expect(newAttachments.getByRole('listitem')).toHaveCount(2);
-  await page.getByTitle('关闭新建会话').click();
+  await page.getByTitle('返回会话列表').click();
   await page.getByRole('button', { name: '新建会话', exact: true }).click();
   await expect(newAttachments.getByRole('listitem')).toHaveCount(2);
   await expect(newInput).toHaveValue('');
@@ -411,7 +415,7 @@ test('web controls drag images and files into continued and new conversations', 
 
   await page.getByTitle('返回会话列表').click();
   await page.getByRole('button', { name: '新建会话', exact: true }).click();
-  const dialog = page.getByRole('dialog', { name: '新建会话' });
+  const dialog = page.getByRole('region', { name: '新建会话', exact: true });
   await expect(dialog.getByRole('button', { name: '添加附件', exact: true })).toBeEnabled();
   const newForm = dialog.locator('.prompt-form');
   await transferFiles(newForm, files, { eventType: 'dragenter' });
@@ -562,7 +566,7 @@ test('web controls append to running sessions, continue idle sessions and create
   ).toBeVisible();
   await page.getByTitle('返回会话列表').click();
   await page.getByRole('button', { name: '新建会话', exact: true }).click();
-  await expect(page.getByRole('dialog', { name: '新建会话' })).toBeVisible();
+  await expect(page.getByRole('region', { name: '新建会话', exact: true })).toBeVisible();
   await page.getByLabel('新会话项目').selectOption({ label: 'work · D:/work' });
   const prompt = 'browser new ' + test.info().project.name;
   await input.fill(prompt);

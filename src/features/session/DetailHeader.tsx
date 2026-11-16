@@ -31,6 +31,7 @@ export function DetailHeader({
   onComputerUse,
   onTerminal,
   onGitDiff,
+  creating = false,
 }: Pick<DetailProps, 'page' | 'onBack'> & {
   model: Pick<
     TimelineModel,
@@ -47,6 +48,7 @@ export function DetailHeader({
   onComputerUse: () => void;
   onTerminal?: () => void;
   onGitDiff?: () => void;
+  creating?: boolean;
 }) {
   const { session, outline, setOutline, infoExpanded, setInfoExpanded, toolCount, find, setFind } =
     model;
@@ -59,66 +61,70 @@ export function DetailHeader({
         </button>
         <div className="detail-heading">
           <span className="eyebrow">SESSION DETAIL</span>
-          <h1 title={session?.title}>{session?.title || '读取会话…'}</h1>
+          <h1 title={session?.title}>{creating ? '新建会话' : session?.title || '读取会话…'}</h1>
         </div>
-        {onGitDiff && (
-          <button
-            className="icon-button git-diff-trigger"
-            title="查看代码变更"
-            aria-label="查看代码变更"
-            disabled={!session?.cwd}
-            onClick={onGitDiff}
-          >
-            <FileDiff size={17} />
-            <span>变更</span>
-          </button>
+        {!creating && (
+          <>
+            {onGitDiff && (
+              <button
+                className="icon-button git-diff-trigger"
+                title="查看代码变更"
+                aria-label="查看代码变更"
+                disabled={!session?.cwd}
+                onClick={onGitDiff}
+              >
+                <FileDiff size={17} />
+                <span>变更</span>
+              </button>
+            )}
+            {onTerminal && (
+              <button
+                className="icon-button project-terminal-trigger"
+                title="打开项目终端"
+                aria-label="打开项目终端"
+                disabled={!session?.cwd}
+                onClick={onTerminal}
+              >
+                <TerminalSquare size={17} />
+                <span>终端</span>
+              </button>
+            )}
+            {page?.hasComputerUse && (
+              <button
+                className="icon-button computer-use-trigger"
+                title="Computer Use 时间线"
+                onClick={onComputerUse}
+              >
+                <Monitor size={18} />
+                <span>操作回放</span>
+              </button>
+            )}
+            <button
+              className="icon-button"
+              title="复制恢复命令"
+              disabled={!session}
+              onClick={() => void copied(`codex resume ${session!.id}`)}
+            >
+              <Terminal size={17} />
+            </button>
+            <button
+              className="icon-button"
+              title="导出 Markdown"
+              disabled={!session || exporting}
+              onClick={() => void download()}
+            >
+              {exporting ? <LoaderCircle size={17} className="spin" /> : <Download size={17} />}
+            </button>
+            <button
+              className={cx('icon-button', outline && 'active')}
+              title="对话目录"
+              aria-expanded={outline}
+              onClick={() => setOutline(!outline)}
+            >
+              <BookOpen size={17} />
+            </button>
+          </>
         )}
-        {onTerminal && (
-          <button
-            className="icon-button project-terminal-trigger"
-            title="打开项目终端"
-            aria-label="打开项目终端"
-            disabled={!session?.cwd}
-            onClick={onTerminal}
-          >
-            <TerminalSquare size={17} />
-            <span>终端</span>
-          </button>
-        )}
-        {page?.hasComputerUse && (
-          <button
-            className="icon-button computer-use-trigger"
-            title="Computer Use 时间线"
-            onClick={onComputerUse}
-          >
-            <Monitor size={18} />
-            <span>操作回放</span>
-          </button>
-        )}
-        <button
-          className="icon-button"
-          title="复制恢复命令"
-          disabled={!session}
-          onClick={() => void copied(`codex resume ${session!.id}`)}
-        >
-          <Terminal size={17} />
-        </button>
-        <button
-          className="icon-button"
-          title="导出 Markdown"
-          disabled={!session || exporting}
-          onClick={() => void download()}
-        >
-          {exporting ? <LoaderCircle size={17} className="spin" /> : <Download size={17} />}
-        </button>
-        <button
-          className={cx('icon-button', outline && 'active')}
-          title="对话目录"
-          aria-expanded={outline}
-          onClick={() => setOutline(!outline)}
-        >
-          <BookOpen size={17} />
-        </button>
       </header>
       <div id="session-information" className={cx('detail-info', infoExpanded && 'expanded')}>
         {session && (
@@ -166,28 +172,30 @@ export function DetailHeader({
           </button>
         </div>
       )}
-      <div className="conversation-toolbar">
-        <div className="conversation-label">
-          <MessageSquare size={14} />
-          <span>会话</span>
-          {toolCount > 0 && <small>{toolCount} 次调用</small>}
+      {!creating && (
+        <div className="conversation-toolbar">
+          <div className="conversation-label">
+            <MessageSquare size={14} />
+            <span>会话</span>
+            {toolCount > 0 && <small>{toolCount} 次调用</small>}
+          </div>
+          <ScreenWakeLockIndicator />
+          <div className="detail-search">
+            <Search size={14} />
+            <input
+              aria-label="搜索会话内容"
+              placeholder="查找内容"
+              value={find}
+              onChange={(e) => setFind(e.target.value)}
+            />
+            {find && (
+              <button className="icon-button" title="清除内容搜索" onClick={() => setFind('')}>
+                <X size={13} />
+              </button>
+            )}
+          </div>
         </div>
-        <ScreenWakeLockIndicator />
-        <div className="detail-search">
-          <Search size={14} />
-          <input
-            aria-label="搜索会话内容"
-            placeholder="查找内容"
-            value={find}
-            onChange={(e) => setFind(e.target.value)}
-          />
-          {find && (
-            <button className="icon-button" title="清除内容搜索" onClick={() => setFind('')}>
-              <X size={13} />
-            </button>
-          )}
-        </div>
-      </div>
+      )}
     </>
   );
 }
