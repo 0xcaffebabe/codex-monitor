@@ -59,6 +59,7 @@ export function WorkspaceHost(props: WorkspaceProps) {
         <Workspace
           {...props}
           workspaceId={model.active.id}
+          workspaces={model.workspaces}
           runningWorkspaces={runningWorkspaces}
           workspaceName={model.active.name}
           workspaceControls={controls}

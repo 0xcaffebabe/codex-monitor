@@ -2,13 +2,28 @@ import { date } from '../../shared/format';
 import type { Session } from '../../types';
 
 export type SessionGroup = 'time' | 'project';
-export type SessionRow = { session: Session; heading?: string };
+export type WorkspaceSession = Session & { workspaceId: string; workspaceName: string };
+export type SessionRow<T extends Session = Session> = { session: T; heading?: string };
 
-export function sessionRows(
-  sessions: Session[],
+export const workspaceSessionKey = (session: WorkspaceSession) =>
+  `${session.workspaceId}:${session.id}`;
+
+export function mergeWorkspaceSessions(sessions: WorkspaceSession[]) {
+  return [
+    ...new Map(sessions.map((session) => [workspaceSessionKey(session), session])).values(),
+  ].sort(
+    (a, b) =>
+      Number(b.status === 'running') - Number(a.status === 'running') ||
+      b.updatedAt - a.updatedAt ||
+      a.workspaceId.localeCompare(b.workspaceId),
+  );
+}
+
+export function sessionRows<T extends Session>(
+  sessions: T[],
   group: SessionGroup,
   now = Date.now(),
-): SessionRow[] {
+): SessionRow<T>[] {
   const sorted =
     group === 'project'
       ? [...sessions].sort(

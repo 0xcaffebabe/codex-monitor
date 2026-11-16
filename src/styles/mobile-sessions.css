@@ -1,4 +1,7 @@
 @media (max-width: 760px) {
+  .searching-sessions .overview {
+    display: none;
+  }
   .overview {
     padding: 23px 18px 20px;
   }
@@ -84,14 +87,25 @@
   .list-actions {
     gap: 6px;
   }
+  .list-actions .new-session-button {
+    width: 30px;
+    min-height: 30px;
+    padding: 0;
+    flex-shrink: 0;
+  }
+  .list-actions .new-session-button > span {
+    display: none;
+  }
   .toggle-sub {
     font-size: 8px;
     gap: 2px;
+    white-space: nowrap;
   }
   .segmented button {
     padding: 0 6px;
     font-size: 8px;
     height: 24px;
+    white-space: nowrap;
   }
   .segmented button svg {
     height: 12px;

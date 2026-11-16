@@ -125,7 +125,11 @@ test.describe('PC layout', () => {
     await expect(page.locator('.session-panel')).toBeHidden();
     await page.keyboard.press('/');
     await expect(page.getByRole('textbox', { name: '搜索会话', exact: true })).toBeFocused();
-    await page.getByTestId('session-row').filter({ hasText: '检查旧版本会话解析' }).click();
+    await page
+      .getByTestId('session-row')
+      .filter({ hasText: '检查旧版本会话解析' })
+      .filter({ hasText: '本机工作空间' })
+      .click();
     await expect(page.locator('.detail-heading')).toContainText('检查旧版本会话解析');
     await expect(page.locator('.session-panel')).toBeHidden();
     await page.setViewportSize({ width: 1920, height: 960 });

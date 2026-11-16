@@ -25,6 +25,7 @@ export function SessionPanel({
   model: Pick<
     WorkspaceModel,
     | 'selected'
+    | 'workspaceId'
     | 'total'
     | 'subagents'
     | 'setSubagents'
@@ -39,10 +40,11 @@ export function SessionPanel({
     | 'setProject'
     | 'overview'
     | 'error'
+    | 'listWarning'
     | 'loadList'
     | 'rows'
     | 'listBusy'
-    | 'select'
+    | 'selectSession'
     | 'sessions'
     | 'creating'
     | 'startSession'
@@ -50,6 +52,7 @@ export function SessionPanel({
 }) {
   const {
     selected,
+    workspaceId,
     total,
     subagents,
     setSubagents,
@@ -64,10 +67,11 @@ export function SessionPanel({
     setProject,
     overview,
     error,
+    listWarning,
     loadList,
     rows,
     listBusy,
-    select,
+    selectSession,
     sessions,
     creating,
     startSession,
@@ -83,7 +87,7 @@ export function SessionPanel({
         <div className="list-heading">
           <h2>会话记录</h2>
           <span className="count">{total}</span>
-          {!hasDetail && <span className="muted list-hint">最近活动优先</span>}
+          {!hasDetail && <span className="muted list-hint">全部工作空间 · 最近活动优先</span>}
         </div>
         <div className="list-actions">
           {user.role === 'admin' && (
@@ -134,7 +138,10 @@ export function SessionPanel({
         <input
           ref={searchRef}
           aria-label="搜索会话"
-          placeholder={hasDetail ? '搜索会话…' : '搜索标题、项目、首条消息或会话 ID…'}
+          placeholder={
+            hasDetail ? '搜索全部空间的会话…' : '搜索全部空间的标题、项目、首条消息或会话 ID…'
+          }
+          maxLength={200}
           value={q}
           onChange={(e) => setQ(e.target.value)}
         />
@@ -183,6 +190,12 @@ export function SessionPanel({
           <button onClick={() => void loadList()}>重试</button>
         </div>
       )}
+      {listWarning && (
+        <div className="alert warning session-list-warning" role="status">
+          <TriangleAlert size={16} />
+          {listWarning}
+        </div>
+      )}
       <div className="session-list">
         {!hasDetail && !!rows.length && (
           <div className="table-head">
@@ -202,14 +215,20 @@ export function SessionPanel({
           <div className="empty">
             <span className="empty-icon">{q ? <Search /> : <MessageSquare />}</span>
             <h3>
-              {q
-                ? '没有找到相关会话'
-                : tab === 'running'
-                  ? '暂时没有正在进行的会话'
-                  : '这里还没有会话'}
+              {error || listWarning
+                ? '暂时无法显示会话'
+                : q
+                  ? '没有找到相关会话'
+                  : tab === 'running'
+                    ? '暂时没有正在进行的会话'
+                    : '这里还没有会话'}
             </h3>
             <p>
-              {q ? '试试其他关键词，或清除筛选条件。' : '本机 Codex 的新活动会自动出现在这里。'}
+              {error || listWarning
+                ? '工作空间恢复连接后会自动更新。'
+                : q
+                  ? '试试其他关键词，或清除筛选条件。'
+                  : '各工作空间中 Codex 的新活动会自动出现在这里。'}
             </p>
             {q && (
               <button
@@ -227,15 +246,16 @@ export function SessionPanel({
           <SessionRows
             rows={rows}
             selected={selected}
+            workspaceId={workspaceId}
             compact={hasDetail}
-            select={(id) => {
-              select(id);
+            selectSession={(session) => {
+              selectSession(session);
               onSessionSelected?.();
             }}
           />
         )}
         {sessions.length < total && (
-          <button className="load-more" onClick={() => void loadList(true)}>
+          <button className="load-more" disabled={listBusy} onClick={() => void loadList(true)}>
             加载更多会话
             <ChevronDown size={15} />
           </button>

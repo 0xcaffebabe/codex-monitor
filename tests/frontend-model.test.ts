@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { groupTimelineEvents, mergeSessionPage } from '../src/features/session/session-model.js';
-import { sessionRows } from '../src/features/workspace/session-list-model.js';
+import {
+  mergeWorkspaceSessions,
+  sessionRows,
+  type WorkspaceSession,
+} from '../src/features/workspace/session-list-model.js';
 import type { Session, SessionPage, TimelineEvent } from '../src/types.js';
 import { relative } from '../src/shared/format.js';
 
@@ -152,4 +156,38 @@ test('session grouping preserves time order, sorts project copies and only label
     ['A', undefined, 'B', undefined],
   );
   assert.equal(sessions[0].id, 'running');
+});
+
+test('global session ordering keeps identical IDs in separate workspaces and puts live sessions first', () => {
+  const scoped = (
+    workspaceId: string,
+    id: string,
+    values: Partial<Session> = {},
+  ): WorkspaceSession => ({
+    ...session(id, values),
+    workspaceId,
+    workspaceName: workspaceId,
+  });
+  const input = [
+    scoped('local', 'same', { updatedAt: 20 }),
+    scoped('remote', 'same', { updatedAt: 30 }),
+    scoped('remote', 'running', { status: 'running', updatedAt: 5 }),
+    scoped('local', 'same', { title: 'refreshed', updatedAt: 40 }),
+  ];
+  const merged = mergeWorkspaceSessions(input);
+  assert.deepEqual(
+    merged.map((item) => [item.workspaceId, item.id]),
+    [
+      ['remote', 'running'],
+      ['local', 'same'],
+      ['remote', 'same'],
+    ],
+  );
+  assert.equal(merged[1].title, 'refreshed');
+  assert.equal(input.length, 4);
+  const tied = [scoped('local', 'z', { updatedAt: 10 }), scoped('local', 'a', { updatedAt: 10 })];
+  assert.deepEqual(
+    mergeWorkspaceSessions(tied).map((item) => item.id),
+    ['z', 'a'],
+  );
 });

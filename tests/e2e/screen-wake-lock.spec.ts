@@ -139,7 +139,11 @@ test('iOS details keep the screen awake through refresh and rotation, and releas
   await page.screenshot({ path: test.info().outputPath('ios-screen-awake.png'), fullPage: true });
   await page.getByTitle('返回会话列表').click();
   await expect.poll(() => state(page)).toEqual({ requests: 1, held: 0, pending: 0 });
-  await page.getByTestId('session-row').filter({ hasText: '检查旧版本会话解析' }).click();
+  await page
+    .getByTestId('session-row')
+    .filter({ hasText: '检查旧版本会话解析' })
+    .filter({ hasText: '本机工作空间' })
+    .click();
   await expect(indicator(page)).toHaveText('屏幕常亮');
   expect(await state(page)).toEqual({ requests: 2, held: 1, pending: 0 });
   await page.getByTitle('打开菜单').click();

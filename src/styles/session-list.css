@@ -274,6 +274,33 @@
   border-left: 1px solid var(--line);
   padding-left: 9px;
 }
+.session-workspace-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  max-width: 150px;
+  padding: 1px 5px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--surface2);
+  font-size: 8px;
+  line-height: 1.7;
+  color: var(--muted);
+}
+.session-workspace-tag > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.compact .session-info > div:not(.compact-meta) {
+  flex-wrap: wrap;
+  gap: 5px;
+}
+.session-list-warning {
+  flex-shrink: 0;
+  font-size: 10px;
+}
 .status {
   display: inline-flex;
   gap: 5px;

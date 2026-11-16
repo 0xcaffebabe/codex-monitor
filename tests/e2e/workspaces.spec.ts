@@ -10,6 +10,7 @@ import { createMonitorServer } from '../../server/server-app.js';
 import { once } from 'node:events';
 import { createServer } from 'node:http';
 import { HOST_RESOURCE_STALE_MS } from '../../src/workspaces.js';
+import type { Session } from '../../src/types.js';
 
 const second = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 
@@ -92,6 +93,125 @@ async function enter(page: Page, request: APIRequestContext, query = '') {
   await expect(page.getByLabel('切换工作空间')).toBeVisible();
   return token;
 }
+
+test('session records search all workspaces and retain the query when opening identical session IDs', async ({
+  page,
+  request,
+  isMobile,
+}) => {
+  await enter(page, request, 'workspace=local');
+  const rows = page.getByTestId('session-row');
+  await expect(rows.filter({ hasText: '第二台电脑的独立会话' })).toHaveCount(1);
+  const search = page.getByLabel('搜索会话', { exact: true });
+  await search.fill('旧版本');
+  await expect(rows).toHaveCount(2);
+  await expect(rows.filter({ hasText: '本机工作空间' })).toHaveCount(1);
+  await expect(rows.filter({ hasText: '第二台测试电脑' })).toHaveCount(1);
+  await rows.filter({ hasText: '第二台测试电脑' }).click();
+  await expect(page.getByLabel('切换工作空间')).toHaveValue(second);
+  await expect(page.locator('.detail-heading')).toContainText('检查旧版本会话解析');
+  expect(new URL(page.url()).searchParams.get('q')).toBe('旧版本');
+  if (!isMobile) {
+    await expect(page.getByRole('region', { name: '会话记录', exact: true })).toBeVisible();
+    await expect(rows.filter({ hasText: '第二台测试电脑' })).toHaveAttribute(
+      'aria-current',
+      'page',
+    );
+    await expect(rows.filter({ hasText: '本机工作空间' })).not.toHaveAttribute('aria-current');
+    await page.screenshot({ path: test.info().outputPath('global-session-records-compact.png') });
+  }
+  await page.getByTitle('返回会话列表').click();
+  await expect(search).toHaveValue('旧版本');
+  await expect(rows).toHaveCount(2);
+  await page.getByTitle('清除搜索').click();
+  await search.fill('第二台电脑的独立会话');
+  await expect(rows).toHaveCount(1);
+  await expect(rows).toContainText('第二台测试电脑');
+  await expect(rows.first()).toBeInViewport();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.screenshot({
+    path: test.info().outputPath('global-session-records-search.png'),
+    fullPage: true,
+  });
+});
+
+test('session records merge workspace pages, preserve loaded results and recover unavailable workspaces', async ({
+  page,
+  request,
+}) => {
+  const now = Date.now();
+  let mode: 'online' | 'error' | 'offline' = 'online';
+  let remoteActivity = false;
+  let template: Session | undefined;
+  await page.route('**/api/workspaces', async (route) => {
+    const response = await route.fetch();
+    const body = await response.json();
+    if (mode === 'offline')
+      body.workspaces.find((item: { id: string }) => item.id === second).online = false;
+    await route.fulfill({ response, json: body });
+  });
+  await page.route('**/api/workspaces/*/sessions?*', async (route) => {
+    const url = new URL(route.request().url());
+    if (!url.searchParams.has('q')) return route.continue();
+    const remote = url.pathname.includes(second);
+    if (remote && mode === 'error')
+      return route.fulfill({ status: 503, json: { error: '测试连接失败' } });
+    const response = await route.fetch();
+    const body = await response.json();
+    template ||= body.sessions[0];
+    const sessions = Array.from({ length: 125 }, (_, index) => ({
+      ...template!,
+      id: `77777777-7777-4777-8777-${String(index).padStart(12, '0')}`,
+      title:
+        remote && remoteActivity && index === 0
+          ? '远端最新活动'
+          : `跨空间分页 ${remote ? '远端' : '本机'} ${index}`,
+      status: 'completed',
+      updatedAt:
+        remote && remoteActivity && index === 0
+          ? now + 1000
+          : now - (remote ? 3600000 : 0) - index * 1000,
+    }));
+    const offset = Number(url.searchParams.get('offset'));
+    const limit = Number(url.searchParams.get('limit'));
+    await route.fulfill({
+      response,
+      json: { ...body, sessions: sessions.slice(offset, offset + limit), total: sessions.length },
+    });
+  });
+  await page.clock.install();
+  await enter(page, request, 'workspace=local');
+  const rows = page.getByTestId('session-row');
+  const panel = page.getByRole('region', { name: '会话记录', exact: true });
+  await expect(rows).toHaveCount(60);
+  await expect(rows.first()).toContainText('本机 0');
+  await expect(panel.locator('.count')).toHaveText('250');
+  await panel.getByRole('button', { name: '加载更多会话', exact: true }).click();
+  await expect(rows).toHaveCount(120);
+  await expect(rows.last()).toContainText('本机 119');
+  await panel.getByRole('button', { name: '加载更多会话', exact: true }).click();
+  await expect(rows).toHaveCount(180);
+  await expect(rows.filter({ hasText: '本机工作空间' })).toHaveCount(125);
+  await expect(rows.filter({ hasText: '第二台测试电脑' })).toHaveCount(55);
+  remoteActivity = true;
+  await page.clock.fastForward(3000);
+  await expect(rows.first()).toContainText('远端最新活动');
+  await expect(rows).toHaveCount(180);
+  await page.getByTitle('刷新数据', { exact: true }).click();
+  await expect(rows).toHaveCount(180);
+  mode = 'error';
+  await page.clock.fastForward(3000);
+  await expect(panel.getByRole('status')).toContainText('第二台测试电脑（加载失败）');
+  await expect(rows).toHaveCount(125);
+  mode = 'offline';
+  await page.clock.fastForward(3000);
+  await expect(panel.getByRole('status')).toContainText('第二台测试电脑（离线）');
+  await expect(rows).toHaveCount(60);
+  mode = 'online';
+  await page.clock.fastForward(3000);
+  await expect(panel.getByRole('status')).toHaveCount(0);
+  await expect(rows.first()).toContainText('远端最新活动');
+});
 
 test('mobile running shortcuts group workspaces and open identical session IDs in the right client', async ({
   page,

@@ -144,7 +144,11 @@ test('switching sessions cancels the synchronization retry', async ({ page, requ
   await expect(page.getByText('新会话已创建，正在同步记录…', { exact: true })).toBeVisible();
   await page.clock.install();
   await page.getByTitle('返回会话列表').click();
-  await page.getByTestId('session-row').filter({ hasText: '检查旧版本会话解析' }).click();
+  await page
+    .getByTestId('session-row')
+    .filter({ hasText: '检查旧版本会话解析' })
+    .filter({ hasText: '本机工作空间' })
+    .click();
   await expect(
     page.locator('.timeline').getByText('旧版会话读取成功。', { exact: true }),
   ).toBeVisible();

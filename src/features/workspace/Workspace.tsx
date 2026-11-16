@@ -24,17 +24,23 @@ import { useWorkspace, WorkspaceProps } from './useWorkspace';
 import { useDesktopLayout } from './useDesktopLayout';
 import type { RunningWorkspace } from '../workspaces/useRunningSessions';
 import { navigateWorkspace } from '../../workspace-scope';
+import type { ManagedWorkspace } from '../../workspaces';
 
 export function Workspace(
-  props: WorkspaceProps & { workspaceId: string; runningWorkspaces: RunningWorkspace[] },
+  props: WorkspaceProps & {
+    workspaceId: string;
+    workspaces: ManagedWorkspace[];
+    runningWorkspaces: RunningWorkspace[];
+  },
 ) {
   const { user } = props;
-  const model = useWorkspace();
+  const model = useWorkspace(props.workspaceId, props.workspaces);
   const {
     overview,
     setSidebarView,
     tab,
     setTab,
+    q,
     setQ,
     setQuery,
     project,
@@ -72,6 +78,7 @@ export function Workspace(
     <div
       className={cx(
         'app-shell',
+        !hasDetail && !!q.trim() && 'searching-sessions',
         hasDetail && 'has-detail',
         layout.navigationCollapsed && 'navigation-collapsed',
         !layout.sessionsVisible && 'sessions-collapsed',

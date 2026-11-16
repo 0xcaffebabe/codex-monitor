@@ -95,6 +95,21 @@ async function ownerToken(request: APIRequestContext) {
 }
 async function enter(page: Page, request: APIRequestContext) {
   const token = await ownerToken(request);
+  const headers = { Authorization: 'Bearer ' + token };
+  // Completions from another workspace must not cover the mobile list in the next test.
+  const pending = await (await request.get('/api/notifications/completions', { headers })).json();
+  if (pending.notifications.length)
+    expect(
+      (
+        await request.post('/api/notifications/completions/dismiss', {
+          headers,
+          data: {
+            generation: pending.generation,
+            ids: pending.notifications.map((item: { id: number }) => item.id),
+          },
+        })
+      ).ok(),
+    ).toBeTruthy();
   await page.addInitScript((token) => localStorage.setItem('codex-monitor.auth.v1', token), token);
   await page.goto('/');
   await expect(page.getByRole('heading', { name: '全部会话', exact: true })).toBeVisible();
@@ -1168,8 +1183,8 @@ test('password login persists after reload, and logout invalidates access', asyn
 test('search, archived sessions and legacy tool results work', async ({ page, request }) => {
   await enter(page, request);
   await page.getByLabel('搜索会话', { exact: true }).fill('旧版本');
-  await expect(page.getByTestId('session-row')).toHaveCount(1);
-  await page.getByTestId('session-row').click();
+  await expect(page.getByTestId('session-row')).toHaveCount(2);
+  await page.getByTestId('session-row').filter({ hasText: '本机工作空间' }).click();
   await expect(page.getByRole('region', { name: '会话详情' })).toBeVisible();
   await page.locator('.activity-summary').click();
   await page.getByText('exec_command', { exact: true }).click();
@@ -1180,8 +1195,10 @@ test('search, archived sessions and legacy tool results work', async ({ page, re
   await page.getByTitle('返回会话列表').click();
   await page.getByTitle('清除搜索').click();
   await page.locator('.filter-tabs').getByRole('button', { name: '已归档', exact: true }).click();
-  await expect(page.getByTestId('session-row')).toHaveCount(1);
-  await expect(page.getByTestId('session-row')).toContainText('已归档的历史会话');
+  await expect(page.getByTestId('session-row')).toHaveCount(2);
+  await expect(page.getByTestId('session-row').filter({ hasText: '本机工作空间' })).toContainText(
+    '已归档的历史会话',
+  );
 });
 test('conversation keeps messages visible, folds activity, searches details and exports history', async ({
   page,
@@ -2296,7 +2313,11 @@ test('session details show recent context tokens and usage percentage', async ({
       }) + '\n',
     );
     await enter(page, request);
-    await page.getByTestId('session-row').filter({ hasText: '检查旧版本会话解析' }).click();
+    await page
+      .getByTestId('session-row')
+      .filter({ hasText: '检查旧版本会话解析' })
+      .filter({ hasText: '本机工作空间' })
+      .click();
     await expect(page.locator('.context-meter')).toContainText('100K / 200K');
     await expect(page.locator('.context-meter')).toContainText('50.0%');
     if (test.info().project.name === 'desktop')

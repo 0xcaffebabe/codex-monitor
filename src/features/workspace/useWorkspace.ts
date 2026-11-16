@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { User } from '../../types';
 import { useSessionDetail } from '../session/useSessionDetail';
-import { sessionRows, type SessionGroup } from './session-list-model';
+import { sessionRows, type SessionGroup, type WorkspaceSession } from './session-list-model';
 import { useOverview } from './useOverview';
 import { useRealtime } from './useRealtime';
 import { useSessionList } from './useSessionList';
 import type { ReactNode } from 'react';
+import type { ManagedWorkspace } from '../../workspaces';
+import { navigateWorkspace } from '../../workspace-scope';
 
 export type WorkspaceProps = {
   user: User;
@@ -16,15 +18,20 @@ export type WorkspaceProps = {
   workspaceControls?: ReactNode;
   workspaceNotice?: string;
 };
-export function useWorkspace() {
+export function useWorkspace(workspaceId: string, workspaces: ManagedWorkspace[]) {
+  const [initialParams] = useState(() => new URLSearchParams(location.search));
   const [sidebarView, setSidebarView] = useState<'recent' | 'projects'>('recent'),
     [tab, setTab] = useState(() =>
-      new URLSearchParams(location.search).get('view') === 'usage' ? 'usage' : 'all',
+      initialParams.get('view') === 'usage'
+        ? 'usage'
+        : ['running', 'archived'].includes(initialParams.get('status') || '')
+          ? initialParams.get('status')!
+          : 'all',
     ),
-    [q, setQ] = useState(''),
-    [query, setQuery] = useState(''),
-    [project, setProject] = useState(''),
-    [subagents, setSubagents] = useState(false),
+    [q, setQ] = useState(initialParams.get('q') || ''),
+    [query, setQuery] = useState(initialParams.get('q') || ''),
+    [project, setProject] = useState(initialParams.get('project') || ''),
+    [subagents, setSubagents] = useState(initialParams.get('subagents') === 'true'),
     [selected, setSelected] = useState<string | undefined>(
       () => new URLSearchParams(location.search).get('session') || undefined,
     ),
@@ -33,24 +40,18 @@ export function useWorkspace() {
     [creating, setCreating] = useState(false),
     [usageRevision, setUsageRevision] = useState(0),
     [toast, setToast] = useState(''),
-    [group, setGroup] = useState<SessionGroup>('time');
-  const {
-    sessions,
-    total,
-    error: listError,
-    listBusy,
-    loadList,
-  } = useSessionList({ query, project, tab, subagents });
-  const {
-    overview,
-    recentSessions,
-    recentLoaded,
-    recentError,
-    overviewError,
-    loadOverview,
-    loadRecentSessions,
-  } = useOverview();
-  const error = listError || overviewError;
+    [group, setGroup] = useState<SessionGroup>(
+      initialParams.get('group') === 'project' ? 'project' : 'time',
+    );
+  const { sessions, total, error, listWarning, listBusy, loadList } = useSessionList({
+    query,
+    project,
+    tab,
+    subagents,
+    workspaces,
+  });
+  const { overview, recentSessions, recentLoaded, recentError, loadOverview, loadRecentSessions } =
+    useOverview();
   const {
     page,
     outlineData,
@@ -97,7 +98,18 @@ export function useWorkspace() {
       const params = new URLSearchParams(location.search);
       setCreating(false);
       setSelected(params.get('session') || undefined);
-      setTab(params.get('view') === 'usage' ? 'usage' : 'all');
+      setTab(
+        params.get('view') === 'usage'
+          ? 'usage'
+          : ['running', 'archived'].includes(params.get('status') || '')
+            ? params.get('status')!
+            : 'all',
+      );
+      setQ(params.get('q') || '');
+      setQuery(params.get('q') || '');
+      setProject(params.get('project') || '');
+      setSubagents(params.get('subagents') === 'true');
+      setGroup(params.get('group') === 'project' ? 'project' : 'time');
     };
     window.addEventListener('popstate', pop);
     return () => window.removeEventListener('popstate', pop);
@@ -106,11 +118,21 @@ export function useWorkspace() {
     const params = new URLSearchParams(location.search);
     if (tab === 'usage') params.set('view', 'usage');
     else params.delete('view');
+    const filters = {
+      q,
+      project,
+      status: tab === 'running' || tab === 'archived' ? tab : '',
+      subagents: subagents ? 'true' : '',
+      group: group === 'project' ? 'project' : '',
+    };
+    for (const [key, value] of Object.entries(filters)) {
+      if (value) params.set(key, value);
+      else params.delete(key);
+    }
     history.replaceState(null, '', location.pathname + (params.size ? '?' + params : ''));
-  }, [tab]);
+  }, [tab, q, project, subagents, group]);
   const reconcile = () => {
     void loadOverview();
-    void loadList(false, true);
   };
   const refreshDetail = () => {
     reconcile();
@@ -121,6 +143,10 @@ export function useWorkspace() {
     setCreating(false);
     setSelected(id);
     setMenu(false);
+  };
+  const selectSession = (session: WorkspaceSession) => {
+    if (session.workspaceId === workspaceId) select(session.id);
+    else navigateWorkspace(session.workspaceId, session.id, new URLSearchParams(location.search));
   };
   const startSession = () => {
     setSelected(undefined);
@@ -150,6 +176,7 @@ export function useWorkspace() {
   const rows = sessionRows(sessions, group);
 
   return {
+    workspaceId,
     overview,
     recentSessions,
     recentLoaded,
@@ -175,6 +202,7 @@ export function useWorkspace() {
     detailBusy,
     detailSyncing,
     error,
+    listWarning,
     detailError,
     connected,
     menu,
@@ -198,6 +226,7 @@ export function useWorkspace() {
     loadOutline,
     loadOutlineEntry,
     select,
+    selectSession,
     changeTab,
     title,
     rows,

@@ -1,20 +1,25 @@
-import { Activity, ChevronRight, Folder, MessageSquare, Radio } from 'lucide-react';
+import { Activity, ChevronRight, Folder, MessageSquare, Monitor, Radio } from 'lucide-react';
 import React from 'react';
 import { cx, number, relative, time } from '../../shared/format';
 import { Status } from '../../shared/ui/Status';
 import type { WorkspaceModel } from './useWorkspace';
+import { workspaceSessionKey } from './session-list-model';
 
 export function SessionRows({
   rows,
   selected,
-  select,
+  workspaceId,
+  selectSession,
   compact = !!selected,
-}: Pick<WorkspaceModel, 'rows' | 'selected' | 'select'> & { compact?: boolean }) {
+}: Pick<WorkspaceModel, 'rows' | 'selected' | 'workspaceId' | 'selectSession'> & {
+  compact?: boolean;
+}) {
   return (
     <>
       {rows.map(({ session: s, heading }) => {
+        const current = s.workspaceId === workspaceId && selected === s.id;
         return (
-          <React.Fragment key={s.id}>
+          <React.Fragment key={workspaceSessionKey(s)}>
             {!!heading && (
               <div className="group-label">
                 <span>{heading}</span>
@@ -22,9 +27,11 @@ export function SessionRows({
               </div>
             )}
             <button
-              className={cx('session-row', selected === s.id && 'selected')}
-              onClick={() => select(s.id)}
+              className={cx('session-row', current && 'selected')}
+              aria-current={current ? 'page' : undefined}
+              onClick={() => selectSession(s)}
               data-testid="session-row"
+              data-workspace-id={s.workspaceId}
             >
               <span className={cx('session-glyph', s.status === 'running' && 'live')}>
                 {s.status === 'running' ? <Activity size={18} /> : <MessageSquare size={17} />}
@@ -32,6 +39,10 @@ export function SessionRows({
               <div className="session-info">
                 <strong>{s.title}</strong>
                 <div>
+                  <span className="session-workspace-tag" title={`工作空间：${s.workspaceName}`}>
+                    <Monitor size={11} />
+                    <span>{s.workspaceName}</span>
+                  </span>
                   <span className="project-tag">
                     <Folder size={12} />
                     {s.project}

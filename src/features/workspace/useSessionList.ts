@@ -1,59 +1,125 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '../../api';
 import type { Session } from '../../types';
+import type { ManagedWorkspace } from '../../workspaces';
+import { mergeWorkspaceSessions, type WorkspaceSession } from './session-list-model';
+
+type SessionListPage = { sessions: Session[]; total: number };
+type ListRequest = { key: string; controller: AbortController; promise: Promise<void> };
 
 export function useSessionList({
   query,
   project,
   tab,
   subagents,
+  workspaces,
 }: {
   query: string;
   project: string;
   tab: string;
   subagents: boolean;
+  workspaces: ManagedWorkspace[];
 }) {
-  const [sessions, setSessions] = useState<Session[]>([]),
+  const [sessions, setSessions] = useState<WorkspaceSession[]>([]),
     [total, setTotal] = useState(0),
     [error, setError] = useState(''),
+    [listWarning, setListWarning] = useState(''),
     [listBusy, setListBusy] = useState(true);
-  const listGeneration = useRef(0);
+  const workspaceRef = useRef(workspaces);
+  workspaceRef.current = workspaces;
+  const workspaceKey = JSON.stringify(workspaces.map(({ id, online }) => [id, online]).sort());
+  const loadedLimit = useRef(60);
+  const activeRequest = useRef<ListRequest | null>(null);
   const fetchList = useCallback(
-    async (append = false, preserveLoaded = false) => {
-      const generation = ++listGeneration.current;
-      try {
-        const params = new URLSearchParams({
-          q: query,
-          project,
-          status: tab === 'running' ? 'running' : 'all',
-          archived: tab === 'archived' ? 'true' : 'false',
-          subagents: String(subagents),
-        });
-        const target = !append && preserveLoaded ? Math.max(60, sessions.length) : 60;
-        const requests: Promise<{ sessions: Session[]; total: number }>[] = [];
-        for (let offset = 0; offset < target; offset += 100) {
-          const page = new URLSearchParams(params);
-          page.set('limit', String(Math.min(100, target - offset)));
-          page.set('offset', String(append ? sessions.length : offset));
-          requests.push(api('/api/sessions?' + page));
+    (append = false, preserveLoaded = false): Promise<void> => {
+      const key = JSON.stringify([query, project, tab, subagents, workspaceKey]);
+      if (preserveLoaded && activeRequest.current?.key === key)
+        return activeRequest.current.promise;
+      activeRequest.current?.controller.abort();
+      if (append) loadedLimit.current += 60;
+      else if (!preserveLoaded) loadedLimit.current = 60;
+      const target = loadedLimit.current;
+      const request: ListRequest = {
+        key,
+        controller: new AbortController(),
+        promise: Promise.resolve(),
+      };
+      activeRequest.current = request;
+      setListBusy(true);
+      const timeout = setTimeout(() => request.controller.abort(), 10000);
+      request.promise = (async () => {
+        try {
+          const configured = workspaceRef.current;
+          const online = configured.filter((workspace) => workspace.online);
+          const results = await Promise.allSettled(
+            online.map(async (workspace) => {
+              const params = new URLSearchParams({
+                q: query,
+                project,
+                status: tab === 'running' ? 'running' : 'all',
+                archived: tab === 'archived' ? 'true' : 'false',
+                subagents: String(subagents),
+              });
+              const page = (offset: number, limit: number) => {
+                const search = new URLSearchParams(params);
+                search.set('limit', String(limit));
+                search.set('offset', String(offset));
+                return api<SessionListPage>(
+                  `/api/workspaces/${encodeURIComponent(workspace.id)}/sessions?${search}`,
+                  { signal: request.controller.signal },
+                );
+              };
+              const first = await page(0, Math.min(100, target));
+              const rest: Promise<SessionListPage>[] = [];
+              for (let offset = 100; offset < Math.min(target, first.total); offset += 100)
+                rest.push(page(offset, Math.min(100, target - offset)));
+              const pages = [first, ...(await Promise.all(rest))];
+              return {
+                sessions: pages.flatMap((page) =>
+                  page.sessions.map((session) => ({
+                    ...session,
+                    workspaceId: workspace.id,
+                    workspaceName: workspace.name,
+                  })),
+                ),
+                total: first.total,
+              };
+            }),
+          );
+          if (activeRequest.current !== request) return;
+          const available: WorkspaceSession[] = [];
+          let count = 0;
+          const unavailable = configured
+            .filter((workspace) => !workspace.online)
+            .map((workspace) => `${workspace.name}（离线）`);
+          results.forEach((result, index) => {
+            if (result.status === 'fulfilled') {
+              available.push(...result.value.sessions);
+              count += result.value.total;
+            } else unavailable.push(`${online[index].name}（加载失败）`);
+          });
+          // Each workspace's first N rows contain every candidate for the global first N rows.
+          setSessions(mergeWorkspaceSessions(available).slice(0, target));
+          setTotal(count);
+          setListWarning(
+            unavailable.length ? `暂不可查询：${unavailable.join('、')}。将自动重试。` : '',
+          );
+          setError(
+            results.length && results.every((result) => result.status === 'rejected')
+              ? '暂时无法查询工作空间中的会话，请重试。'
+              : '',
+          );
+        } finally {
+          clearTimeout(timeout);
+          if (activeRequest.current === request) {
+            activeRequest.current = null;
+            setListBusy(false);
+          }
         }
-        const pages = await Promise.all(requests);
-        const result = { sessions: pages.flatMap((page) => page.sessions), total: pages[0].total };
-        if (generation !== listGeneration.current) return;
-        setSessions((old) => [
-          ...new Map(
-            (append ? [...old, ...result.sessions] : result.sessions).map((s) => [s.id, s]),
-          ).values(),
-        ]);
-        setTotal(result.total);
-        setError('');
-      } catch (e) {
-        if (generation === listGeneration.current) setError((e as Error).message);
-      } finally {
-        if (generation === listGeneration.current) setListBusy(false);
-      }
+      })();
+      return request.promise;
     },
-    [query, project, tab, subagents, sessions.length],
+    [query, project, tab, subagents, workspaceKey],
   );
 
   const loadListRef = useRef(fetchList);
@@ -63,11 +129,17 @@ export function useSessionList({
     [],
   );
   useEffect(() => {
-    setListBusy(true);
+    setSessions([]);
+    setTotal(0);
+    setError('');
+    setListWarning('');
     void loadList();
+    const timer = setInterval(() => void loadList(false, true), 3000);
     return () => {
-      listGeneration.current++;
+      clearInterval(timer);
+      activeRequest.current?.controller.abort();
+      activeRequest.current = null;
     };
-  }, [query, project, tab, subagents, loadList]);
-  return { sessions, total, error, listBusy, loadList };
+  }, [query, project, tab, subagents, workspaceKey, loadList]);
+  return { sessions, total, error, listWarning, listBusy, loadList };
 }
