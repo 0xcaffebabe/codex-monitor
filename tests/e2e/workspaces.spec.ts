@@ -4,7 +4,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { setTimeout as delay } from 'node:timers/promises';
 import { fixture, ids } from '../fixture.js';
-import { FixtureDesktop } from '../control-fixture.js';
+import { FixtureDesktop, projectId } from '../control-fixture.js';
 import { MonitorClient } from '../../server/client/connection.js';
 import { createMonitorServer } from '../../server/server-app.js';
 import { once } from 'node:events';
@@ -93,6 +93,139 @@ async function enter(page: Page, request: APIRequestContext, query = '') {
   await expect(page.getByLabel('切换工作空间')).toBeVisible();
   return token;
 }
+
+test('new sessions select a workspace, load its projects and create on that client', async ({
+  page,
+  request,
+}) => {
+  await page.route(`**/api/workspaces/${second}/control`, async (route) => {
+    const response = await route.fetch();
+    const body = await response.json();
+    body.projects[0].name = '远端项目';
+    await route.fulfill({ response, json: body });
+  });
+  const token = await enter(page, request, 'workspace=local');
+  await page.getByRole('button', { name: '新建会话', exact: true }).click();
+  const composer = page.getByRole('region', { name: '新建会话', exact: true });
+  const workspace = composer.getByLabel('新会话工作空间', { exact: true });
+  await expect(workspace).toHaveValue('local');
+  await workspace.selectOption(second);
+  await expect(composer).toBeVisible();
+  await expect(workspace).toHaveValue(second);
+  await expect(page.getByLabel('切换工作空间')).toHaveValue(second);
+  expect(new URL(page.url()).searchParams.get('view')).toBe('new');
+  const project = composer.getByLabel('新会话项目', { exact: true });
+  await expect(project).toBeEnabled();
+  await expect(project).toContainText('远端项目 · D:/work');
+  await expect(project).toHaveValue(projectId);
+  const prompt = '在所选工作空间创建 ' + test.info().project.name;
+  await composer.getByLabel('发送给 Codex 的消息').fill(prompt);
+  const upload = page.waitForRequest(
+    (request) =>
+      request.method() === 'POST' && request.url().includes(`/api/workspaces/${second}/uploads?`),
+  );
+  await composer.getByLabel('上传图片或文件', { exact: true }).setInputFiles({
+    name: 'remote-new-session.txt',
+    mimeType: 'text/plain',
+    buffer: Buffer.from('只上传到所选工作空间'),
+  });
+  await upload;
+  await expect(composer.getByRole('list', { name: '待发送附件' })).toContainText(
+    'remote-new-session.txt',
+  );
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.screenshot({
+    path: test.info().outputPath('new-session-workspace.png'),
+    fullPage: true,
+  });
+  const created = page.waitForResponse(
+    (response) =>
+      response.request().method() === 'POST' &&
+      response.url().endsWith(`/api/workspaces/${second}/sessions`),
+  );
+  await composer.getByRole('button', { name: '创建并发送', exact: true }).click();
+  const response = await created;
+  expect(response.ok()).toBeTruthy();
+  expect(response.request().postDataJSON()).toMatchObject({ projectId, prompt });
+  const receipt = await response.json();
+  await expect(page.locator('.timeline .user-message').last()).toContainText(prompt);
+  await expect(page.locator('.timeline .user-message').last()).toContainText(
+    'remote-new-session.txt',
+  );
+  await expect(page).toHaveURL(new RegExp(`workspace=${second}&session=${receipt.threadId}`));
+  expect(new URL(page.url()).searchParams.has('view')).toBe(false);
+  expect(
+    (
+      await request.get(`/api/workspaces/local/sessions/${receipt.threadId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+    ).status(),
+  ).toBe(404);
+});
+
+test('new sessions retain separate drafts across workspace changes and refreshes, and block offline creation', async ({
+  page,
+  request,
+}) => {
+  let localOffline = false;
+  await page.route('**/api/workspaces', async (route) => {
+    const response = await route.fetch();
+    const body = await response.json();
+    body.workspaces.push({
+      ...body.workspaces[0],
+      id: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+      name: '离线测试电脑',
+      online: false,
+    });
+    if (localOffline)
+      body.workspaces.find((workspace: { id: string }) => workspace.id === 'local').online = false;
+    await route.fulfill({ response, json: body });
+  });
+  await enter(page, request, 'workspace=local');
+  await page.getByRole('button', { name: '新建会话', exact: true }).click();
+  const composer = page.getByRole('region', { name: '新建会话', exact: true });
+  const workspace = composer.getByLabel('新会话工作空间', { exact: true });
+  const input = composer.getByLabel('发送给 Codex 的消息');
+  const goal = composer.getByLabel('将首条消息设为目标');
+  const attachments = composer.getByRole('list', { name: '待发送附件' });
+  await expect(composer.getByLabel('新会话项目')).toBeEnabled();
+  await expect(workspace.getByRole('option', { name: '离线测试电脑（离线）' })).toBeDisabled();
+  await input.fill('只属于本机的新会话草稿');
+  await composer.getByLabel('上传图片或文件', { exact: true }).setInputFiles({
+    name: 'local-new-session.txt',
+    mimeType: 'text/plain',
+    buffer: Buffer.from('只属于本机的新会话附件'),
+  });
+  await expect(attachments).toContainText('local-new-session.txt');
+  await goal.check();
+  await workspace.selectOption(second);
+  await expect(input).toBeEmpty();
+  await expect(goal).not.toBeChecked();
+  await expect(attachments).toHaveCount(0);
+  await input.fill('只属于远端的新会话草稿');
+  await workspace.selectOption('local');
+  await expect(goal).toBeChecked();
+  await expect(composer.getByLabel('目标内容')).toHaveValue('只属于本机的新会话草稿');
+  await expect(attachments).toContainText('local-new-session.txt');
+  await page.reload();
+  await expect(composer).toBeVisible();
+  await expect(workspace).toHaveValue('local');
+  await expect(goal).toBeChecked();
+  await expect(composer.getByLabel('目标内容')).toHaveValue('只属于本机的新会话草稿');
+  await expect(attachments).toContainText('local-new-session.txt');
+  await expect(composer.getByRole('button', { name: '创建并执行目标' })).toBeEnabled();
+  localOffline = true;
+  await expect(workspace.locator('option[value="local"]')).toBeDisabled();
+  await expect(composer.getByRole('button', { name: '创建并执行目标' })).toBeDisabled();
+  await workspace.selectOption(second);
+  await expect(input).toHaveValue('只属于远端的新会话草稿');
+  await expect(goal).not.toBeChecked();
+  await expect(attachments).toHaveCount(0);
+  await expect(composer.getByRole('button', { name: '创建并发送' })).toBeEnabled();
+  await page.getByTitle('返回会话列表').click();
+  await expect(composer).toHaveCount(0);
+  expect(new URL(page.url()).searchParams.has('view')).toBe(false);
+});
 
 test('session records search all workspaces and retain the query when opening identical session IDs', async ({
   page,
@@ -394,6 +527,7 @@ test('switches clients with identical session IDs, isolates drafts and attachmen
   const input = page.getByLabel('发送给 Codex 的消息');
   await expect(input).toBeEnabled();
   await input.fill('只属于本机的草稿');
+  await expect(page.getByRole('button', { name: '添加附件', exact: true })).toBeEnabled();
   await page.getByLabel('上传图片或文件', { exact: true }).setInputFiles({
     name: 'local-only.txt',
     mimeType: 'text/plain',

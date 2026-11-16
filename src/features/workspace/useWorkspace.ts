@@ -37,7 +37,9 @@ export function useWorkspace(workspaceId: string, workspaces: ManagedWorkspace[]
     ),
     [menu, setMenu] = useState(false),
     [settings, setSettings] = useState(false),
-    [creating, setCreating] = useState(false),
+    [creating, setCreating] = useState(
+      initialParams.get('view') === 'new' && !initialParams.get('session'),
+    ),
     [usageRevision, setUsageRevision] = useState(0),
     [toast, setToast] = useState(''),
     [group, setGroup] = useState<SessionGroup>(
@@ -96,7 +98,7 @@ export function useWorkspace(workspaceId: string, workspaces: ManagedWorkspace[]
   useEffect(() => {
     const pop = () => {
       const params = new URLSearchParams(location.search);
-      setCreating(false);
+      setCreating(params.get('view') === 'new' && !params.get('session'));
       setSelected(params.get('session') || undefined);
       setTab(
         params.get('view') === 'usage'
@@ -116,7 +118,8 @@ export function useWorkspace(workspaceId: string, workspaces: ManagedWorkspace[]
   }, []);
   useEffect(() => {
     const params = new URLSearchParams(location.search);
-    if (tab === 'usage') params.set('view', 'usage');
+    if (creating) params.set('view', 'new');
+    else if (tab === 'usage') params.set('view', 'usage');
     else params.delete('view');
     const filters = {
       q,
@@ -130,7 +133,7 @@ export function useWorkspace(workspaceId: string, workspaces: ManagedWorkspace[]
       else params.delete(key);
     }
     history.replaceState(null, '', location.pathname + (params.size ? '?' + params : ''));
-  }, [tab, q, project, subagents, group]);
+  }, [tab, q, project, subagents, group, creating]);
   const reconcile = () => {
     void loadOverview();
   };

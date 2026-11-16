@@ -120,7 +120,7 @@ export function Detail(
             <div className="timeline-scroll new-session-empty">
               <MessageSquare size={32} strokeWidth={1.3} aria-hidden="true" />
               <h2>开始一个新会话</h2>
-              <p>选择项目，输入消息或设定目标。</p>
+              <p>选择工作空间和项目，输入消息或设定目标。</p>
             </div>
           ) : (
             <Timeline

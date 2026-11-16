@@ -5,7 +5,8 @@ import { ModelSettings } from './ModelSettings';
 import type { SessionPermissionMode } from '../../approval-types';
 
 export function NewSessionComposer(props: NewSessionProps) {
-  const { user, onCreated } = props;
+  const { user, workspaceId, workspaces, onWorkspaceChange, onCreated } = props;
+  const online = !!workspaces.find((workspace) => workspace.id === workspaceId)?.online;
   const {
     projects,
     selected,
@@ -41,11 +42,26 @@ export function NewSessionComposer(props: NewSessionProps) {
       )}
       <div className="new-session-options">
         <label className="prompt-label">
+          工作空间
+          <select
+            aria-label="新会话工作空间"
+            value={workspaceId}
+            onChange={(event) => onWorkspaceChange(event.target.value)}
+          >
+            {workspaces.map((workspace) => (
+              <option key={workspace.id} value={workspace.id} disabled={!workspace.online}>
+                {workspace.name}
+                {!workspace.online ? '（离线）' : ''}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="prompt-label">
           项目
           <select
             aria-label="新会话项目"
             value={selected}
-            disabled={loading}
+            disabled={loading || !online}
             onChange={(event) => setSelected(event.target.value)}
           >
             {!projects.length && (
@@ -64,7 +80,7 @@ export function NewSessionComposer(props: NewSessionProps) {
             <select
               aria-label="新会话权限"
               value={permissionMode}
-              disabled={loading}
+              disabled={loading || !online}
               onChange={(event) => setPermissionMode(event.target.value as SessionPermissionMode)}
             >
               <option value="danger-full-access">完全访问（默认）</option>
@@ -106,7 +122,7 @@ export function NewSessionComposer(props: NewSessionProps) {
           ...modelSettings.overrides,
           ...(creationPermissions && permissionMode ? { permissionMode } : {}),
         }}
-        enabled={!loading && !!selected && !error}
+        enabled={online && !loading && !!selected && !error}
         label="创建并发送"
         onAccepted={(receipt) => onCreated(receipt.threadId!)}
       />

@@ -4,9 +4,13 @@ import type { User } from '../../types';
 import type { Project } from './types';
 import { useModelSettings } from './useModelSettings';
 import type { SessionPermissionMode } from '../../approval-types';
+import type { ManagedWorkspace } from '../../workspaces';
 
 export type NewSessionProps = {
   user: User;
+  workspaceId: string;
+  workspaces: ManagedWorkspace[];
+  onWorkspaceChange: (id: string) => void;
   initialPath?: string;
   onCreated: (id: string) => void;
 };

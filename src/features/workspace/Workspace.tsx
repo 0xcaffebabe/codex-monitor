@@ -217,6 +217,10 @@ export function Workspace(
                   newSession={
                     creating
                       ? {
+                          workspaceId: props.workspaceId,
+                          workspaces: props.workspaces,
+                          onWorkspaceChange: (id) =>
+                            navigateWorkspace(id, undefined, new URLSearchParams({ view: 'new' })),
                           initialPath: project,
                           onCreated: (id) => {
                             select(id);

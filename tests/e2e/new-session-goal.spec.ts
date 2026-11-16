@@ -224,7 +224,7 @@ test('a lost goal creation receipt survives reload and is queried without anothe
   await expect(newSession.getByRole('button', { name: '查询发送结果' })).toBeVisible();
   await expect(newSession.getByRole('checkbox')).toBeDisabled();
   await page.reload();
-  await page.getByRole('button', { name: '新建会话', exact: true }).click();
+  await expect(newSession).toBeVisible();
   await expect(newSession.getByRole('checkbox', { name: '将首条消息设为目标' })).toBeChecked();
   await expect(newSession.getByLabel('目标内容', { exact: true })).toHaveValue(objective);
   await newSession.getByRole('button', { name: '查询发送结果' }).click();
