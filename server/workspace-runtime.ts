@@ -16,6 +16,8 @@ import { ImagePreviews } from './image-previews.js';
 import { ProjectTerminals } from './terminal.js';
 import { installTerminalRoutes } from './http/terminal-routes.js';
 import { SessionScope } from './session-scope.js';
+import { ProjectGit } from './git.js';
+import { installGitRoutes } from './http/git-routes.js';
 
 export type WorkspaceServices = {
   control?: DesktopControl;
@@ -41,6 +43,8 @@ export function installWorkspaceRuntime(
   installUploads(app, uploads, previews);
   const terminals = new ProjectTerminals(auth, source, services.authorization);
   installTerminalRoutes(app, terminals);
+  const git = new ProjectGit(source);
+  installGitRoutes(app, git);
   const closeControl = installControl(
     app,
     auth.db,
@@ -83,6 +87,7 @@ export function installWorkspaceRuntime(
     closeControl();
     closeRealtime();
     terminals.close();
+    git.close();
     uploads.close();
     previews.close();
     source.close();

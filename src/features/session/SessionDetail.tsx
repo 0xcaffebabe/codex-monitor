@@ -9,6 +9,7 @@ import { useSessionActions } from './useSessionActions';
 import { DetailProps, useTimeline } from './useTimeline';
 import { ComputerUseTimeline } from './ComputerUseTimeline';
 const ProjectTerminal = lazy(() => import('../terminal/ProjectTerminal'));
+const GitDiff = lazy(() => import('../git/GitDiff'));
 
 export function Detail(props: DetailProps & { focusMode?: boolean; onExitFocus?: () => void }) {
   const {
@@ -32,8 +33,10 @@ export function Detail(props: DetailProps & { focusMode?: boolean; onExitFocus?:
   const actions = useSessionActions(session, notify);
   const [computerUseSession, setComputerUseSession] = useState('');
   const [terminalSession, setTerminalSession] = useState('');
+  const [gitSession, setGitSession] = useState('');
   useEffect(() => setComputerUseSession(''), [session?.id]);
   useEffect(() => setTerminalSession(''), [session?.id]);
+  useEffect(() => setGitSession(''), [session?.id]);
   return (
     <section className="detail-panel" aria-label="会话详情">
       <DetailHeader
@@ -50,7 +53,24 @@ export function Detail(props: DetailProps & { focusMode?: boolean; onExitFocus?:
         actions={actions}
         onComputerUse={() => setComputerUseSession(session?.id ?? '')}
         onTerminal={user.role === 'admin' ? () => setTerminalSession(session?.id ?? '') : undefined}
+        onGitDiff={user.role === 'admin' ? () => setGitSession(session?.id ?? '') : undefined}
       />
+      {session && gitSession === session.id && (
+        <Suspense fallback={null}>
+          <GitDiff
+            key={session.id}
+            session={session}
+            user={user}
+            onClose={() => setGitSession('')}
+            onReviewSent={() => {
+              setGitSession('');
+              setFollow(true);
+              onMessageSent();
+              notify('审查请求已发送，请在当前会话中查看结果');
+            }}
+          />
+        </Suspense>
+      )}
       {session && terminalSession === session.id && (
         <Suspense fallback={null}>
           <ProjectTerminal

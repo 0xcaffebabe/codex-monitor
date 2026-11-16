@@ -3,6 +3,7 @@ import {
   BookOpen,
   ChevronDown,
   Download,
+  FileDiff,
   Folder,
   Hash,
   LoaderCircle,
@@ -29,6 +30,7 @@ export function DetailHeader({
   actions,
   onComputerUse,
   onTerminal,
+  onGitDiff,
 }: Pick<DetailProps, 'page' | 'onBack'> & {
   model: Pick<
     TimelineModel,
@@ -44,6 +46,7 @@ export function DetailHeader({
   actions: ReturnType<typeof useSessionActions>;
   onComputerUse: () => void;
   onTerminal?: () => void;
+  onGitDiff?: () => void;
 }) {
   const { session, outline, setOutline, infoExpanded, setInfoExpanded, toolCount, find, setFind } =
     model;
@@ -58,6 +61,18 @@ export function DetailHeader({
           <span className="eyebrow">SESSION DETAIL</span>
           <h1 title={session?.title}>{session?.title || '读取会话…'}</h1>
         </div>
+        {onGitDiff && (
+          <button
+            className="icon-button git-diff-trigger"
+            title="查看代码变更"
+            aria-label="查看代码变更"
+            disabled={!session?.cwd}
+            onClick={onGitDiff}
+          >
+            <FileDiff size={17} />
+            <span>变更</span>
+          </button>
+        )}
         {onTerminal && (
           <button
             className="icon-button project-terminal-trigger"
