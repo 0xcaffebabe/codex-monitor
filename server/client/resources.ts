@@ -1,16 +1,25 @@
 import os from 'node:os';
 import { HOST_RESOURCE_STALE_MS, type HostResourceSample } from '../../src/workspaces.js';
+import { readMacOSUsedMemory } from './macos-memory.js';
 
-type ResourceSource = Pick<typeof os, 'cpus' | 'totalmem' | 'freemem'>;
+type ResourceSource = Pick<typeof os, 'cpus' | 'totalmem' | 'freemem'> & {
+  usedmem?: (totalBytes: number) => Promise<number | null>;
+};
 type CpuSnapshot = { idle: number; total: number; count: number; at: number };
+const systemSource: ResourceSource = {
+  cpus: os.cpus,
+  totalmem: os.totalmem,
+  freemem: os.freemem,
+  ...(process.platform === 'darwin' ? { usedmem: readMacOSUsedMemory } : {}),
+};
 
 /** Host counters only; sampling failures must not interrupt the workspace connection. */
 export class HostResourceSampler {
   private previous?: CpuSnapshot;
 
-  constructor(private source: ResourceSource = os) {}
+  constructor(private source: ResourceSource = systemSource) {}
 
-  sample(now = Date.now()): HostResourceSample {
+  async sample(now = Date.now()): Promise<HostResourceSample> {
     let cpuPercent: number | null = null;
     let memory: HostResourceSample['memory'] = null;
     try {
@@ -40,15 +49,17 @@ export class HostResourceSampler {
     }
     try {
       const totalBytes = this.source.totalmem();
-      const freeBytes = this.source.freemem();
+      const usedBytes = this.source.usedmem
+        ? await this.source.usedmem(totalBytes)
+        : totalBytes - this.source.freemem();
       if (
         Number.isSafeInteger(totalBytes) &&
         totalBytes > 0 &&
-        Number.isSafeInteger(freeBytes) &&
-        freeBytes >= 0 &&
-        freeBytes <= totalBytes
+        usedBytes !== null &&
+        Number.isSafeInteger(usedBytes) &&
+        usedBytes >= 0 &&
+        usedBytes <= totalBytes
       ) {
-        const usedBytes = totalBytes - freeBytes;
         memory = { totalBytes, usedBytes, usedPercent: (usedBytes / totalBytes) * 100 };
       }
     } catch {}
