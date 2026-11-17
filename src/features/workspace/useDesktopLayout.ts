@@ -75,7 +75,6 @@ export function useDesktopLayout(
     sessionDrawerOpen: desktop && !wide && sessionsVisible && !focusMode,
     focusMode,
     toggleFocus: () => setFocused((previous) => !previous),
-    exitFocus: () => setFocused(false),
     closeSessionDrawer: () => setDrawerOpen(false),
     toggleNavigation: () => {
       setFocused(false);

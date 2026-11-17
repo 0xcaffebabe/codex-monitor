@@ -139,23 +139,35 @@ test.describe('PC layout', () => {
     await expect(page.getByTitle('打开菜单', { exact: true })).toBeVisible();
     await expect(page.locator('.desktop-panel-controls')).toBeHidden();
     await expect(page.locator('.session-panel')).toBeHidden();
+    await expect(page.getByRole('button', { name: '展开对话目录', exact: true })).toBeVisible();
+    await expect(page.locator('.outline')).toHaveCount(0);
+    await page.getByRole('button', { name: '展开对话目录', exact: true }).click();
+    await expect(page.locator('.mobile-outline-scrim')).toBeVisible();
     await page.setViewportSize({ width: 1440, height: 900 });
+    await expect(page.locator('.mobile-outline')).toHaveCount(0);
+    await expect(page.locator('.mobile-outline-scrim')).toHaveCount(0);
     await expect(page.locator('.sidebar')).toHaveCSS('width', '64px');
     await expect(page.locator('.session-panel')).toBeVisible();
     await expect(page.locator('.outline')).toBeVisible();
   });
 
-  test('keeps the conversation rail within the reader without changing its width', async ({
+  test('keeps a compact conversation rail floating on the left without header toggles', async ({
     page,
     request,
   }) => {
     await enter(page, request, 1440, 900);
     const readerWidth = (await page.locator('.timeline-column').boundingBox())!.width;
-    await page.getByTitle('对话目录', { exact: true }).click();
-    await expect(page.locator('.outline')).toHaveCount(0);
-    expect((await page.locator('.timeline-column').boundingBox())!.width).toBe(readerWidth);
-    await page.getByTitle('对话目录', { exact: true }).click();
     await expect(page.locator('.outline')).toHaveCSS('position', 'absolute');
+    await expect(page.locator('.outline-marker').first()).toBeVisible();
+    await expect(page.locator('.outline-popover')).toHaveCount(0);
+    for (const title of ['复制恢复命令', '导出 Markdown', '对话目录'])
+      await expect(page.locator('.detail-header').getByTitle(title, { exact: true })).toHaveCount(
+        0,
+      );
+    const outline = (await page.locator('.outline').boundingBox())!;
+    expect(outline.width).toBeLessThan(50);
+    const message = (await page.locator('.timeline .message').first().boundingBox())!;
+    expect(outline.x + outline.width).toBeLessThan(message.x);
     expect((await page.locator('.timeline-column').boundingBox())!.width).toBe(readerWidth);
     await page.setViewportSize({ width: 1920, height: 960 });
     await expect(page.locator('.timeline-reader > .outline')).toBeVisible();
@@ -165,7 +177,7 @@ test.describe('PC layout', () => {
     await page.getByRole('button', { name: '会话信息', exact: true }).click();
     await page.getByRole('button', { name: '专注模式', exact: true }).click();
     await expect(page.locator('.outline')).toHaveCount(0);
-    await page.getByTitle('对话目录', { exact: true }).click();
+    await page.getByTitle('退出专注模式（Esc）', { exact: true }).click();
     await expect(page.getByRole('button', { name: '专注模式', exact: true })).toHaveAttribute(
       'aria-pressed',
       'false',

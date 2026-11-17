@@ -1,16 +1,12 @@
 import {
   ArrowLeft,
-  BookOpen,
   ChevronDown,
-  Download,
   FileDiff,
   Folder,
   Hash,
-  LoaderCircle,
   MessageSquare,
   Monitor,
   Search,
-  Terminal,
   TerminalSquare,
   X,
 } from 'lucide-react';
@@ -20,7 +16,6 @@ import { Status } from '../../shared/ui/Status';
 import { SessionUsage } from '../usage/SessionUsage';
 import { ScreenWakeLockIndicator } from './ScreenWakeLockIndicator';
 import { SessionTurnTimer } from './SessionTurnTimer';
-import { useSessionActions } from './useSessionActions';
 import type { TimelineModel } from './useTimeline';
 import { DetailProps } from './useTimeline';
 
@@ -28,7 +23,6 @@ export function DetailHeader({
   page,
   onBack,
   model,
-  actions,
   onComputerUse,
   onTerminal,
   onGitDiff,
@@ -36,24 +30,14 @@ export function DetailHeader({
 }: Pick<DetailProps, 'page' | 'onBack'> & {
   model: Pick<
     TimelineModel,
-    | 'session'
-    | 'outline'
-    | 'setOutline'
-    | 'infoExpanded'
-    | 'setInfoExpanded'
-    | 'toolCount'
-    | 'find'
-    | 'setFind'
+    'session' | 'infoExpanded' | 'setInfoExpanded' | 'toolCount' | 'find' | 'setFind'
   >;
-  actions: ReturnType<typeof useSessionActions>;
   onComputerUse: () => void;
   onTerminal?: () => void;
   onGitDiff?: () => void;
   creating?: boolean;
 }) {
-  const { session, outline, setOutline, infoExpanded, setInfoExpanded, toolCount, find, setFind } =
-    model;
-  const { copied, download, exporting } = actions;
+  const { session, infoExpanded, setInfoExpanded, toolCount, find, setFind } = model;
   return (
     <>
       <header className="detail-header">
@@ -101,31 +85,6 @@ export function DetailHeader({
                 <span>操作回放</span>
               </button>
             )}
-            <button
-              className="icon-button"
-              title="复制恢复命令"
-              disabled={!session}
-              onClick={() => void copied(`codex resume ${session!.id}`)}
-            >
-              <Terminal size={17} />
-            </button>
-            <button
-              className="icon-button"
-              title="导出 Markdown"
-              disabled={!session || exporting}
-              onClick={() => void download()}
-            >
-              {exporting ? <LoaderCircle size={17} className="spin" /> : <Download size={17} />}
-            </button>
-            <button
-              className={cx('icon-button', outline && 'active')}
-              title="对话目录"
-              aria-expanded={outline}
-              aria-controls="conversation-outline"
-              onClick={() => setOutline(!outline)}
-            >
-              <BookOpen size={17} />
-            </button>
           </>
         )}
       </header>

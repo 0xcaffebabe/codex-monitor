@@ -1,17 +1,21 @@
 import { ArrowUpRight, BookOpen, LoaderCircle, TriangleAlert } from 'lucide-react';
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
-import { cx, date, number, time } from '../../shared/format';
+import { cx } from '../../shared/format';
+import { useMediaQuery } from '../../shared/useMediaQuery';
+import { MobileOutline } from './MobileOutline';
 import type { TimelineModel } from './useTimeline';
 import type { DetailProps } from './useTimeline';
 
-export function Outline({
-  outlineData,
-  outlineError,
-  page,
-  model,
-}: Pick<DetailProps, 'outlineData' | 'outlineError' | 'page'> & {
+export type OutlineProps = Pick<DetailProps, 'outlineData' | 'outlineError' | 'page'> & {
   model: Pick<TimelineModel, 'outlineEntries' | 'activeEntry' | 'jumpingEntry' | 'jumpToEntry'>;
-}) {
+};
+
+export function Outline(props: OutlineProps) {
+  const mobile = useMediaQuery('(max-width: 760px)');
+  return mobile ? <MobileOutline {...props} /> : <OutlineRail {...props} />;
+}
+
+function OutlineRail({ outlineData, outlineError, page, model }: OutlineProps) {
   const { outlineEntries, activeEntry, jumpingEntry, jumpToEntry } = model;
   const [previewId, setPreviewId] = useState('');
   const [previewTop, setPreviewTop] = useState(0);
@@ -172,13 +176,6 @@ export function Outline({
           </span>
           <span className="outline-preview">
             {preview.reply || (preview.status === 'running' ? '正在执行，等待回复…' : '暂无回复')}
-          </span>
-          <span className="outline-meta">
-            <span>
-              {preview.prompt ? '你' : 'Codex'} · {date(preview.timestamp)}{' '}
-              {time(preview.timestamp)}
-            </span>
-            <span>{number(preview.tools)} 次调用</span>
           </span>
         </button>
       )}

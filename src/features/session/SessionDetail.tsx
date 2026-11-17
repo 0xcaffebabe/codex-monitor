@@ -16,7 +16,6 @@ const GitDiff = lazy(() => import('../git/GitDiff'));
 export function Detail(
   props: DetailProps & {
     focusMode?: boolean;
-    onExitFocus?: () => void;
     newSession?: Omit<NewSessionProps, 'user'>;
   },
 ) {
@@ -34,12 +33,11 @@ export function Detail(
     notify,
     connected,
     focusMode,
-    onExitFocus,
     newSession,
   } = props;
   const model = useTimeline(props);
-  const { outline, setFollow, session } = model;
-  const actions = useSessionActions(session, notify);
+  const { setFollow, session } = model;
+  const actions = useSessionActions(notify);
   const [computerUseSession, setComputerUseSession] = useState('');
   const [terminalSession, setTerminalSession] = useState('');
   const [gitSession, setGitSession] = useState('');
@@ -55,15 +53,7 @@ export function Detail(
         creating={!!newSession}
         page={page}
         onBack={onBack}
-        model={{
-          ...model,
-          outline: outline && !focusMode && !newSession,
-          setOutline: (visible) => {
-            if (visible) onExitFocus?.();
-            model.setOutline(visible);
-          },
-        }}
-        actions={actions}
+        model={model}
         onComputerUse={() => setComputerUseSession(session?.id ?? '')}
         onTerminal={user.role === 'admin' ? () => setTerminalSession(session?.id ?? '') : undefined}
         onGitDiff={user.role === 'admin' ? () => setGitSession(session?.id ?? '') : undefined}
@@ -132,7 +122,7 @@ export function Detail(
               model={model}
               copied={actions.copied}
             >
-              {outline && !focusMode && (
+              {!focusMode && (
                 <Outline
                   key={session?.id}
                   outlineData={outlineData}

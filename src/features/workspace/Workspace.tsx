@@ -277,7 +277,6 @@ export function Workspace(
                   notify={notify}
                   connected={connected}
                   focusMode={layout.focusMode}
-                  onExitFocus={layout.exitFocus}
                 />
               )}
             </div>

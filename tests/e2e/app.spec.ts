@@ -115,6 +115,15 @@ async function enter(page: Page, request: APIRequestContext) {
   await expect(page.getByRole('heading', { name: '全部会话', exact: true })).toBeVisible();
 }
 
+async function exportSession(request: APIRequestContext) {
+  const response = await request.get(`/api/workspaces/local/sessions/${ids.modern}/export`, {
+    headers: { Authorization: `Bearer ${await ownerToken(request)}` },
+  });
+  expect(response.ok()).toBeTruthy();
+  expect(response.headers()['content-disposition']).toMatch(/\.md/);
+  return response.text();
+}
+
 async function transferFiles(
   input: Locator,
   files: { name: string; type?: string; content?: string; base64?: string; size?: number }[],
@@ -201,26 +210,29 @@ test('web controls preserve delegated launch input in conversation, directory an
     await expect(question).toHaveCount(1);
     await expect(question).toBeVisible();
     await expect(page.locator('.timeline')).not.toContainText('<codex_delegation>');
-    if (!(await page.locator('.outline').isVisible()))
-      await page.getByTitle('对话目录', { exact: true }).click();
-    const marker = page.locator('.outline-entry').first();
-    if (test.info().project.name === 'mobile') await marker.tap();
-    else await marker.hover();
-    await expect(page.locator('.outline-question')).toHaveText(prompt);
-    await expect(page.locator('.outline-popover')).toContainText('你 ·');
+    const mobile = test.info().project.name === 'mobile';
+    if (mobile) {
+      await page.getByRole('button', { name: '展开对话目录', exact: true }).tap();
+      await expect(page.locator('.mobile-outline-body > strong').first()).toHaveText(prompt);
+      await expect(page.locator('.mobile-outline-entry').first()).toContainText('已接入本机会话。');
+    } else {
+      await expect(page.locator('.outline')).toBeVisible();
+      await page.locator('.outline-entry').first().hover();
+      await expect(page.locator('.outline-question')).toHaveText(prompt);
+      await expect(page.locator('.outline-popover')).toContainText('已接入本机会话。');
+    }
     await page.screenshot({
       path: test.info().outputPath('initial-message-directory.png'),
       fullPage: true,
     });
-    await page.getByTitle('对话目录', { exact: true }).click();
+    if (mobile) await page.getByRole('button', { name: '定位第 1 次提问', exact: true }).tap();
+    else await page.getByLabel('搜索会话内容', { exact: true }).click();
     await question.scrollIntoViewIfNeeded();
     await page.screenshot({
       path: test.info().outputPath('initial-message-conversation.png'),
       fullPage: true,
     });
-    const downloading = page.waitForEvent('download');
-    await page.getByTitle('导出 Markdown').click();
-    const exported = readFileSync((await (await downloading).path())!, 'utf8');
+    const exported = await exportSession(request);
     expect(exported).toContain(prompt);
     expect(exported).not.toContain('<codex_delegation>');
   } finally {
@@ -1255,15 +1267,12 @@ test('conversation keeps messages visible, folds activity, searches details and 
   await page.getByTitle('清除内容搜索', { exact: true }).click();
   await expect(page.locator('.timeline .message')).toHaveCount(messageCount);
   await expect(activity).not.toHaveAttribute('open', '');
-  const downloadPromise = page.waitForEvent('download');
-  await page.getByTitle('导出 Markdown').click();
-  const download = await downloadPromise;
-  expect(download.suggestedFilename()).toMatch(/\.md$/);
-  if (!(await page.locator('.outline').isVisible()))
-    await page.getByTitle('对话目录', { exact: true }).click();
-  await expect(page.locator('.outline')).toBeVisible();
-  await page.getByTitle('对话目录', { exact: true }).click();
-  await expect(page.locator('.outline')).toHaveCount(0);
+  expect(await exportSession(request)).toContain('请开发一个实时会话监控应用。');
+  if (test.info().project.name === 'mobile')
+    await expect(page.getByRole('button', { name: '展开对话目录', exact: true })).toBeVisible();
+  else await expect(page.locator('.outline')).toBeVisible();
+  for (const title of ['复制恢复命令', '导出 Markdown', '对话目录'])
+    await expect(page.locator('.detail-header').getByTitle(title, { exact: true })).toHaveCount(0);
   await page.locator('.activity-summary').scrollIntoViewIfNeeded();
   await page.screenshot({
     path: `test-results/${test.info().project.name}-timeline.png`,
@@ -1340,9 +1349,7 @@ test('semantic tool titles appear in folded activity, update live and remain sea
     await expect(card.locator('.tool-body pre')).toBeVisible();
     await expect(card.locator('.tool-body pre')).not.toContainText(updatedTitle);
     await expect(card.locator('.code-label')).toContainText('js · 调用参数');
-    const downloading = page.waitForEvent('download');
-    await page.getByTitle('导出 Markdown').click();
-    const exported = readFileSync((await (await downloading).path())!, 'utf8');
+    const exported = await exportSession(request);
     expect(exported).toContain(`## ${updatedTitle} ·`);
   } finally {
     history.prepare('DELETE FROM thread_items WHERE item_id=?').run(itemId);
@@ -1903,16 +1910,84 @@ test('conversation rail previews long conversations and tracks the reading posit
   });
   await enter(page, request);
   await page.getByTestId('session-row').filter({ hasText: '开发 codex-monitor' }).click();
-  if (isMobile) await page.getByTitle('对话目录', { exact: true }).click();
+  if (isMobile) {
+    const launcher = page.getByRole('button', { name: '展开对话目录', exact: true });
+    const panel = page.locator('.mobile-outline');
+    const rows = page.locator('.mobile-outline-entry');
+    const reader = page.locator('.timeline-scroll');
+    const backdrop = page.getByRole('button', { name: '关闭对话目录', exact: true });
+    const running = page.getByTitle('展开正在进行的会话', { exact: true });
+    await expect(launcher).toBeVisible();
+    await expect(page.locator('.outline')).toHaveCount(0);
+    await expect(rows).toHaveCount(0);
+    await expect(reader).toHaveCSS('padding-left', '0px');
+    const scrollBefore = await reader.evaluate((element) => element.scrollTop);
+    await page.screenshot({ path: test.info().outputPath('mobile-outline-collapsed.png') });
+    await launcher.tap();
+    await expect(rows).toHaveCount(entries.length);
+    await expect(rows.last()).toHaveAttribute('aria-current', 'location');
+    await expect(rows.last()).toBeInViewport();
+    await expect(running).toBeHidden();
+    expect(await reader.evaluate((element) => element.scrollTop)).toBe(scrollBefore);
+    expect(
+      await page.locator('.mobile-outline-list').evaluate((element) =>
+        element.scrollHeight > element.clientHeight,
+      ),
+    ).toBe(true);
+    await rows.first().scrollIntoViewIfNeeded();
+    await expect(rows.first()).toContainText(entries[0].prompt);
+    await expect(rows.first()).toContainText(entries[0].reply);
+    expect(await reader.evaluate((element) => element.scrollTop)).toBe(scrollBefore);
+    await rows.first().tap();
+    await expect(page.locator('[id="event-rail-user-0"]')).toBeInViewport();
+    await expect(launcher).toBeVisible();
+    await expect(rows).toHaveCount(0);
+    await page.locator('[id="event-rail-user-16"]').evaluate((element) =>
+      element.scrollIntoView({ block: 'start', behavior: 'instant' }),
+    );
+    await launcher.tap();
+    await expect(rows.nth(16)).toHaveAttribute('aria-current', 'location');
+    await expect(rows.nth(16)).toBeInViewport();
+    await expect(panel).toHaveCSS('background-color', 'rgb(255, 255, 255)');
+    await page.screenshot({
+      path: test.info().outputPath('mobile-outline-light.png'),
+      animations: 'disabled',
+    });
+    await page.evaluate(() => (document.documentElement.dataset.theme = 'dark'));
+    await expect(panel).toHaveCSS('background-color', 'rgb(25, 33, 37)');
+    await expect(rows.nth(16)).toHaveCSS('background-color', 'rgb(32, 61, 51)');
+    await page.screenshot({
+      path: test.info().outputPath('mobile-outline-dark.png'),
+      animations: 'disabled',
+    });
+    await backdrop.tap({ position: { x: 5, y: 5 } });
+    await expect(launcher).toBeVisible();
+    await expect(backdrop).toHaveCount(0);
+    await launcher.tap();
+    await page.getByTitle('收起对话目录', { exact: true }).tap();
+    await expect(launcher).toBeVisible();
+    await launcher.press('Enter');
+    await page.keyboard.press('Escape');
+    await expect(launcher).toBeFocused();
+    await expect(backdrop).toHaveCount(0);
+    await running.tap();
+    await expect(launcher).toBeHidden();
+    await page.getByTitle('收起进行中会话快捷栏', { exact: true }).tap();
+    await expect(launcher).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    return;
+  }
   const markers = page.locator('.outline-entry');
   const reader = page.locator('.timeline-scroll');
   const popover = page.locator('.outline-popover');
   await expect(markers).toHaveCount(entries.length);
   await expect(markers.last()).toHaveAttribute('aria-current', 'location');
+  await expect(markers.last().locator('.outline-marker')).toBeVisible();
+  await expect(popover).toHaveCount(0);
+  const railBefore = await page.locator('.outline').boundingBox();
   const scrollBeforePreview = await reader.evaluate((element) => element.scrollTop);
   await markers.first().scrollIntoViewIfNeeded();
-  if (isMobile) await markers.first().tap();
-  else await markers.first().hover();
+  await markers.first().hover();
   await expect(popover).toContainText(entries[0].prompt);
   await expect(popover).toContainText(entries[0].reply);
   expect(await reader.evaluate((element) => element.scrollTop)).toBe(scrollBeforePreview);
@@ -1922,46 +1997,41 @@ test('conversation rail previews long conversations and tracks the reading posit
   expect(card.y).toBeGreaterThanOrEqual(bounds.y);
   expect(card.x + card.width).toBeLessThanOrEqual(bounds.x + bounds.width);
   expect(card.y + card.height).toBeLessThanOrEqual(bounds.y + bounds.height);
-  if (isMobile) {
-    await popover.tap();
-    await expect(page.locator('[id="event-rail-user-0"]')).toBeInViewport();
-  } else {
-    await popover.hover();
-    await expect(popover).toBeVisible();
-    await markers.first().focus();
-    await markers.first().press('ArrowUp');
-    await expect(markers.last()).toBeFocused();
-    await expect(popover).toContainText(entries.at(-1)!.prompt);
-    await page.keyboard.press('ArrowDown');
-    await expect(markers.first()).toBeFocused();
-    await expect(popover).toContainText(entries[0].prompt);
-    await markers.first().press('ArrowDown');
-    await expect(markers.nth(1)).toBeFocused();
-    await expect(popover).toContainText(entries[1].prompt);
-    await page.keyboard.press('Escape');
-    await expect(popover).toHaveCount(0);
-    await page.keyboard.press('Enter');
-    await expect(page.locator('[id="event-rail-user-1"]')).toBeInViewport();
-  }
+  await popover.hover();
+  await expect(popover).toBeVisible();
+  await markers.first().focus();
+  await markers.first().press('ArrowUp');
+  await expect(markers.last()).toBeFocused();
+  await expect(popover).toContainText(entries.at(-1)!.prompt);
+  await page.keyboard.press('ArrowDown');
+  await expect(markers.first()).toBeFocused();
+  await expect(popover).toContainText(entries[0].prompt);
+  await markers.first().press('ArrowDown');
+  await expect(markers.nth(1)).toBeFocused();
+  await expect(popover).toContainText(entries[1].prompt);
+  await page.keyboard.press('Escape');
+  await expect(popover).toHaveCount(0);
+  await page.keyboard.press('Enter');
+  await expect(page.locator('[id="event-rail-user-1"]')).toBeInViewport();
   await page.locator('[id="event-rail-user-16"]').evaluate((element) =>
     element.scrollIntoView({ block: 'start', behavior: 'instant' }),
   );
   await expect(markers.nth(16)).toHaveAttribute('aria-current', 'location');
-  if (isMobile) await markers.nth(16).tap();
-  else await markers.nth(16).hover();
+  expect(await page.locator('.outline').boundingBox()).toEqual(railBefore);
+  await markers.nth(16).hover();
   await expect(popover).toContainText(entries[16].reply);
   await page.screenshot({
     path: test.info().outputPath('codex-outline-light.png'),
     animations: 'disabled',
   });
   await page.evaluate(() => (document.documentElement.dataset.theme = 'dark'));
-  await expect(popover).toHaveCSS('background-color', 'rgb(32, 42, 46)');
+  await expect(popover).toHaveCSS('background-color', 'rgb(25, 33, 37)');
   await page.screenshot({
     path: test.info().outputPath('codex-outline-dark.png'),
     animations: 'disabled',
   });
-  await page.getByTitle('对话目录', { exact: true }).click();
-  await expect(page.locator('.outline')).toHaveCount(0);
+  await page.getByLabel('搜索会话内容', { exact: true }).click();
+  await expect(page.locator('.outline')).toBeVisible();
   await expect(popover).toHaveCount(0);
 });
 
@@ -2028,25 +2098,31 @@ test('conversation rail previews turns and locates unloaded history', async ({
     await enter(page, request);
     await page.getByTestId('session-row').filter({ hasText: '开发 codex-monitor' }).click();
     await expect(page.locator('.detail-heading')).toContainText('开发 codex-monitor');
-    if (!(await page.locator('.outline').isVisible()))
-      await page.getByTitle('对话目录', { exact: true }).click();
-    await expect(page.locator('.outline')).toBeVisible();
-    await expect(page.locator('.outline-entry')).toHaveCount(2);
+    const mobile = test.info().project.name === 'mobile';
+    if (mobile) {
+      await page.getByRole('button', { name: '展开对话目录', exact: true }).tap();
+      await expect(page.locator('.mobile-outline-entry')).toHaveCount(2);
+    } else {
+      await expect(page.locator('.outline')).toBeVisible();
+      await expect(page.locator('.outline-entry')).toHaveCount(2);
+    }
     const first = page.getByRole('button', { name: '定位第 1 次提问', exact: true });
     const second = page.getByRole('button', { name: '定位第 2 次提问', exact: true });
-    if (test.info().project.name === 'mobile') await first.tap();
-    else await first.hover();
-    await expect(page.locator('.outline-popover')).toContainText('82 次调用');
-    if (test.info().project.name === 'mobile') await second.tap();
-    else await second.hover();
-    await expect(page.locator('.outline-popover')).toContainText('目录第二轮验证完成。');
+    if (mobile) {
+      await expect(first).toContainText('已接入本机会话。');
+      await expect(second).toContainText('目录第二轮验证完成。');
+    } else {
+      await first.hover();
+      await expect(page.locator('.outline-popover')).toContainText('已接入本机会话。');
+      await second.hover();
+      await expect(page.locator('.outline-popover')).toContainText('目录第二轮验证完成。');
+    }
     await expect(page.locator('[id="event-user-1"]')).toHaveCount(0);
-    if (test.info().project.name === 'mobile') {
-      await first.tap();
-      await page.getByRole('button', { name: '跳转到第 1 次提问', exact: true }).tap();
-    } else await first.click();
+    if (mobile) await first.tap();
+    else await first.click();
     await expect(page.locator('[id="event-user-1"]')).toBeInViewport();
-    await expect(page.locator('.outline')).toBeVisible();
+    if (mobile) await page.getByRole('button', { name: '展开对话目录', exact: true }).tap();
+    else await expect(page.locator('.outline')).toBeVisible();
     await expect(first).toHaveAttribute('aria-current', 'location');
     await page.screenshot({
       path: `test-results/${test.info().project.name}-directory.png`,

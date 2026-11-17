@@ -1,6 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type HTMLAttributes } from 'react';
 import type { OutlineEntry, SessionOutline, SessionPage, User } from '../../types';
-import { useMediaQuery } from '../../shared/useMediaQuery';
 import { groupTimelineEvents } from './session-model';
 
 export type DetailProps = {
@@ -28,7 +27,6 @@ export function useTimeline({
   notify,
 }: DetailProps) {
   const [find, setFind] = useState(''),
-    [outlinePreference, setOutlinePreference] = useState<boolean | null>(null),
     [activeEntry, setActiveEntry] = useState(''),
     [jumpingEntry, setJumpingEntry] = useState(''),
     [jumpTarget, setJumpTarget] = useState(''),
@@ -36,9 +34,6 @@ export function useTimeline({
     [olderBusy, setOlderBusy] = useState(false),
     [olderFailed, setOlderFailed] = useState(false),
     [infoExpanded, setInfoExpanded] = useState(false);
-  const defaultOutline = useMediaQuery('(min-width: 761px)');
-  const outline = outlinePreference ?? defaultOutline;
-  const setOutline = (visible: boolean) => setOutlinePreference(visible);
   const scrollRef = useRef<HTMLDivElement>(null),
     bottomRef = useRef<HTMLDivElement>(null),
     lastId = useRef('');
@@ -56,15 +51,9 @@ export function useTimeline({
     top: number;
   } | null>(null);
   const session = page?.session;
-  useLayoutEffect(() => {
-    // Opening the rail changes text wrapping; keep the latest message in view when following.
-    const el = scrollRef.current;
-    if (follow && el) el.scrollTop = el.scrollHeight;
-  }, [outline]);
   useEffect(() => {
     setFind('');
     setFollow(true);
-    setOutlinePreference(null);
     setActiveEntry('');
     setJumpTarget('');
     setInfoExpanded(false);
@@ -318,8 +307,6 @@ export function useTimeline({
   return {
     find,
     setFind,
-    outline,
-    setOutline,
     activeEntry,
     jumpingEntry,
     follow,

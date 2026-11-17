@@ -1,13 +1,4 @@
 @media (max-width: 760px) {
-  .outline {
-    left: 4px;
-  }
-  .outline-entry {
-    height: 28px;
-  }
-  .timeline-reader:has(.outline) .timeline {
-    padding-left: 46px;
-  }
   .running-switcher {
     display: flex;
     position: fixed;
@@ -96,11 +87,5 @@
   }
   .app-shell:has(.running-switcher:not(.collapsed)) .timeline {
     padding-right: 65px;
-  }
-  .app-shell:has(.outline) .running-switcher {
-    visibility: hidden;
-  }
-  .app-shell:has(.outline) .timeline {
-    padding-right: 19px;
   }
 }

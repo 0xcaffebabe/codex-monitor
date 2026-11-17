@@ -25,7 +25,7 @@
   display: flex;
   align-items: center;
   width: 30px;
-  height: 18px;
+  height: 10px;
   padding: 0 2px;
   border-radius: 4px;
   color: var(--ink);
@@ -43,31 +43,30 @@
   display: block;
   width: var(--marker-width, 8px);
   height: 2px;
-  border-radius: 1px;
   background: currentColor;
   opacity: 0.22;
   transition:
     width 0.15s ease,
     opacity 0.15s ease;
 }
-.outline-entry.active .outline-marker {
-  opacity: 0.9;
-}
 .outline-entry.previewing .outline-marker,
 .outline-entry:focus-visible .outline-marker {
   width: 26px;
   opacity: 0.65;
 }
+.outline-entry.active .outline-marker {
+  opacity: 0.95;
+}
 .outline-popover {
   position: absolute;
   left: calc(100% + 10px);
-  width: min(360px, calc(100vw - 84px));
-  padding: 12px 14px 10px;
+  width: min(320px, calc(100vw - 84px));
+  padding: 10px 12px;
   text-align: left;
-  background: var(--surface2);
+  background: var(--surface);
   color: var(--ink);
   border: 1px solid color-mix(in srgb, var(--ink) 12%, transparent);
-  border-radius: 13px;
+  border-radius: 14px;
   box-shadow: 0 6px 24px #00000012;
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
@@ -81,7 +80,7 @@
   width: 12px;
 }
 .outline-popover:hover {
-  background: var(--surface2);
+  background: var(--surface);
 }
 .outline-popover-heading {
   display: flex;
@@ -100,7 +99,7 @@
   white-space: nowrap;
   font-size: 13px;
   line-height: 1.6;
-  font-weight: 550;
+  font-weight: 600;
 }
 .outline-preview {
   display: -webkit-box;
@@ -109,19 +108,9 @@
   overflow: hidden;
   overflow-wrap: anywhere;
   white-space: pre-line;
-  font-size: 12px;
+  font-size: 13px;
   line-height: 1.7;
-  color: color-mix(in srgb, var(--ink) 80%, var(--muted));
-}
-.outline-meta {
-  display: flex;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 3px 12px;
-  margin-top: 10px;
-  color: var(--muted);
-  font-size: 10px;
-  line-height: 1.5;
+  color: var(--ink);
 }
 .outline-notice {
   display: grid;
