@@ -1,9 +1,10 @@
-import { LoaderCircle, Paperclip, X } from 'lucide-react';
-import type { ReactNode } from 'react';
+import { LoaderCircle, MessageSquareQuote, Paperclip, X } from 'lucide-react';
+import { useState, type ReactNode } from 'react';
 import { maxAttachments, sizeLabel } from './attachment-model';
 import { Thumbnail } from './Thumbnail';
 import type { Attachment } from './types';
 import type { useAttachmentPicker } from './useAttachmentPicker';
+import { SessionReferenceDialog } from './SessionReferenceDialog';
 
 export function AttachmentPicker({
   attachments,
@@ -17,6 +18,7 @@ export function AttachmentPicker({
   children?: ReactNode;
 }) {
   const { input, progress, upload, remove } = picker;
+  const [referencing, setReferencing] = useState(false);
   return (
     <div className="attachment-picker">
       <div className={'attachment-toolbar' + (children ? ' has-controls' : '')}>
@@ -28,6 +30,15 @@ export function AttachmentPicker({
           onClick={() => input.current?.click()}
         >
           <Paperclip size={15} /> <span>添加附件</span>
+        </button>
+        <button
+          type="button"
+          className="attachment-add attachment-reference"
+          title="引用其他会话，可跨工作空间选择"
+          disabled={disabled || !!progress || attachments.length >= maxAttachments}
+          onClick={() => setReferencing(true)}
+        >
+          <MessageSquareQuote size={15} /> <span>引用会话</span>
         </button>
         <input
           ref={input}
@@ -74,6 +85,14 @@ export function AttachmentPicker({
           <LoaderCircle className="spin" size={13} />
           {progress}
         </p>
+      )}
+      {referencing && (
+        <SessionReferenceDialog
+          disabled={disabled || attachments.length >= maxAttachments}
+          progress={progress}
+          onReference={picker.reference}
+          onClose={() => setReferencing(false)}
+        />
       )}
     </div>
   );

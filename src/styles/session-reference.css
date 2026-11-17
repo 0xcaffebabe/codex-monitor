@@ -1,0 +1,150 @@
+.session-reference-dialog {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  width: 680px;
+  height: min(680px, 90dvh);
+  overflow: hidden;
+}
+
+.session-reference-dialog > .control-hint,
+.session-reference-dialog > .control-error {
+  margin: 0;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.session-reference-filters {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 180px);
+  gap: 10px;
+}
+
+.session-reference-filters .search-box {
+  margin: 0;
+  min-width: 0;
+}
+
+.session-reference-filters select {
+  min-width: 0;
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-size: 12px;
+}
+
+.session-reference-results {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.session-reference-results ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.session-reference-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 14px 8px;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+}
+
+.session-reference-row > svg {
+  color: var(--accent);
+}
+
+.session-reference-row:hover:not(:disabled) {
+  background: var(--accent-bg);
+}
+
+.session-reference-info {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  flex: 1;
+}
+
+.session-reference-info > strong,
+.session-reference-info > small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.session-reference-info > strong {
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.session-reference-info > small {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.session-reference-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.session-reference-meta > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+.session-reference-state {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  flex-shrink: 0;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.session-reference-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 32px 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.session-reference-dialog > footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 30px;
+  color: var(--muted);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 760px) {
+  .session-reference-dialog {
+    padding: 18px;
+    gap: 12px;
+  }
+
+  .session-reference-filters {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

@@ -23,7 +23,7 @@ export class ApiError extends Error {
     super(message);
   }
 }
-export async function api<T = any>(url: string, options: RequestInit = {}): Promise<T> {
+async function request(url: string, options: RequestInit) {
   const signal = workspaceSignal(url, options.signal);
   const response = await fetch(workspaceUrl(url), {
     ...options,
@@ -48,8 +48,18 @@ export async function api<T = any>(url: string, options: RequestInit = {}): Prom
     if (response.status === 401 && !url.includes('/login')) clearToken();
     throw new ApiError(error, response.status, state);
   }
+  return { response, signal };
+}
+export async function api<T = any>(url: string, options: RequestInit = {}): Promise<T> {
+  const { response, signal } = await request(url, options);
   if (response.status === 204) return undefined as T;
   const result = await response.json();
+  signal?.throwIfAborted();
+  return result;
+}
+export async function apiBlob(url: string, options: RequestInit = {}): Promise<Blob> {
+  const { response, signal } = await request(url, options);
+  const result = await response.blob();
   signal?.throwIfAborted();
   return result;
 }

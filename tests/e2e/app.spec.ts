@@ -326,6 +326,230 @@ test('web controls upload pictures and files, preserve attachment drafts and sen
   await expect(page.locator('.timeline .user-message').last()).toContainText('需求说明.txt');
 });
 
+test('web controls reference sessions across workspaces as Markdown attachments', async ({
+  page,
+  request,
+}) => {
+  const sourceWorkspace = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+  const sourceName = '第二台测试电脑';
+  const sourceTitle = '第二台电脑的独立会话';
+  await enter(page, request);
+  const headers = { Authorization: 'Bearer ' + (await ownerToken(request)) };
+  const exported = await request.get(
+    `/api/workspaces/${sourceWorkspace}/sessions/${ids.modern}/export`,
+    { headers },
+  );
+  expect(exported.ok()).toBeTruthy();
+  const markdown = await exported.text();
+  await page.getByTestId('session-row').filter({ hasText: '开发 codex-monitor' }).click();
+  const trigger = page.getByRole('button', { name: '引用会话', exact: true });
+  await expect(trigger).toBeEnabled();
+  await trigger.click();
+  const dialog = page.getByRole('dialog', { name: '引用会话', exact: true });
+  const search = dialog.getByRole('textbox', { name: '搜索要引用的会话' });
+  await expect(search).toBeFocused();
+  await search.fill(ids.modern);
+  const candidates = dialog.getByRole('list', { name: '可引用的会话' });
+  // Identical session IDs in different workspaces must remain separate choices.
+  await expect(candidates.getByRole('listitem')).toHaveCount(2);
+  await expect(candidates).toContainText('本机工作空间');
+  await expect(candidates).toContainText(sourceName);
+  await dialog.getByLabel('引用会话工作空间').selectOption(sourceWorkspace);
+  await expect(candidates.getByRole('listitem')).toHaveCount(1);
+  await expect(candidates).toContainText(sourceTitle);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.screenshot({ path: test.info().outputPath('session-reference-picker.png') });
+  const uploaded = page.waitForResponse(
+    (response) =>
+      response.request().method() === 'POST' &&
+      new URL(response.url()).pathname === '/api/workspaces/local/uploads',
+  );
+  await candidates
+    .getByRole('button', {
+      name: `引用会话 ${sourceTitle}（${sourceName}）`,
+      exact: true,
+    })
+    .click();
+  const response = await uploaded;
+  expect(response.ok()).toBeTruthy();
+  expect(response.request().headers()['x-upload-type']).toBe('text/markdown');
+  expect(response.request().postDataBuffer()!.toString('utf8')).toBe(markdown);
+  const attachment = await response.json();
+  expect(attachment.name).toBe(`会话-${sourceName}-${sourceTitle}.md`);
+  await expect(dialog).toHaveCount(0);
+  await expect(trigger).toBeFocused();
+  await expect(page.getByLabel('切换工作空间', { exact: true })).toHaveValue('local');
+  const attachments = page.getByRole('list', { name: '待发送附件' });
+  await expect(attachments).toContainText(attachment.name);
+  const stored = await request.get(`/api/workspaces/local/uploads/${attachment.id}`, { headers });
+  expect(await stored.text()).toBe(markdown);
+  await page.reload();
+  await expect(attachments).toContainText(attachment.name);
+  const sent = page.waitForResponse(
+    (response) => response.request().method() === 'POST' && response.url().endsWith('/messages'),
+  );
+  await page.locator('.message-composer button[type="submit"]').click();
+  expect((await sent).request().postDataJSON().attachments).toEqual([attachment.id]);
+  await expect(attachments).toHaveCount(0);
+  await expect(page.locator('.timeline .user-message').last()).toContainText(attachment.name);
+
+  // New conversations can also reference an archived session in their own workspace.
+  await page.getByTitle('返回会话列表').click();
+  await page.getByRole('button', { name: '新建会话', exact: true }).click();
+  await page.getByLabel('新会话项目').selectOption({ label: 'work · D:/work' });
+  await trigger.click();
+  await dialog.getByLabel('引用会话工作空间').selectOption('local');
+  await search.fill('已归档的历史会话');
+  await expect(candidates.getByRole('listitem')).toHaveCount(1);
+  await expect(candidates).toContainText('已归档');
+  await candidates
+    .getByRole('button', {
+      name: '引用会话 已归档的历史会话（本机工作空间）',
+      exact: true,
+    })
+    .click();
+  await expect(dialog).toHaveCount(0);
+  await expect(attachments).toContainText('会话-本机工作空间-已归档的历史会话.md');
+  await page.getByRole('button', { name: '创建并发送', exact: true }).click();
+  await expect(page.locator('.timeline .user-message').last()).toContainText(
+    '会话-本机工作空间-已归档的历史会话.md',
+  );
+});
+
+test('web controls handle reference export and upload failures and enforce attachment limits', async ({
+  page,
+  request,
+}) => {
+  await enter(page, request);
+  await page.getByTestId('session-row').filter({ hasText: '开发 codex-monitor' }).click();
+  await page.getByLabel('发送给 Codex 的消息').fill('保留这条消息');
+  const trigger = page.getByRole('button', { name: '引用会话', exact: true });
+  await expect(trigger).toBeEnabled();
+  await trigger.click();
+  const dialog = page.getByRole('dialog', { name: '引用会话', exact: true });
+  await dialog.getByLabel('引用会话工作空间').selectOption('local');
+  await dialog.getByLabel('搜索要引用的会话').fill(ids.legacy);
+  const candidate = dialog.getByRole('button', {
+    name: '引用会话 检查旧版本会话解析（本机工作空间）',
+    exact: true,
+  });
+  await expect(candidate).toBeEnabled();
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const exportRoute = `**/api/workspaces/local/sessions/${ids.legacy}/export`;
+  await page.route(
+    exportRoute,
+    async (route) => {
+      await gate;
+      await route.fulfill({ status: 503, json: { error: '来源工作空间暂不可用' } });
+    },
+    { times: 1 },
+  );
+  await candidate.click();
+  try {
+    await expect(dialog.getByRole('status').filter({ hasText: '正在导出会话' })).toBeVisible();
+    await expect(page.locator('.message-composer button[type="submit"]')).toBeDisabled();
+    await expect(candidate).toBeDisabled();
+  } finally {
+    release();
+  }
+  await expect(dialog.getByRole('alert')).toContainText('来源工作空间暂不可用');
+  await expect(candidate).toBeEnabled();
+  await page.route(
+    exportRoute,
+    (route) =>
+      route.fulfill({
+        contentType: 'text/markdown',
+        body: 'x'.repeat(20 * 1024 * 1024 + 1),
+      }),
+    { times: 1 },
+  );
+  await candidate.click();
+  await expect(dialog.getByRole('alert')).toContainText('单个附件不能超过 20 MB');
+  const attachments = page.getByRole('list', { name: '待发送附件' });
+  await expect(attachments).toHaveCount(0);
+  await page.route(
+    '**/api/workspaces/local/uploads?*',
+    (route) =>
+      route.fulfill({
+        status: 500,
+        json: { error: '引用附件上传失败' },
+      }),
+    { times: 1 },
+  );
+  await candidate.click();
+  await expect(dialog.getByRole('alert')).toContainText('引用附件上传失败');
+  await expect(attachments).toHaveCount(0);
+  await candidate.click();
+  await expect(dialog).toHaveCount(0);
+  await expect(attachments.getByRole('listitem')).toHaveCount(1);
+  await expect(page.getByLabel('发送给 Codex 的消息')).toHaveValue('保留这条消息');
+  await page.getByLabel('上传图片或文件', { exact: true }).setInputFiles(
+    Array.from({ length: 9 }, (_, index) => ({
+      name: `资料-${index}.txt`,
+      mimeType: 'text/plain',
+      buffer: Buffer.from('资料'),
+    })),
+  );
+  await expect(attachments.getByRole('listitem')).toHaveCount(10);
+  await expect(trigger).toBeDisabled();
+  await page.getByRole('button', { name: '移除附件 资料-0.txt', exact: true }).click();
+  await expect(trigger).toBeEnabled();
+  await trigger.click();
+  await page.keyboard.press('Escape');
+  await expect(dialog).toHaveCount(0);
+  await expect(trigger).toBeFocused();
+});
+
+test('web controls cancel pending session references when switching workspaces', async ({
+  page,
+  request,
+}) => {
+  await enter(page, request);
+  await page.getByTestId('session-row').filter({ hasText: '开发 codex-monitor' }).click();
+  const trigger = page.getByRole('button', { name: '引用会话', exact: true });
+  await expect(trigger).toBeEnabled();
+  await trigger.click();
+  const dialog = page.getByRole('dialog', { name: '引用会话', exact: true });
+  await dialog.getByLabel('引用会话工作空间').selectOption('local');
+  await dialog.getByLabel('搜索要引用的会话').fill(ids.legacy);
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const uploads: string[] = [];
+  page.on('request', (request) => {
+    if (request.method() === 'POST' && request.url().includes('/uploads?'))
+      uploads.push(request.url());
+  });
+  await page.route(`**/api/workspaces/local/sessions/${ids.legacy}/export`, async (route) => {
+    await gate;
+    await route.fulfill({ contentType: 'text/markdown', body: '# 延迟的会话记录' });
+  });
+  await dialog
+    .getByRole('button', {
+      name: '引用会话 检查旧版本会话解析（本机工作空间）',
+      exact: true,
+    })
+    .click();
+  try {
+    await expect(dialog.getByRole('status').filter({ hasText: '正在导出会话' })).toBeVisible();
+    await page.keyboard.press('Escape');
+    await page
+      .getByLabel('切换工作空间', { exact: true })
+      .selectOption('bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb');
+    await expect(page.getByRole('heading', { name: '全部会话', exact: true })).toBeVisible();
+  } finally {
+    release();
+  }
+  await page.getByTestId('session-row').filter({ hasText: '第二台电脑的独立会话' }).click();
+  await expect(trigger).toBeEnabled();
+  await expect(page.getByRole('list', { name: '待发送附件' })).toHaveCount(0);
+  expect(uploads).toEqual([]);
+});
+
 test('web controls paste clipboard images and files into continued and new conversations', async ({
   page,
   request,

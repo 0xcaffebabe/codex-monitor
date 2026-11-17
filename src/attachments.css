@@ -25,6 +25,7 @@
 }
 .attachment-toolbar {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 10px;
   min-width: 0;
@@ -54,6 +55,10 @@
   padding: 6px 8px;
   font-size: 11px;
   cursor: pointer;
+}
+.attachment-add {
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 .attachment-add:hover:not(:disabled),
 .composer-choice:hover:not(.is-disabled),
