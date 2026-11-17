@@ -16,9 +16,6 @@ export function NewSessionComposer(props: NewSessionProps) {
     setRefresh,
     modelSettings,
     creationPermissions,
-    supportsDesktopChannel,
-    desktopChannel,
-    setDesktopChannel,
     permissionMode,
     setPermissionMode,
   } = useNewSession(props);
@@ -77,10 +74,7 @@ export function NewSessionComposer(props: NewSessionProps) {
             ))}
           </select>
         </label>
-        {desktopChannel && (
-          <p className="control-hint">桌面通道沿用 Codex 桌面端的权限设置，审批在桌面端处理。</p>
-        )}
-        {creationPermissions && !desktopChannel && (
+        {creationPermissions && (
           <label className="prompt-label">
             会话权限
             <select
@@ -114,8 +108,6 @@ export function NewSessionComposer(props: NewSessionProps) {
         submitOnEnter
         allowAttachments
         allowGoal
-        allowDesktopChannel={supportsDesktopChannel}
-        onDesktopChannelChange={setDesktopChannel}
         attachmentControls={
           <ModelSettings
             compact
@@ -125,13 +117,11 @@ export function NewSessionComposer(props: NewSessionProps) {
           />
         }
         url="/api/sessions"
-        extra={(draft) => ({
+        extra={{
           projectId: selected,
           ...modelSettings.overrides,
-          ...(creationPermissions && permissionMode
-            ? { permissionMode: draft.desktopChannel ? 'inherit' : permissionMode }
-            : {}),
-        })}
+          ...(creationPermissions && permissionMode ? { permissionMode } : {}),
+        }}
         enabled={online && !loading && !!selected && !error}
         label="创建并发送"
         onAccepted={(receipt) => onCreated(receipt.threadId!)}

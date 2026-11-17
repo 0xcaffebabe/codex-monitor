@@ -132,11 +132,7 @@ export function PromptForm(props: PromptFormProps) {
               {(allowDesktopChannel || draft.desktopChannel) && (
                 <label
                   className="composer-desktop-channel"
-                  title={
-                    allowGoal
-                      ? '通过当前工作空间的 Codex 桌面应用创建会话并发送首条消息。'
-                      : '通过当前工作空间的 Codex 桌面应用发送，执行中的消息会等待本轮结束。'
-                  }
+                  title="通过当前工作空间的 Codex 桌面应用发送，执行中的消息会等待本轮结束。"
                 >
                   <input
                     type="checkbox"

@@ -8,7 +8,7 @@ import { workspaceStorageKey } from '../../workspace-scope';
 export type PromptFormProps = {
   storageKey: string;
   url: string;
-  extra?: object | ((draft: Draft) => object);
+  extra?: object;
   label: string;
   enabled: boolean;
   onAccepted: (receipt: Receipt) => void;
@@ -22,8 +22,8 @@ export type PromptFormProps = {
   submitActions?: React.ReactNode;
   initialPrompt?: string;
   allowGoal?: boolean;
+  /** Omit to remove the option; false retains saved selections for unavailable clients. */
   allowDesktopChannel?: boolean;
-  onDesktopChannelChange?: (selected: boolean) => void;
 };
 export function usePromptForm({
   storageKey: unscopedKey,
@@ -34,8 +34,7 @@ export function usePromptForm({
   initialPrompt = '',
   allowAttachments = false,
   allowGoal = false,
-  allowDesktopChannel = false,
-  onDesktopChannelChange,
+  allowDesktopChannel,
   maxLength = 12000,
 }: PromptFormProps) {
   const storageKey = workspaceStorageKey(unscopedKey);
@@ -43,6 +42,7 @@ export function usePromptForm({
     try {
       const stored = sessionStorage.getItem(storageKey);
       const saved: Draft | undefined = stored ? JSON.parse(stored) : undefined;
+      if (saved && allowDesktopChannel === undefined) delete saved.desktopChannel;
       return saved &&
         (saved.prompt ||
           saved.requestId ||
@@ -100,9 +100,6 @@ export function usePromptForm({
   useEffect(() => {
     sessionStorage.setItem(storageKey, JSON.stringify(draft));
   }, [draft, storageKey]);
-  useEffect(() => {
-    onDesktopChannelChange?.(!!draft.desktopChannel);
-  }, [draft.desktopChannel, onDesktopChannelChange]);
   function accept(result: Receipt) {
     if (result.requestId && result.requestId !== currentRequest.current) return false;
     if (
@@ -182,7 +179,7 @@ export function usePromptForm({
     try {
       accept(
         await post<Receipt>(url, {
-          ...(typeof extra === 'function' ? extra(draft) : extra),
+          ...extra,
           prompt: payload.prompt,
           requestId: payload.requestId,
           ...(payload.asGoal ? { asGoal: true } : {}),

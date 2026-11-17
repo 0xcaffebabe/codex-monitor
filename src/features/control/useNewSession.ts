@@ -21,8 +21,6 @@ export function useNewSession({ initialPath }: Pick<NewSessionProps, 'initialPat
     [loading, setLoading] = useState(true),
     [refresh, setRefresh] = useState(0);
   const [creationPermissions, setCreationPermissions] = useState(false);
-  const [supportsDesktopChannel, setSupportsDesktopChannel] = useState(false);
-  const [desktopChannel, setDesktopChannel] = useState(false);
   const [permissionMode, setPermissionMode] = useState<SessionPermissionMode>('danger-full-access');
   const modelSettings = useModelSettings(true, 'new', refresh);
   useEffect(() => {
@@ -34,13 +32,11 @@ export function useNewSession({ initialPath }: Pick<NewSessionProps, 'initialPat
       projects: Project[];
       reason?: string;
       creationPermissions?: boolean;
-      desktopChannel?: boolean;
     }>('/api/control')
       .then((result) => {
         if (stopped) return;
         setProjects(result.projects);
         setCreationPermissions(!!result.creationPermissions);
-        setSupportsDesktopChannel(!!result.desktopChannel);
         if (!result.creationPermissions) setPermissionMode('danger-full-access');
         setSelected(
           result.projects.find((p) => p.path === initialPath)?.id || result.projects[0]?.id || '',
@@ -66,9 +62,6 @@ export function useNewSession({ initialPath }: Pick<NewSessionProps, 'initialPat
     setRefresh,
     modelSettings,
     creationPermissions,
-    supportsDesktopChannel,
-    desktopChannel,
-    setDesktopChannel,
     permissionMode,
     setPermissionMode,
   };
