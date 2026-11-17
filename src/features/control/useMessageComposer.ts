@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { api } from '../../api';
 import type { SessionStatus, User } from '../../types';
 import type { Receipt, SessionGoal } from './types';
@@ -8,6 +8,7 @@ export type MessageComposerProps = {
   user: User;
   threadId: string;
   sessionStatus?: SessionStatus;
+  contextControls?: ReactNode;
   onAccepted: () => void;
 };
 export function useMessageComposer({
@@ -24,10 +25,9 @@ export function useMessageComposer({
     turnId?: string;
     reason?: string;
   }>();
-  const [refresh, setRefresh] = useState(0),
-    [toolsExpanded, setToolsExpanded] = useState(false);
+  const [refresh, setRefresh] = useState(0);
   const [goalOpen, setGoalOpen] = useState(false);
-  const [stopNotice, setStopNotice] = useState('');
+  const [controlNotice, setControlNotice] = useState('');
   const canChangeModel =
     user.role === 'admin' && !!state?.available && !state.running && !state.compacting;
   const modelSettings = useModelSettings(canChangeModel, threadId, refresh);
@@ -104,8 +104,6 @@ export function useMessageComposer({
     modelSettings,
     state,
     setRefresh,
-    toolsExpanded,
-    setToolsExpanded,
     goalOpen,
     setGoalOpen,
     goal,
@@ -113,8 +111,8 @@ export function useMessageComposer({
     goalNotice,
     setGoalNotice,
     goalDone,
-    stopNotice,
-    setStopNotice,
+    controlNotice,
+    setControlNotice,
     stopDone,
   };
 }

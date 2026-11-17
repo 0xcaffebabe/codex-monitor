@@ -796,7 +796,7 @@ test('switches clients with identical session IDs, isolates drafts and attachmen
   const input = page.getByLabel('发送给 Codex 的消息');
   await expect(input).toBeEnabled();
   await input.fill('只属于本机的草稿');
-  await expect(page.getByRole('button', { name: '添加附件', exact: true })).toBeEnabled();
+  await expect(page.getByRole('button', { name: '添加内容', exact: true })).toBeEnabled();
   await page.getByLabel('上传图片或文件', { exact: true }).setInputFiles({
     name: 'local-only.txt',
     mimeType: 'text/plain',

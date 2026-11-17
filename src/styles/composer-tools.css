@@ -1,0 +1,459 @@
+.message-composer > .prompt-form.accepts-attachments {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 8px 12px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface2);
+  transition:
+    border-color 0.15s,
+    box-shadow 0.15s;
+}
+.message-composer > .prompt-form.accepts-attachments:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 8%, transparent);
+}
+.message-composer > .prompt-form.accepts-attachments > .prompt-label,
+.message-composer > .prompt-form.accepts-attachments > .new-session-goal-toggle {
+  grid-column: 1 / -1;
+  grid-row: auto;
+}
+.message-composer > .prompt-form.accepts-attachments textarea {
+  min-height: var(--composer-input-height, 62px);
+  height: var(--composer-input-height, 62px);
+  max-height: min(24dvh, 180px);
+  padding: 2px 3px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  font-size: 14px;
+  line-height: 1.6;
+  outline: none;
+}
+.message-composer > .prompt-form.accepts-attachments textarea:focus {
+  outline: none;
+}
+.message-composer > .prompt-form.accepts-attachments > .attachment-picker {
+  grid-column: 1;
+  grid-row: auto;
+  align-self: center;
+}
+.message-composer > .prompt-form.accepts-attachments > .prompt-actions {
+  grid-column: 2;
+  grid-row: auto;
+  gap: 8px;
+  flex-wrap: nowrap;
+  align-self: start;
+}
+.message-composer > .prompt-form.accepts-attachments.has-receipt > .prompt-actions {
+  grid-column: 1 / -1;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.message-composer .attachment-toolbar {
+  gap: 4px;
+  flex-wrap: nowrap;
+}
+.composer-tool {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  gap: 6px;
+  min-height: 32px;
+  padding: 6px 8px;
+  border-radius: 7px;
+  color: var(--muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+.composer-tool:hover:not(:disabled),
+.composer-tool[aria-expanded='true'],
+.composer-tool.is-active {
+  background: var(--accent-bg);
+  color: var(--accent);
+}
+.composer-add-trigger {
+  width: 32px;
+  padding: 0;
+}
+.composer-add-trigger .composer-tool-label {
+  display: none;
+}
+.composer-tool-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+.composer-popover {
+  position: fixed;
+  width: 350px;
+  max-width: calc(100vw - 24px);
+  max-height: var(--popover-height, min(80dvh, 560px));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  color: var(--ink);
+  background: var(--surface);
+  box-shadow:
+    var(--shadow),
+    0 2px 8px #00000008;
+  font-size: 13px;
+  scrollbar-width: thin;
+}
+.composer-popover-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px 8px;
+}
+.composer-popover-heading strong {
+  font-size: 13px;
+  font-weight: 600;
+}
+.composer-popover-heading .icon-button {
+  width: 28px;
+  height: 28px;
+}
+.composer-add-options,
+.composer-settings {
+  padding: 0 8px 8px;
+}
+.composer-option {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 60px;
+  padding: 10px;
+  border-radius: 9px;
+  text-align: left;
+}
+.composer-option > svg {
+  color: var(--accent);
+}
+.composer-option > span,
+.shortcut-copy,
+.composer-desktop-channel > span {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 4px;
+}
+.composer-option strong,
+.shortcut-copy strong,
+.composer-desktop-channel strong {
+  font-size: 12px;
+  font-weight: 500;
+}
+.composer-option small,
+.shortcut-copy small,
+.composer-desktop-channel small {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: normal;
+}
+.composer-menu-hint {
+  margin: 8px 10px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.6;
+}
+.composer-settings section {
+  padding: 8px 6px;
+}
+.composer-settings section + section {
+  border-top: 1px solid var(--line);
+}
+.composer-settings h3,
+.shortcut-group h3 {
+  margin: 0 0 9px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 500;
+}
+.composer-settings .session-model-settings {
+  gap: 8px;
+}
+.composer-settings .composer-choice {
+  flex: 1;
+  min-height: 36px;
+  max-width: none;
+  padding: 8px;
+  font-size: 12px;
+}
+.composer-settings .composer-desktop-channel {
+  align-items: flex-start;
+  gap: 10px;
+  padding: 5px 0;
+  color: var(--ink);
+}
+.composer-settings .composer-desktop-channel input {
+  margin-top: 2px;
+}
+.composer-settings .composer-menu-hint {
+  margin: 0;
+}
+.composer-shortcuts {
+  display: flex;
+  flex-direction: column;
+  max-height: calc(var(--popover-height, 560px) - 52px);
+  padding: 0 8px;
+}
+.shortcut-results {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+}
+.shortcut-search {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 8px;
+  margin: 0 5px 12px;
+  padding: 9px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--muted);
+  background: var(--surface2);
+}
+.shortcut-search:focus-within {
+  border-color: var(--accent);
+}
+.shortcut-search input {
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  font-size: 12px;
+}
+.shortcut-group + .shortcut-group {
+  margin-top: 12px;
+}
+.shortcut-group h3 {
+  margin: 0 8px 4px;
+}
+.shortcut-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding-right: 3px;
+  border-radius: 9px;
+}
+.shortcut-row:hover,
+.shortcut-row:focus-within {
+  background: var(--surface2);
+}
+.shortcut-send {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 10px 8px;
+  border-radius: 9px;
+  text-align: left;
+}
+.shortcut-icon {
+  display: grid;
+  flex-shrink: 0;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--accent);
+  background: var(--surface);
+}
+.shortcut-send-icon {
+  margin-left: auto;
+  color: var(--muted);
+  opacity: 0.5;
+}
+.shortcut-insert {
+  display: grid;
+  flex-shrink: 0;
+  place-items: center;
+  width: 32px;
+  height: 36px;
+  border-radius: 7px;
+  color: var(--muted);
+}
+.shortcut-insert:hover {
+  color: var(--accent);
+  background: var(--accent-bg);
+}
+.shortcut-footer {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  margin: 12px -8px 0;
+  padding: 10px 8px;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 10px;
+}
+.shortcut-empty {
+  padding: 22px 8px;
+  color: var(--muted);
+  font-size: 12px;
+  text-align: center;
+}
+.shortcut-native-actions {
+  margin-top: 12px;
+}
+.shortcut-native-action {
+  padding: 6px 8px 8px;
+  border-radius: 9px;
+}
+.shortcut-native-action:hover {
+  background: var(--surface2);
+}
+.shortcut-native-action .secondary {
+  justify-content: flex-start;
+  width: 100%;
+  min-height: 28px;
+  padding: 0;
+  gap: 12px;
+  border: 0;
+  background: transparent;
+  font-size: 12px;
+}
+.shortcut-native-action .secondary > svg {
+  margin: 0 7px;
+  color: var(--accent);
+}
+.shortcut-native-action > small {
+  display: block;
+  margin: 2px 0 0 36px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+@media (min-width: 761px) and (max-height: 800px) {
+  .message-composer > .prompt-form.accepts-attachments {
+    padding: 8px;
+    gap: 6px 10px;
+  }
+  .message-composer > .prompt-form.accepts-attachments textarea {
+    min-height: 44px;
+    height: 44px;
+  }
+}
+.message-composer .prompt-count {
+  display: none;
+  white-space: nowrap;
+}
+.message-composer:has(textarea:focus) .prompt-count,
+.message-composer .prompt-count.near-limit {
+  display: inline;
+}
+@media (max-width: 760px) {
+  .message-composer:has(.session-branch-trigger) > .composer-heading {
+    display: flex;
+    position: static;
+    justify-content: space-between;
+    margin-bottom: 6px;
+  }
+  .message-composer > .prompt-form.accepts-attachments {
+    gap: 7px 8px;
+    padding: 9px;
+    border-radius: 13px;
+  }
+  .message-composer > .prompt-form.accepts-attachments textarea,
+  .message-composer > .prompt-form.accepts-attachments textarea:focus {
+    height: 56px;
+    min-height: 56px;
+    max-height: 120px;
+    font-size: 16px;
+  }
+  .composer-tool {
+    min-height: 36px;
+    padding: 6px;
+    gap: 5px;
+  }
+  .composer-add-trigger,
+  .composer-settings-trigger {
+    width: 32px;
+    padding: 0;
+  }
+  .composer-settings-trigger .composer-tool-label {
+    display: none;
+  }
+  .composer-settings-trigger .composer-tool-dot {
+    position: absolute;
+    top: 6px;
+    right: 4px;
+  }
+  .message-composer .attachment-toolbar .composer-tools-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 36px;
+    border: 0;
+    background: transparent;
+  }
+  .message-composer .composer-tools-toggle[aria-expanded='true'] > svg {
+    transform: none;
+  }
+  .message-composer > .prompt-form.accepts-attachments > .prompt-actions > .primary,
+  .message-composer .stop-turn-action > .icon-button {
+    width: 36px;
+    height: 36px;
+    min-height: 36px;
+    border-radius: 8px;
+  }
+  .message-composer .prompt-count,
+  .message-composer:has(textarea:focus) .prompt-count {
+    display: none;
+  }
+  .composer-popover {
+    inset: auto 12px var(--popover-bottom, 12px) !important;
+    width: calc(100vw - 24px);
+    max-height: var(--popover-height, 70dvh);
+    padding-bottom: env(safe-area-inset-bottom);
+    border-radius: 18px;
+  }
+  .composer-popover::backdrop {
+    background: #172c2824;
+  }
+  .composer-popover-heading {
+    padding: 14px 16px 10px;
+  }
+  .shortcut-search input {
+    font-size: 16px;
+  }
+  .shortcut-insert {
+    width: 40px;
+    height: 44px;
+  }
+  .composer-option,
+  .shortcut-send {
+    min-height: 64px;
+  }
+}
+.message-composer .session-branch-trigger {
+  min-height: 26px;
+  max-width: 180px;
+  padding: 4px 6px;
+  border: 0;
+  background: transparent;
+}
+.message-composer .session-branch-trigger:hover {
+  background: var(--accent-bg);
+}

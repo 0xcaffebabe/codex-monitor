@@ -236,7 +236,7 @@ test('clean and non-Git projects have clear states and can recover after refresh
   await expect(dialog.locator('.git-line.added .git-line-code')).toContainText('recovered');
 });
 
-test('session branches refuse conflicting edits, then switch the actual project and update the header', async ({
+test('session branches switch from the composer, preserve conflicting edits and update the current branch', async ({
   page,
   request,
 }) => {
@@ -252,6 +252,8 @@ test('session branches refuse conflicting edits, then switch the actual project 
   write(repo, 'src/review.ts', 'export const value = "unsaved-work";\n');
   await visitSession(page, request);
   const trigger = page.getByRole('button', { name: '选择 Git 分支', exact: true });
+  await expect(page.locator('.message-composer').getByRole('button', { name: '选择 Git 分支', exact: true })).toBeVisible();
+  await expect(page.locator('.detail-summary').getByRole('button', { name: '选择 Git 分支', exact: true })).toHaveCount(0);
   await expect(trigger).toHaveText('review-test');
   await trigger.click();
   const dialog = page.getByRole('dialog', { name: '切换 Git 分支', exact: true });

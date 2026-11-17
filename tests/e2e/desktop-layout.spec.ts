@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { ids } from '../fixture.js';
+import { openComposerMenu } from './composer-helpers';
 
 let token = '';
 async function enter(page: Page, request: APIRequestContext, width = 1440, height = 900) {
@@ -183,6 +184,7 @@ test.describe('PC layout', () => {
       'false',
     );
     await expect(page.locator('.outline')).toBeVisible();
+    await openComposerMenu(page, '快捷操作');
     await page.getByRole('button', { name: '目标', exact: true }).click();
     await expect(page.getByRole('dialog')).toBeVisible();
     expect(await page.locator('.modal-backdrop').boundingBox()).toEqual({

@@ -58,11 +58,6 @@ export function Detail(
         onComputerUse={() => setComputerUseSession(session?.id ?? '')}
         onTerminal={user.role === 'admin' ? () => setTerminalSession(session?.id ?? '') : undefined}
         onGitDiff={user.role === 'admin' ? () => setGitSession(session?.id ?? '') : undefined}
-        gitBranch={
-          !newSession && user.role === 'admin' && session?.cwd ? (
-            <GitBranchSelector key={`${session.id}:${session.cwd}`} session={session} />
-          ) : undefined
-        }
       />
       {session && gitSession === session.id && (
         <Suspense fallback={null}>
@@ -147,6 +142,11 @@ export function Detail(
               user={user}
               threadId={session.id}
               sessionStatus={session.status}
+              contextControls={
+                user.role === 'admin' && session.cwd ? (
+                  <GitBranchSelector key={`${session.id}:${session.cwd}`} session={session} />
+                ) : undefined
+              }
               onAccepted={() => {
                 setFollow(true);
                 onMessageSent();

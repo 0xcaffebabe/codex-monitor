@@ -1,4 +1,4 @@
-import { Minimize2, Pause, Pencil, Play, Plus, RefreshCw, Square, Target } from 'lucide-react';
+import { Minimize2, Pause, Pencil, Play, RefreshCw, Square, Target } from 'lucide-react';
 import { CommandButton } from './CommandButton';
 import { goalDuration, goalStatuses } from './goal';
 import { GoalDialog } from './GoalDialog';
@@ -6,16 +6,15 @@ import { PromptForm } from './PromptForm';
 import { MessageComposerProps, useMessageComposer } from './useMessageComposer';
 import { ModelSettings } from './ModelSettings';
 import { ApprovalPanel } from './ApprovalPanel';
+import { promptShortcuts } from './prompt-shortcuts';
 
 export function MessageComposer(props: MessageComposerProps) {
-  const { user, threadId, onAccepted } = props;
+  const { user, threadId, onAccepted, contextControls } = props;
   const {
     state,
     canChangeModel,
     modelSettings,
     setRefresh,
-    toolsExpanded,
-    setToolsExpanded,
     goalOpen,
     setGoalOpen,
     goal,
@@ -23,8 +22,8 @@ export function MessageComposer(props: MessageComposerProps) {
     goalNotice,
     setGoalNotice,
     goalDone,
-    stopNotice,
-    setStopNotice,
+    controlNotice,
+    setControlNotice,
     stopDone,
   } = useMessageComposer(props);
   if (user.role !== 'admin') return null;
@@ -34,6 +33,7 @@ export function MessageComposer(props: MessageComposerProps) {
       aria-label="向会话发送消息"
     >
       <div className="composer-heading">
+        {contextControls}
         <strong>{state?.running ? '向当前执行追加消息' : '继续此会话'}</strong>
         <button
           type="button"
@@ -43,29 +43,6 @@ export function MessageComposer(props: MessageComposerProps) {
         >
           <RefreshCw size={13} />
         </button>
-      </div>
-      <div
-        id={`session-tools-${threadId}`}
-        className={'common-commands' + (toolsExpanded ? ' expanded' : '')}
-      >
-        <CommandButton
-          user={user}
-          threadId={threadId}
-          command="compact"
-          disabled={!state?.available || !!state?.running || !!state?.compacting}
-          label="压缩上下文"
-          onDone={() => {
-            setRefresh((value) => value + 1);
-            onAccepted();
-          }}
-        >
-          <Minimize2 size={13} />
-        </CommandButton>
-        <button className="secondary" onClick={() => setGoalOpen(true)}>
-          <Target size={13} />
-          目标
-        </button>
-        <span className="muted">/compact · /goal · /help</span>
       </div>
       <ApprovalPanel key={threadId} threadId={threadId} />
       {(!state?.available || state.compacting) && (
@@ -164,6 +141,49 @@ export function MessageComposer(props: MessageComposerProps) {
         submitOnEnter
         allowAttachments
         allowDesktopChannel={!!state?.desktopChannel}
+        promptShortcuts={promptShortcuts}
+        shortcutActions={[
+          {
+            id: 'compact',
+            label: '压缩上下文',
+            description: '本轮结束后整理上下文',
+            render: (close) => (
+              <CommandButton
+                user={user}
+                threadId={threadId}
+                command="compact"
+                disabled={!state?.available || !!state?.running || !!state?.compacting}
+                label="压缩上下文"
+                onFeedback={setControlNotice}
+                onDone={() => {
+                  close();
+                  setRefresh((value) => value + 1);
+                  onAccepted();
+                }}
+              >
+                <Minimize2 size={17} />
+              </CommandButton>
+            ),
+          },
+          {
+            id: 'goal',
+            label: '目标',
+            description: '设置、查看或调整目标',
+            render: (close) => (
+              <button
+                type="button"
+                className="secondary"
+                onClick={() => {
+                  close();
+                  setGoalOpen(true);
+                }}
+              >
+                <Target size={17} />
+                目标
+              </button>
+            ),
+          },
+        ]}
         submitActions={
           <CommandButton
             user={user}
@@ -174,7 +194,7 @@ export function MessageComposer(props: MessageComposerProps) {
             iconOnly
             className="stop-turn-action"
             disabled={!state?.available || !(state.running || state.compacting) || !state.turnId}
-            onFeedback={setStopNotice}
+            onFeedback={setControlNotice}
             onDone={stopDone}
           >
             <Square size={15} />
@@ -193,28 +213,17 @@ export function MessageComposer(props: MessageComposerProps) {
         url={`/api/sessions/${threadId}/messages`}
         extra={canChangeModel ? modelSettings.overrides : undefined}
         enabled={!!state?.available}
+        onSubmitStart={() => setControlNotice('')}
         label={state?.compacting ? '加入队列' : state?.running ? '追加消息' : '发送消息'}
         onAccepted={() => {
           modelSettings.reset();
           setRefresh((value) => value + 1);
           onAccepted();
         }}
-      >
-        <button
-          type="button"
-          className="composer-tools-toggle"
-          aria-label="更多会话操作"
-          aria-expanded={toolsExpanded}
-          aria-controls={`session-tools-${threadId}`}
-          title={toolsExpanded ? '收起会话操作' : '更多会话操作'}
-          onClick={() => setToolsExpanded(!toolsExpanded)}
-        >
-          <Plus size={18} />
-        </button>
-      </PromptForm>
-      {stopNotice && (
+      />
+      {controlNotice && (
         <p className="control-notice" role="status">
-          {stopNotice}
+          {controlNotice}
         </p>
       )}
       {goalOpen && (

@@ -5,6 +5,7 @@ import os from 'node:os';
 import { DatabaseSync } from 'node:sqlite';
 import { pathToFileURL } from 'node:url';
 import { ids } from '../fixture.js';
+import { openComposerMenu, closeComposerMenu, openReferencePicker } from './composer-helpers';
 const root = process.env.MONITOR_TEST_ROOT || path.join(os.tmpdir(), 'codex-monitor-e2e-01a1d7fa'),
   username = 'owner',
   password = 'monitor-e2e-password!';
@@ -250,7 +251,7 @@ test('web controls upload pictures and files, preserve attachment drafts and sen
 }) => {
   await enter(page, request);
   await page.getByTestId('session-row').filter({ hasText: '开发 codex-monitor' }).click();
-  await expect(page.getByRole('button', { name: '添加附件', exact: true })).toBeEnabled();
+  await expect(page.getByRole('button', { name: '添加内容', exact: true })).toBeEnabled();
   const prompt = '请查看上传的资料 ' + test.info().project.name;
   const input = page.getByLabel('发送给 Codex 的消息');
   await input.fill(prompt);
@@ -342,9 +343,9 @@ test('web controls reference sessions across workspaces as Markdown attachments'
   expect(exported.ok()).toBeTruthy();
   const markdown = await exported.text();
   await page.getByTestId('session-row').filter({ hasText: '开发 codex-monitor' }).click();
-  const trigger = page.getByRole('button', { name: '引用会话', exact: true });
+  const trigger = page.getByRole('button', { name: '添加内容', exact: true });
   await expect(trigger).toBeEnabled();
-  await trigger.click();
+  await openReferencePicker(page);
   const dialog = page.getByRole('dialog', { name: '引用会话', exact: true });
   const search = dialog.getByRole('textbox', { name: '搜索要引用的会话' });
   await expect(search).toBeFocused();
@@ -397,7 +398,7 @@ test('web controls reference sessions across workspaces as Markdown attachments'
   await page.getByTitle('返回会话列表').click();
   await page.getByRole('button', { name: '新建会话', exact: true }).click();
   await page.getByLabel('新会话项目').selectOption({ label: 'work · D:/work' });
-  await trigger.click();
+  await openReferencePicker(page);
   await dialog.getByLabel('引用会话工作空间').selectOption('local');
   await search.fill('已归档的历史会话');
   await expect(candidates.getByRole('listitem')).toHaveCount(1);
@@ -423,9 +424,9 @@ test('web controls handle reference export and upload failures and enforce attac
   await enter(page, request);
   await page.getByTestId('session-row').filter({ hasText: '开发 codex-monitor' }).click();
   await page.getByLabel('发送给 Codex 的消息').fill('保留这条消息');
-  const trigger = page.getByRole('button', { name: '引用会话', exact: true });
+  const trigger = page.getByRole('button', { name: '添加内容', exact: true });
   await expect(trigger).toBeEnabled();
-  await trigger.click();
+  await openReferencePicker(page);
   const dialog = page.getByRole('dialog', { name: '引用会话', exact: true });
   await dialog.getByLabel('引用会话工作空间').selectOption('local');
   await dialog.getByLabel('搜索要引用的会话').fill(ids.legacy);
@@ -497,7 +498,7 @@ test('web controls handle reference export and upload failures and enforce attac
   await expect(trigger).toBeDisabled();
   await page.getByRole('button', { name: '移除附件 资料-0.txt', exact: true }).click();
   await expect(trigger).toBeEnabled();
-  await trigger.click();
+  await openReferencePicker(page);
   await page.keyboard.press('Escape');
   await expect(dialog).toHaveCount(0);
   await expect(trigger).toBeFocused();
@@ -509,9 +510,9 @@ test('web controls cancel pending session references when switching workspaces',
 }) => {
   await enter(page, request);
   await page.getByTestId('session-row').filter({ hasText: '开发 codex-monitor' }).click();
-  const trigger = page.getByRole('button', { name: '引用会话', exact: true });
+  const trigger = page.getByRole('button', { name: '添加内容', exact: true });
   await expect(trigger).toBeEnabled();
-  await trigger.click();
+  await openReferencePicker(page);
   const dialog = page.getByRole('dialog', { name: '引用会话', exact: true });
   await dialog.getByLabel('引用会话工作空间').selectOption('local');
   await dialog.getByLabel('搜索要引用的会话').fill(ids.legacy);
@@ -558,7 +559,7 @@ test('web controls paste clipboard images and files into continued and new conve
   await context.grantPermissions(['clipboard-read', 'clipboard-write']);
   await enter(page, request);
   await page.getByTestId('session-row').filter({ hasText: '开发 codex-monitor' }).click();
-  await expect(page.getByRole('button', { name: '添加附件', exact: true })).toBeEnabled();
+  await expect(page.getByRole('button', { name: '添加内容', exact: true })).toBeEnabled();
   const input = page.getByLabel('发送给 Codex 的消息');
   const attachments = page.getByRole('list', { name: '待发送附件' });
   await input.fill('请查看：');
@@ -601,7 +602,7 @@ test('web controls paste clipboard images and files into continued and new conve
   const dialog = page.getByRole('region', { name: '新建会话', exact: true });
   const newInput = dialog.getByLabel('发送给 Codex 的消息');
   const newAttachments = dialog.getByRole('list', { name: '待发送附件' });
-  await expect(dialog.getByRole('button', { name: '添加附件', exact: true })).toBeEnabled();
+  await expect(dialog.getByRole('button', { name: '添加内容', exact: true })).toBeEnabled();
   await copyImage(page);
   await newInput.press('ControlOrMeta+V');
   await expect(newAttachments.getByRole('listitem')).toHaveCount(1);
@@ -628,7 +629,7 @@ test('web controls drag images and files into continued and new conversations', 
 }) => {
   await enter(page, request);
   await page.getByTestId('session-row').filter({ hasText: '开发 codex-monitor' }).click();
-  await expect(page.getByRole('button', { name: '添加附件', exact: true })).toBeEnabled();
+  await expect(page.getByRole('button', { name: '添加内容', exact: true })).toBeEnabled();
   const input = page.getByLabel('发送给 Codex 的消息');
   const form = page.locator('.message-composer .prompt-form');
   const attachments = page.getByRole('list', { name: '待发送附件' });
@@ -670,7 +671,7 @@ test('web controls drag images and files into continued and new conversations', 
   await page.getByTitle('返回会话列表').click();
   await page.getByRole('button', { name: '新建会话', exact: true }).click();
   const dialog = page.getByRole('region', { name: '新建会话', exact: true });
-  await expect(dialog.getByRole('button', { name: '添加附件', exact: true })).toBeEnabled();
+  await expect(dialog.getByRole('button', { name: '添加内容', exact: true })).toBeEnabled();
   const newForm = dialog.locator('.prompt-form');
   await transferFiles(newForm, files, { eventType: 'dragenter' });
   await expect(newForm).toHaveClass(/is-file-dragging/);
@@ -694,7 +695,7 @@ test('web controls queue successive pasted and dropped files, reserve slots and 
 }) => {
   await enter(page, request);
   await page.getByTestId('session-row').filter({ hasText: '开发 codex-monitor' }).click();
-  await expect(page.getByRole('button', { name: '添加附件', exact: true })).toBeEnabled();
+  await expect(page.getByRole('button', { name: '添加内容', exact: true })).toBeEnabled();
   const input = page.getByLabel('发送给 Codex 的消息');
   const attachments = page.getByRole('list', { name: '待发送附件' });
   const uploads: string[] = [];
@@ -764,7 +765,7 @@ test('web controls reject file transfers when unavailable and keep ordinary text
   });
   await enter(page, request);
   await page.getByTestId('session-row').filter({ hasText: '开发 codex-monitor' }).click();
-  await expect(page.getByRole('button', { name: '添加附件', exact: true })).toBeDisabled();
+  await expect(page.getByRole('button', { name: '添加内容', exact: true })).toBeDisabled();
   const input = page.getByLabel('发送给 Codex 的消息');
   await input.fill('暂存消息');
   expect(await transferFiles(input, [{ name: '不可上传.txt' }])).toBe(false);
@@ -838,6 +839,7 @@ test('web controls choose a model and reset unsupported thinking when switching 
 }) => {
   await enter(page, request);
   await page.getByRole('button', { name: '新建会话', exact: true }).click();
+  await openComposerMenu(page, '发送设置');
   const model = page.getByLabel('新会话模型', { exact: true });
   const thinking = page.getByLabel('新会话思考级别', { exact: true });
   await expect(model).toBeEnabled();
@@ -849,6 +851,7 @@ test('web controls choose a model and reset unsupported thinking when switching 
   await expect(thinking).toHaveValue('');
   await expect(thinking.locator('option[value="ultra"]')).toHaveCount(0);
   await thinking.selectOption('high');
+  await closeComposerMenu(page, '发送设置');
   await page.getByLabel('发送给 Codex 的消息').fill('new model ' + test.info().project.name);
   expect(
     await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
@@ -887,6 +890,7 @@ test('web controls change models when continuing completed sessions and retain s
   try {
     await enter(page, request);
     await page.getByTestId('session-row').filter({ hasText: '开发 codex-monitor' }).click();
+    await openComposerMenu(page, '发送设置');
     const model = page.getByLabel('继续会话模型', { exact: true });
     const thinking = page.getByLabel('继续会话思考级别', { exact: true });
     await expect(model).toBeEnabled();
@@ -897,10 +901,8 @@ test('web controls change models when continuing completed sessions and retain s
     await expect(thinking.locator('option[value="ultra"]')).toHaveCount(0);
     await thinking.selectOption('high');
     const input = page.getByLabel('发送给 Codex 的消息');
-    await input.fill('continue using chosen model');
     await expect(page.locator('.session-model-settings label')).toHaveCount(0);
     const controls = await Promise.all([
-      page.getByRole('button', { name: '添加附件', exact: true }).boundingBox(),
       model.boundingBox(),
       thinking.boundingBox(),
     ]);
@@ -908,6 +910,8 @@ test('web controls change models when continuing completed sessions and retain s
     const toolbarCenter = controls[0]!.y + controls[0]!.height / 2;
     for (const bounds of controls.slice(1))
       expect(Math.abs(bounds!.y + bounds!.height / 2 - toolbarCenter)).toBeLessThan(3);
+    await closeComposerMenu(page, '发送设置');
+    await input.fill('continue using chosen model');
     expect(
       await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
     ).toBeTruthy();
@@ -935,8 +939,6 @@ test('web controls change models when continuing completed sessions and retain s
     ).toBe('gpt-6-luna');
     hist.prepare("UPDATE thread_turns SET status='inProgress' WHERE thread_id=?").run(ids.modern);
     const refresh = page.getByRole('button', { name: '刷新发送状态', exact: true });
-    if (!(await refresh.isVisible()))
-      await page.getByRole('button', { name: '更多会话操作' }).click();
     await refresh.click();
     await expect(model).toHaveCount(0);
     await input.fill('append while running');
@@ -961,16 +963,20 @@ test('web controls desktop channel preserves drafts, submits model settings and 
   hist.close();
   await enter(page, request);
   await page.getByTestId('session-row').filter({ hasText: '开发 codex-monitor' }).click();
-  const desktop = page.getByRole('checkbox', { name: '桌面通道', exact: true });
+  const desktop = page.getByRole('checkbox', { name: '桌面通道', exact: true, includeHidden: true });
   const input = page.getByLabel('发送给 Codex 的消息');
   await expect(desktop).not.toBeChecked();
   await input.fill('desktop channel request ' + test.info().project.name);
+  await openComposerMenu(page, '发送设置');
   await desktop.check();
+  await closeComposerMenu(page, '发送设置');
   await page.reload();
   await expect(desktop).toBeChecked();
   await expect(input).toHaveValue('desktop channel request ' + test.info().project.name);
+  await openComposerMenu(page, '发送设置');
   await page.getByLabel('继续会话模型', { exact: true }).selectOption('gpt-6.1-sol');
   await page.getByLabel('继续会话思考级别', { exact: true }).selectOption('high');
+  await closeComposerMenu(page, '发送设置');
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({
     path: test.info().outputPath('desktop-channel-selected.png'),
@@ -1009,12 +1015,14 @@ test('web controls desktop channel waits for the running turn and survives a que
   await enter(page, request);
   await page.getByTestId('session-row').filter({ hasText: '开发 codex-monitor' }).click();
   const input = page.getByLabel('发送给 Codex 的消息');
-  const desktop = page.getByRole('checkbox', { name: '桌面通道', exact: true });
+  const desktop = page.getByRole('checkbox', { name: '桌面通道', exact: true, includeHidden: true });
   let submissions = 0;
   page.on('request', (req) => {
     if (req.method() === 'POST' && req.url().endsWith('/messages')) submissions++;
   });
+  await openComposerMenu(page, '发送设置');
   await desktop.check();
+  await closeComposerMenu(page, '发送设置');
   await input.fill('queued desktop channel ' + test.info().project.name);
   const queued = page.waitForResponse(
     (response) => response.request().method() === 'POST' && response.url().endsWith('/messages'),
@@ -1038,6 +1046,180 @@ test('web controls desktop channel waits for the running turn and survives a que
   expect(submissions).toBe(1);
 });
 
+test('web controls keep composer tools compact and support searching and editing shortcuts', async ({
+  page,
+  request,
+}) => {
+  await enter(page, request);
+  await page.getByTestId('session-row').filter({ hasText: '开发 codex-monitor' }).click();
+  const input = page.getByLabel('发送给 Codex 的消息');
+  const trigger = page.getByRole('button', { name: '快捷操作', exact: true });
+  await expect(trigger).toBeEnabled();
+  await expect(page.getByRole('button', { name: '提交代码', exact: true })).toBeHidden();
+  await expect(page.getByRole('button', { name: '推送代码', exact: true })).toBeHidden();
+  await expect(page.getByRole('button', { name: '压缩上下文', exact: true })).toBeHidden();
+  await expect(page.getByRole('button', { name: '目标', exact: true })).toBeHidden();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.screenshot({ path: test.info().outputPath('composer-compact.png'), fullPage: true });
+  let submissions = 0;
+  page.on('request', (req) => {
+    if (req.method() === 'POST' && req.url().endsWith('/messages')) submissions++;
+  });
+  const menu = await openComposerMenu(page, '快捷操作');
+  const search = menu.getByRole('textbox', { name: '搜索快捷操作' });
+  if (test.info().project.name === 'desktop') await expect(search).toBeFocused();
+  else await expect(menu).toBeFocused();
+  await expect(menu.getByRole('button', { name: '目标', exact: true })).toBeInViewport({ ratio: 1 });
+  await page.screenshot({ path: test.info().outputPath('composer-shortcuts.png'), fullPage: true });
+  await search.fill('commit');
+  await expect(menu.getByRole('button', { name: '提交代码', exact: true })).toBeVisible();
+  await expect(menu.getByRole('button', { name: '推送代码', exact: true })).toHaveCount(0);
+  await menu.getByRole('button', { name: '填入提交代码提示词', exact: true }).click();
+  await expect(menu).toBeHidden();
+  await expect(input).toBeFocused();
+  await expect(input).toHaveValue('请检查并提交本次任务相关的代码改动，编写清晰的提交说明。');
+  expect(submissions).toBe(0);
+  await openComposerMenu(page, '快捷操作');
+  await expect(search).toHaveValue('');
+  await search.fill('no matching operation');
+  await expect(menu).toContainText('没有匹配的操作');
+  await search.fill('上下文');
+  await expect(menu.getByRole('button', { name: '压缩上下文', exact: true })).toBeVisible();
+  await search.fill('目标');
+  await expect(menu.getByRole('button', { name: '目标', exact: true })).toBeVisible();
+  await search.fill('');
+  await search.press('ArrowDown');
+  await expect(menu.getByRole('button', { name: 'Computer Use', exact: true })).toBeFocused();
+  await page.keyboard.press('ArrowDown');
+  await expect(menu.getByRole('button', { name: '提交代码', exact: true })).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(menu).toBeHidden();
+  await expect(trigger).toBeFocused();
+  await openComposerMenu(page, '发送设置');
+  await page.screenshot({ path: test.info().outputPath('composer-settings.png'), fullPage: true });
+  await closeComposerMenu(page, '发送设置');
+  expect(submissions).toBe(0);
+  if (test.info().project.name === 'mobile') {
+    await page.setViewportSize({ width: 320, height: 740 });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    const toolbar = await page.locator('.attachment-toolbar').boundingBox();
+    const send = await page.locator('.message-composer button[type="submit"]').boundingBox();
+    expect(toolbar!.x + toolbar!.width).toBeLessThanOrEqual(send!.x);
+    await openComposerMenu(page, '快捷操作');
+    const bounds = await menu.boundingBox();
+    expect(bounds!.x).toBeGreaterThanOrEqual(0);
+    expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(320);
+    await expect(menu.getByRole('button', { name: '目标', exact: true })).toBeInViewport({ ratio: 1 });
+    await page.screenshot({ path: test.info().outputPath('composer-mobile-320.png'), fullPage: true });
+    await closeComposerMenu(page, '快捷操作');
+  }
+});
+
+test('web controls computer use shortcut selects desktop and sends the preset prompt once', async ({
+  page,
+  request,
+}) => {
+  const hist = new DatabaseSync(path.join(root, 'codex', 'thread_history_1.sqlite'));
+  hist.prepare("UPDATE thread_turns SET status='inProgress' WHERE thread_id=?").run(ids.modern);
+  await enter(page, request);
+  await page.getByTestId('session-row').filter({ hasText: '开发 codex-monitor' }).click();
+  const shortcut = page.getByRole('button', { name: 'Computer Use', exact: true, includeHidden: true });
+  const desktop = page.getByRole('checkbox', { name: '桌面通道', exact: true, includeHidden: true });
+  const input = page.getByLabel('发送给 Codex 的消息');
+  const prompt = '已切换为桌面端通道，开通了 computer use 权限';
+  let submissions = 0;
+  page.on('request', (req) => {
+    if (req.method() === 'POST' && req.url().endsWith('/messages')) submissions++;
+  });
+  await expect(input).toHaveValue('');
+  await expect(desktop).not.toBeChecked();
+  await openComposerMenu(page, '快捷操作');
+  await expect(shortcut).toBeEnabled();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.screenshot({ path: test.info().outputPath('computer-use-shortcut.png'), fullPage: true });
+  const queued = page.waitForResponse(
+    (response) => response.request().method() === 'POST' && response.url().endsWith('/messages'),
+  );
+  await shortcut.click();
+  const response = await queued;
+  expect(response.status()).toBe(202);
+  expect(response.request().postDataJSON()).toMatchObject({ prompt, channel: 'desktop' });
+  expect(response.request().postDataJSON()).not.toHaveProperty('attachments');
+  await expect(desktop).toBeChecked();
+  await expect(input).toHaveValue(prompt);
+  await expect(shortcut).toBeDisabled();
+  await page.reload();
+  await expect(desktop).toBeChecked();
+  await expect(input).toHaveValue(prompt);
+  await expect(shortcut).toBeDisabled();
+  expect(submissions).toBe(1);
+  hist.prepare("UPDATE thread_turns SET status='completed' WHERE thread_id=?").run(ids.modern);
+  hist.close();
+  await expect(input).toHaveValue('', { timeout: 15000 });
+  await expect(shortcut).toBeEnabled();
+  await expect(page.locator('.timeline')).toContainText('测试回复：' + prompt);
+  expect(submissions).toBe(1);
+});
+
+for (const shortcut of [
+  {
+    label: '提交代码',
+    prompt: '请检查并提交本次任务相关的代码改动，编写清晰的提交说明。',
+  },
+  {
+    label: '推送代码',
+    prompt: '请将当前分支的代码推送到对应的远程分支。',
+  },
+]) {
+  test(`web controls ${shortcut.label} shortcut sends its prompt through the selected channel`, async ({
+    page,
+    request,
+  }) => {
+    const hist = new DatabaseSync(path.join(root, 'codex', 'thread_history_1.sqlite'));
+    hist.prepare("UPDATE thread_turns SET status='completed' WHERE thread_id=?").run(ids.modern);
+    hist.close();
+    await enter(page, request);
+    await page.getByTestId('session-row').filter({ hasText: '开发 codex-monitor' }).click();
+    const button = page.getByRole('button', { name: shortcut.label, exact: true });
+    const input = page.getByLabel('发送给 Codex 的消息');
+    const desktop = page.getByRole('checkbox', { name: '桌面通道', exact: true, includeHidden: true });
+    await openComposerMenu(page, '快捷操作');
+    await expect(page.getByRole('button', { name: '提交代码', exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: '推送代码', exact: true })).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await page.screenshot({ path: test.info().outputPath('code-prompt-shortcuts.png'), fullPage: true });
+    await closeComposerMenu(page, '快捷操作');
+    let submissions = 0;
+    page.on('request', (req) => {
+      if (req.method() === 'POST' && req.url().endsWith('/messages')) submissions++;
+    });
+    for (const desktopChannel of [false, true]) {
+      await expect(input).toHaveValue('');
+      await openComposerMenu(page, '发送设置');
+      await desktop.setChecked(desktopChannel);
+      await closeComposerMenu(page, '发送设置');
+      await openComposerMenu(page, '快捷操作');
+      await expect(button).toBeEnabled();
+      const sent = page.waitForResponse(
+        (response) => response.request().method() === 'POST' && response.url().endsWith('/messages'),
+      );
+      await button.click();
+      const response = await sent;
+      expect(response.ok()).toBeTruthy();
+      const payload = response.request().postDataJSON();
+      expect(payload.prompt).toBe(shortcut.prompt);
+      if (desktopChannel) expect(payload.channel).toBe('desktop');
+      else expect(payload).not.toHaveProperty('channel');
+      expect(payload).not.toHaveProperty('attachments');
+      expect(payload).not.toHaveProperty('asGoal');
+      await expect(input).toHaveValue('');
+      await expect(desktop).not.toBeChecked();
+    }
+    expect(submissions).toBe(2);
+    await expect(page.locator('.timeline')).toContainText('测试回复：' + shortcut.prompt);
+  });
+}
+
 test('web controls desktop channel cannot silently drop a saved selection on an older client', async ({
   page,
   request,
@@ -1045,19 +1227,29 @@ test('web controls desktop channel cannot silently drop a saved selection on an 
   await enter(page, request);
   await page.getByTestId('session-row').filter({ hasText: '开发 codex-monitor' }).click();
   const input = page.getByLabel('发送给 Codex 的消息');
-  const desktop = page.getByRole('checkbox', { name: '桌面通道', exact: true });
+  const desktop = page.getByRole('checkbox', { name: '桌面通道', exact: true, includeHidden: true });
   await input.fill('keep this channel choice');
+  await openComposerMenu(page, '发送设置');
   await desktop.check();
+  await closeComposerMenu(page, '发送设置');
   await page.route('**/api/workspaces/local/sessions/*/control', (route) =>
     route.fulfill({ json: { available: true, running: false } }),
   );
   await page.reload();
   await expect(desktop).toBeChecked();
   await expect(page.locator('.message-composer button[type="submit"]')).toBeDisabled();
+  await openComposerMenu(page, '快捷操作');
+  await expect(page.getByRole('button', { name: '提交代码', exact: true })).toBeDisabled();
+  await expect(page.getByRole('button', { name: '推送代码', exact: true })).toBeDisabled();
   await expect(page.getByRole('alert')).toContainText('暂不支持桌面通道');
+  await openComposerMenu(page, '发送设置');
   await desktop.click();
+  await closeComposerMenu(page, '发送设置');
   await expect(desktop).toHaveCount(0);
   await expect(page.locator('.message-composer button[type="submit"]')).toBeEnabled();
+  await openComposerMenu(page, '快捷操作');
+  await expect(page.getByRole('button', { name: '提交代码', exact: true })).toBeEnabled();
+  await expect(page.getByRole('button', { name: '推送代码', exact: true })).toBeEnabled();
 });
 
 test('web controls can create with defaults when the model catalog is unavailable', async ({
@@ -1179,9 +1371,8 @@ test('web controls queue input during compaction, survive reload and support can
     hist.prepare("UPDATE thread_turns SET status='completed' WHERE thread_id=?").run(ids.modern);
     await enter(page, request);
     await page.getByTestId('session-row').filter({ hasText: '开发 codex-monitor' }).click();
-    const operations = page.getByRole('button', { name: '更多会话操作' });
-    if (test.info().project.name === 'mobile') await operations.click();
     await page.getByTitle('刷新发送状态').click();
+    await openComposerMenu(page, '快捷操作');
     await expect(page.getByRole('button', { name: '压缩上下文', exact: true })).toBeEnabled();
     await page.getByRole('button', { name: '压缩上下文', exact: true }).click();
     const input = page.getByLabel('发送给 Codex 的消息');
@@ -1215,8 +1406,8 @@ test('web controls queue input during compaction, survive reload and support can
         .get(ids.modern, '%' + prompt + '%')!.n,
     ).toBe(1);
 
-    if (test.info().project.name === 'mobile') await operations.click();
     await page.getByTitle('刷新发送状态').click();
+    await openComposerMenu(page, '快捷操作');
     await page.getByRole('button', { name: '压缩上下文', exact: true }).click();
     const cancelled = 'cancelled during compaction ' + test.info().project.name;
     await input.fill(cancelled);
@@ -1228,7 +1419,7 @@ test('web controls queue input during compaction, survive reload and support can
     await page.getByRole('button', { name: '取消排队', exact: true }).click();
     await expect(input).toBeEnabled();
     await expect(input).toHaveValue(cancelled);
-    await expect(page.locator('.message-composer .control-notice')).toContainText('已取消排队');
+    await expect(page.locator('.message-composer .prompt-form > .control-notice')).toContainText('已取消排队');
     const headers = { Authorization: 'Bearer ' + (await ownerToken(request)) };
     await expect
       .poll(
@@ -1291,17 +1482,14 @@ test('common commands compact idle context and manage persistent goals', async (
 }) => {
   await enter(page, request);
   await page.getByTestId('session-row').filter({ hasText: '开发 codex-monitor' }).click();
-  if (test.info().project.name === 'mobile') {
-    await expect(page.locator('.message-composer')).not.toHaveClass(/unavailable/);
-    const operations = page.getByRole('button', { name: '更多会话操作' });
-    await operations.click();
-    await expect(operations).toHaveAttribute('aria-expanded', 'true');
-  }
+  await openComposerMenu(page, '快捷操作');
   await expect(page.getByRole('button', { name: '压缩上下文', exact: true })).toBeDisabled();
   const history = new DatabaseSync(path.join(root, 'codex', 'thread_history_1.sqlite'));
   history.prepare("UPDATE thread_turns SET status='completed' WHERE thread_id=?").run(ids.modern);
   history.close();
+  await closeComposerMenu(page, '快捷操作');
   await page.getByTitle('刷新发送状态').click();
+  await openComposerMenu(page, '快捷操作');
   const compaction = page.waitForResponse(
     (response) => response.request().method() === 'POST' && response.url().endsWith('/commands'),
   );
@@ -1319,6 +1507,7 @@ test('common commands compact idle context and manage persistent goals', async (
         ).compacting ?? false,
     )
     .toBe(false);
+  await openComposerMenu(page, '快捷操作');
   await page.getByRole('button', { name: '目标', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: '目标管理' });
   await expect(dialog.getByLabel('当前目标')).toContainText('尚未设置目标');

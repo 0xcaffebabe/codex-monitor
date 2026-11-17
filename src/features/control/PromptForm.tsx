@@ -1,9 +1,13 @@
-import { LoaderCircle, RefreshCw, Send } from 'lucide-react';
+import { LoaderCircle, Monitor, RefreshCw, Send, SlidersHorizontal } from 'lucide-react';
+import { useRef } from 'react';
+import { Popover } from '../../shared/ui/Popover';
 import { useMediaQuery } from '../../shared/useMediaQuery';
 import { AttachmentPicker } from '../attachments/AttachmentPicker';
 import { PromptFormProps, usePromptForm } from './usePromptForm';
+import { PromptShortcuts } from './PromptShortcuts';
 
 export function PromptForm(props: PromptFormProps) {
+  const input = useRef<HTMLTextAreaElement>(null);
   const isMobile = useMediaQuery('(max-width: 760px)');
   const {
     label,
@@ -18,6 +22,8 @@ export function PromptForm(props: PromptFormProps) {
     submitActions,
     allowGoal = false,
     allowDesktopChannel = false,
+    promptShortcuts,
+    shortcutActions,
   } = props;
   const {
     draft,
@@ -30,6 +36,7 @@ export function PromptForm(props: PromptFormProps) {
     attachments,
     attachmentPicker,
     submit,
+    submitPresetPrompt,
     check,
     cancelQueued,
     asGoal,
@@ -38,6 +45,7 @@ export function PromptForm(props: PromptFormProps) {
     characterCount,
     validationError,
     canSubmit,
+    canSubmitPreset,
     retryGoal,
     openCreated,
     reset,
@@ -67,7 +75,7 @@ export function PromptForm(props: PromptFormProps) {
           <span>松开即可添加图片或文件</span>
         </div>
       )}
-      {children}
+      {!allowAttachments && children}
       {allowGoal && (
         <label className="new-session-goal-toggle">
           <input
@@ -82,6 +90,7 @@ export function PromptForm(props: PromptFormProps) {
       <label className="prompt-label">
         {promptLabel === '发送给 Codex 的消息' ? '消息' : promptLabel}
         <textarea
+          ref={input}
           aria-label={promptLabel}
           autoFocus={autoFocus && !isMobile}
           placeholder={
@@ -126,44 +135,75 @@ export function PromptForm(props: PromptFormProps) {
           disabled={busy || !!draft.requestId || !enabled}
           picker={attachmentPicker}
         >
-          {(attachmentControls || allowDesktopChannel || draft.desktopChannel) && (
-            <>
-              {attachmentControls}
-              {(allowDesktopChannel || draft.desktopChannel) && (
-                <label
-                  className="composer-desktop-channel"
-                  title="通过当前工作空间的 Codex 桌面应用发送，执行中的消息会等待本轮结束。"
-                >
-                  <input
-                    type="checkbox"
-                    checked={!!draft.desktopChannel}
-                    disabled={busy || !!draft.requestId || !enabled}
-                    onChange={(event) =>
-                      setDraft((previous) => ({
-                        ...previous,
-                        desktopChannel: event.target.checked,
-                      }))
-                    }
-                  />
-                  桌面通道
-                </label>
-              )}
-            </>
+          {(!!promptShortcuts?.length || !!shortcutActions?.length) && (
+            <PromptShortcuts
+              shortcuts={promptShortcuts ?? []}
+              actions={shortcutActions}
+              disabled={busy || uploadBusy || !!draft.requestId || !enabled}
+              canSubmit={canSubmitPreset}
+              allowDesktopChannel={allowDesktopChannel}
+              onSend={(shortcut) => void submitPresetPrompt(shortcut)}
+              onInsert={(shortcut) => {
+                setDraft((previous) => ({
+                  ...previous,
+                  prompt: shortcut.prompt,
+                  desktopChannel: shortcut.channel === 'desktop' || previous.desktopChannel,
+                }));
+                input.current?.focus();
+              }}
+            />
           )}
+          {(attachmentControls || allowDesktopChannel || draft.desktopChannel) && (
+            <Popover
+              label="发送设置"
+              icon={draft.desktopChannel ? <Monitor size={15} /> : <SlidersHorizontal size={15} />}
+              active={!!draft.desktopChannel}
+              className="composer-settings-trigger"
+            >
+              {() => (
+                <div className="composer-settings">
+                  <section>
+                    <h3>模型与思考</h3>
+                    {attachmentControls || (
+                      <p className="composer-menu-hint">沿用当前会话的模型与思考设置。</p>
+                    )}
+                  </section>
+                  {(allowDesktopChannel || draft.desktopChannel) && (
+                    <section>
+                      <h3>发送通道</h3>
+                      <label className="composer-desktop-channel">
+                        <input
+                          type="checkbox"
+                          aria-label="桌面通道"
+                          checked={!!draft.desktopChannel}
+                          disabled={busy || !!draft.requestId || !enabled}
+                          onChange={(event) =>
+                            setDraft((previous) => ({
+                              ...previous,
+                              desktopChannel: event.target.checked,
+                            }))
+                          }
+                        />
+                        <span>
+                          <strong>桌面通道</strong>
+                          <small>通过 Codex 桌面应用发送；执行中的消息会排队。</small>
+                        </span>
+                      </label>
+                    </section>
+                  )}
+                </div>
+              )}
+            </Popover>
+          )}
+          {children}
         </AttachmentPicker>
       )}
-      {(error || validationError) && (
-        <p className="control-error" role="alert">
-          {error || validationError}
-        </p>
-      )}
-      {notice && (
-        <p className="control-notice" role="status">
-          {notice}
-        </p>
-      )}
       <div className="prompt-actions">
-        <span className="muted">
+        <span
+          className={
+            'muted prompt-count' + (characterCount > characterLimit * 0.8 ? ' near-limit' : '')
+          }
+        >
           {characterCount.toLocaleString()} / {characterLimit.toLocaleString()}
         </span>
         {draft.requestId && (!busy || draft.queued) ? (
@@ -221,6 +261,16 @@ export function PromptForm(props: PromptFormProps) {
         )}
         {submitActions}
       </div>
+      {(error || validationError) && (
+        <p className="control-error" role="alert">
+          {error || validationError}
+        </p>
+      )}
+      {notice && (
+        <p className="control-notice" role="status">
+          {notice}
+        </p>
+      )}
     </form>
   );
 }

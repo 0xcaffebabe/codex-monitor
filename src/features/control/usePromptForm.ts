@@ -3,6 +3,7 @@ import { api, ApiError, post } from '../../api';
 import { useAttachmentPicker } from '../attachments/useAttachmentPicker';
 import { newRequestId } from './request-id';
 import type { Draft, Receipt } from './types';
+import type { ComposerAction, PromptShortcut } from './prompt-shortcuts';
 import { workspaceStorageKey } from '../../workspace-scope';
 
 export type PromptFormProps = {
@@ -12,6 +13,7 @@ export type PromptFormProps = {
   label: string;
   enabled: boolean;
   onAccepted: (receipt: Receipt) => void;
+  onSubmitStart?: () => void;
   children?: React.ReactNode;
   inputLabel?: string;
   autoFocus?: boolean;
@@ -24,6 +26,8 @@ export type PromptFormProps = {
   allowGoal?: boolean;
   /** Omit to remove the option; false retains saved selections for unavailable clients. */
   allowDesktopChannel?: boolean;
+  promptShortcuts?: PromptShortcut[];
+  shortcutActions?: ComposerAction[];
 };
 export function usePromptForm({
   storageKey: unscopedKey,
@@ -31,6 +35,7 @@ export function usePromptForm({
   extra,
   enabled,
   onAccepted,
+  onSubmitStart,
   initialPrompt = '',
   allowAttachments = false,
   allowGoal = false,
@@ -76,6 +81,7 @@ export function usePromptForm({
         : '';
   const hasContent = asGoal ? !!objective : !!draft.prompt.trim() || !!attachments.length;
   const canSubmit = !!enabled && hasContent && !validationError;
+  const canSubmitPreset = !!enabled && (!draft.desktopChannel || !!allowDesktopChannel);
   const attachmentPicker = useAttachmentPicker({
     attachments,
     disabled: !allowAttachments || busy || !!draft.requestId || !enabled,
@@ -158,19 +164,29 @@ export function usePromptForm({
     return false;
   }
   async function submit() {
-    if (submitting.current || uploading.current || !canSubmit || draft.requestId) return;
+    if (!canSubmit) return;
+    await sendDraft({ ...draft, asGoal });
+  }
+  async function submitPresetPrompt(shortcut: PromptShortcut) {
+    const desktopChannel = shortcut.channel === 'desktop' || !!draft.desktopChannel;
+    if (!enabled || (desktopChannel && !allowDesktopChannel)) return;
+    await sendDraft({ prompt: shortcut.prompt, desktopChannel });
+  }
+  async function sendDraft(submission: Draft) {
+    if (submitting.current || uploading.current || draft.requestId) return;
     submitting.current = true;
+    onSubmitStart?.();
     setBusy(true);
     setError('');
     setNotice('');
     const requestId = newRequestId(),
       payload = {
-        prompt: draft.prompt,
-        attachments: draft.attachments,
+        prompt: submission.prompt,
+        attachments: submission.attachments,
         requestId,
         // Ordinary creation must remain compatible with clients predating goal creation.
-        ...(asGoal ? { asGoal: true } : {}),
-        ...(draft.desktopChannel ? { desktopChannel: true } : {}),
+        ...(submission.asGoal ? { asGoal: true } : {}),
+        ...(submission.desktopChannel ? { desktopChannel: true } : {}),
       };
     currentRequest.current = requestId;
     // Persist the ID before the request, so a reload never repeats an uncertain send.
@@ -301,6 +317,7 @@ export function usePromptForm({
     attachments,
     attachmentPicker,
     submit,
+    submitPresetPrompt,
     check,
     cancelQueued,
     asGoal,
@@ -309,6 +326,7 @@ export function usePromptForm({
     characterCount,
     validationError,
     canSubmit,
+    canSubmitPreset,
     retryGoal,
     reset,
     openCreated: () => draft.creation && onAccepted(draft.creation),

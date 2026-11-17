@@ -1,5 +1,6 @@
-import { LoaderCircle, MessageSquareQuote, Paperclip, X } from 'lucide-react';
+import { LoaderCircle, MessageSquareQuote, Paperclip, Plus, X } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
+import { Popover } from '../../shared/ui/Popover';
 import { maxAttachments, sizeLabel } from './attachment-model';
 import { Thumbnail } from './Thumbnail';
 import type { Attachment } from './types';
@@ -22,24 +23,48 @@ export function AttachmentPicker({
   return (
     <div className="attachment-picker">
       <div className={'attachment-toolbar' + (children ? ' has-controls' : '')}>
-        <button
-          type="button"
-          className="attachment-add"
-          title="上传图片或文件"
+        <Popover
+          label="添加内容"
+          icon={<Plus size={17} />}
+          className="composer-add-trigger"
           disabled={disabled || !!progress || attachments.length >= maxAttachments}
-          onClick={() => input.current?.click()}
         >
-          <Paperclip size={15} /> <span>添加附件</span>
-        </button>
-        <button
-          type="button"
-          className="attachment-add attachment-reference"
-          title="引用其他会话，可跨工作空间选择"
-          disabled={disabled || !!progress || attachments.length >= maxAttachments}
-          onClick={() => setReferencing(true)}
-        >
-          <MessageSquareQuote size={15} /> <span>引用会话</span>
-        </button>
+          {(close) => (
+            <div className="composer-add-options">
+              <button
+                type="button"
+                className="composer-option"
+                aria-label="添加附件"
+                onClick={() => {
+                  close();
+                  input.current?.click();
+                }}
+              >
+                <Paperclip size={18} />
+                <span>
+                  <strong>添加附件</strong>
+                  <small>上传图片或文件，也可直接粘贴、拖入</small>
+                </span>
+              </button>
+              <button
+                type="button"
+                className="composer-option attachment-reference"
+                aria-label="引用会话"
+                onClick={() => {
+                  close();
+                  setReferencing(true);
+                }}
+              >
+                <MessageSquareQuote size={18} />
+                <span>
+                  <strong>引用会话</strong>
+                  <small>从其他会话添加上下文，支持跨工作空间</small>
+                </span>
+              </button>
+              <p className="composer-menu-hint">最多 10 个附件，单个不超过 20 MB</p>
+            </div>
+          )}
+        </Popover>
         <input
           ref={input}
           type="file"
@@ -54,7 +79,6 @@ export function AttachmentPicker({
           }}
         />
         {children}
-        <small>{attachments.length ? `${attachments.length} / 10 · ` : ''}单个 ≤ 20 MB</small>
       </div>
       {attachments.length > 0 && (
         <ul className="attachment-list" aria-label="待发送附件">
