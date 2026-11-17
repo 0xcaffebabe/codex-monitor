@@ -2,7 +2,7 @@ import { execFile, type ChildProcess } from 'node:child_process';
 import { constants } from 'node:fs';
 import { lstat, open, readlink, realpath, stat } from 'node:fs/promises';
 import path from 'node:path';
-import type { GitFile, GitFileDiff, GitScope, GitStatus } from '../src/git-types.js';
+import type { GitBranches, GitFile, GitFileDiff, GitScope, GitStatus } from '../src/git-types.js';
 import type { CodexSource } from './source.js';
 
 const LIST_LIMIT = 2 * 1024 * 1024;
@@ -46,14 +46,18 @@ export const validGitPath = (file: string) =>
     .split('/')
     .some((part) => !part || part === '..' || part === '.' || part.toLowerCase() === '.git');
 
-/** Read-only Git commands are always rooted in a known session on this workspace client. */
+export const validGitBranch = (branch: string) =>
+  !!branch && branch.length <= 1024 && !branch.startsWith('-') && !/[\x00-\x20\x7f]/.test(branch);
+
+/** Git commands are always rooted in a known session on this workspace client. */
 export class ProjectGit {
   private children = new Set<ChildProcess>();
+  private switching = new Set<string>();
   private pending = 0;
   private closed = false;
   constructor(private source: Pick<CodexSource, 'get' | 'refresh'>) {}
 
-  private run(cwd: string, args: string[], patch = false, allowed = [0]) {
+  private run(cwd: string, args: string[], patch = false, allowed = [0], failureMessage?: string) {
     if (this.closed) throw new GitError('工作空间正在关闭', 503);
     const env = { ...process.env, GIT_OPTIONAL_LOCKS: '0', GIT_TERMINAL_PROMPT: '0' };
     // A launcher may itself be running inside a Git hook or with a different index.
@@ -85,7 +89,7 @@ export class ProjectGit {
           timeout: 15000,
           windowsHide: true,
         },
-        (error, stdout) => {
+        (error, stdout, stderr) => {
           this.children.delete(child);
           const code = typeof error?.code === 'number' ? error.code : error ? -1 : 0;
           if (error?.code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER') {
@@ -96,9 +100,23 @@ export class ProjectGit {
           }
           if (error?.code === 'ENOENT')
             return reject(new GitError('工作空间未安装 Git，或 Git 不在 PATH 中。'));
-          if (error?.killed) return reject(new GitError('Git 读取超时，请稍后重试。', 504));
+          if (error?.killed)
+            return reject(
+              new GitError(
+                failureMessage
+                  ? 'Git 切换超时，请刷新确认当前分支。'
+                  : 'Git 读取超时，请稍后重试。',
+                504,
+              ),
+            );
           if (!allowed.includes(code))
-            return reject(new GitError('Git 读取失败，请检查仓库权限并刷新重试。'));
+            return reject(
+              new GitError(
+                failureMessage
+                  ? `${failureMessage}\n${stderr.trim().slice(0, 4096)}`.trim()
+                  : 'Git 读取失败，请检查仓库权限并刷新重试。',
+              ),
+            );
           resolve({ text: stdout, code, truncated: false });
         },
       );
@@ -122,14 +140,48 @@ export class ProjectGit {
     const location = await this.run(cwd, ['rev-parse', '--show-toplevel'], false, [0, 128]);
     if (location.code !== 0) throw new GitError('此会话的项目目录不是可读取的 Git 仓库。');
     const root = location.text.replace(/\r?\n$/, '');
+    return this.head(root);
+  }
+
+  private async head(root: string) {
     const [head, branch] = await Promise.all([
       this.run(root, ['rev-parse', '--verify', 'HEAD'], false, [0, 128]),
-      this.run(root, ['symbolic-ref', '--short', '-q', 'HEAD'], false, [0, 1]),
+      this.run(root, ['symbolic-ref', '-q', 'HEAD'], false, [0, 1]),
     ]);
     return {
       root,
       head: head.code === 0 ? head.text.trim() : null,
-      branch: branch.code === 0 ? branch.text.trim() : head.text.trim().slice(0, 8) || 'HEAD',
+      branch:
+        branch.code === 0
+          ? branch.text.trim().replace(/^refs\/heads\//, '')
+          : head.text.trim().slice(0, 8) || 'HEAD',
+      detached: branch.code !== 0,
+    };
+  }
+
+  private async listBranches(
+    repo: Awaited<ReturnType<ProjectGit['repository']>>,
+  ): Promise<GitBranches> {
+    const refs = await this.run(repo.root, [
+      'for-each-ref',
+      '--sort=refname',
+      '--format=%(refname)%00%(worktreepath)%00',
+      'refs/heads/',
+    ]);
+    return {
+      ...repo,
+      branches: refs.text
+        .split(/\0\r?\n/)
+        .filter(Boolean)
+        .map((entry) => {
+          const [ref, worktree] = entry.split('\0');
+          const name = ref.slice('refs/heads/'.length);
+          return {
+            name,
+            current: !repo.detached && name === repo.branch,
+            worktree: worktree || null,
+          };
+        }),
     };
   }
 
@@ -212,7 +264,7 @@ export class ProjectGit {
     id: string,
     action: (repo: Awaited<ReturnType<ProjectGit['repository']>>) => Promise<T>,
   ) {
-    if (this.pending >= 4) throw new GitError('Git 读取请求过多，请稍后重试。', 429);
+    if (this.pending >= 4) throw new GitError('Git 请求过多，请稍后重试。', 429);
     this.pending++;
     try {
       return await action(await this.repository(id));
@@ -223,6 +275,36 @@ export class ProjectGit {
 
   status(id: string, scope: GitScope) {
     return this.request(id, (repo) => this.list(repo, scope));
+  }
+
+  branches(id: string) {
+    return this.request(id, (repo) => this.listBranches(repo));
+  }
+
+  switchBranch(id: string, branch: string, authorize: () => Promise<void>) {
+    if (!validGitBranch(branch)) throw new GitError('分支名称无效', 400);
+    return this.request(id, async (repo) => {
+      if (this.switching.has(repo.root)) throw new GitError('正在切换此项目的分支，请稍后刷新。');
+      this.switching.add(repo.root);
+      try {
+        const branches = await this.listBranches(repo);
+        const target = branches.branches.find((item) => item.name === branch);
+        if (!target) throw new GitError('目标本地分支不存在，请刷新分支列表。', 404);
+        await authorize();
+        if (!target.current) {
+          await this.run(
+            repo.root,
+            ['switch', '--no-guess', '--', branch],
+            false,
+            [0],
+            '无法切换分支，请先处理以下 Git 提示后重试：',
+          );
+        }
+        return await this.listBranches(await this.head(repo.root));
+      } finally {
+        this.switching.delete(repo.root);
+      }
+    });
   }
 
   diff(id: string, scope: GitScope, filePath: string) {

@@ -10,6 +10,7 @@ import {
   TerminalSquare,
   X,
 } from 'lucide-react';
+import type { ReactNode } from 'react';
 import { ContextMeter } from '../../context-meter';
 import { cx, number } from '../../shared/format';
 import { Status } from '../../shared/ui/Status';
@@ -26,6 +27,7 @@ export function DetailHeader({
   onComputerUse,
   onTerminal,
   onGitDiff,
+  gitBranch,
   creating = false,
 }: Pick<DetailProps, 'page' | 'onBack'> & {
   model: Pick<
@@ -35,6 +37,7 @@ export function DetailHeader({
   onComputerUse: () => void;
   onTerminal?: () => void;
   onGitDiff?: () => void;
+  gitBranch?: ReactNode;
   creating?: boolean;
 }) {
   const { session, infoExpanded, setInfoExpanded, toolCount, find, setFind } = model;
@@ -118,6 +121,7 @@ export function DetailHeader({
             <Folder size={12} />
             {session.project}
           </span>
+          {gitBranch}
           <span className="detail-summary-model" title={session.model || 'Codex'}>
             {session.model || 'Codex'}
           </span>

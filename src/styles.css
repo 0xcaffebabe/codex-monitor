@@ -34,5 +34,6 @@
 @import './styles/client-workspaces.css';
 @import './styles/project-terminal.css';
 @import './styles/git-diff.css';
+@import './styles/git-branches.css';
 @import './styles/completion-notifications.css';
 @import './styles/session-reference.css';

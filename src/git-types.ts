@@ -17,6 +17,18 @@ export type GitStatus = {
   files: GitFile[];
 };
 
+export type GitBranches = {
+  root: string;
+  branch: string;
+  head: string | null;
+  detached: boolean;
+  branches: {
+    name: string;
+    current: boolean;
+    worktree: string | null;
+  }[];
+};
+
 export type GitFileDiff = {
   file: GitFile;
   patch: string;

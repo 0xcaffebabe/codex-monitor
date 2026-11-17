@@ -80,7 +80,7 @@ test.afterEach(() => {
   projects = [];
 });
 
-async function enter(page: Page, request: APIRequestContext, workspace = 'local') {
+async function visitSession(page: Page, request: APIRequestContext, workspace = 'local') {
   if (
     !token ||
     !(await request.get('/api/auth/me', { headers: { Authorization: 'Bearer ' + token } })).ok()
@@ -100,6 +100,13 @@ async function enter(page: Page, request: APIRequestContext, workspace = 'local'
   }
   await page.addInitScript((value) => localStorage.setItem('codex-monitor.auth.v1', value), token);
   await page.goto(`/?workspace=${workspace}&session=${ids.modern}`);
+  const project = projects[workspace === 'local' ? 0 : 1];
+  const cwd = String(project.db.prepare('SELECT cwd FROM threads WHERE id=?').get(ids.modern)!.cwd);
+  await expect(page.locator('.detail-summary-project')).toHaveAttribute('title', cwd);
+}
+
+async function enter(page: Page, request: APIRequestContext, workspace = 'local') {
+  await visitSession(page, request, workspace);
   await page.getByRole('button', { name: '查看代码变更', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: '代码变更', exact: true });
   await expect(
@@ -223,4 +230,123 @@ test('clean and non-Git projects have clear states and can recover after refresh
   write(repo, 'src/review.ts', 'export const value = "recovered";\n');
   await dialog.getByRole('button', { name: '刷新代码变更', exact: true }).click();
   await expect(dialog.locator('.git-line.added .git-line-code')).toContainText('recovered');
+});
+
+test('session branches refuse conflicting edits, then switch the actual project and update the header', async ({
+  page,
+  request,
+}) => {
+  const { repo } = projects[0];
+  const target = 'feature/中文-' + 'long-branch-name-'.repeat(5);
+  git(repo, 'add', '.');
+  git(repo, 'commit', '-m', 'base for branch switching');
+  git(repo, 'switch', '-c', target);
+  write(repo, 'src/review.ts', 'export const value = "feature";\n');
+  git(repo, 'add', '.');
+  git(repo, 'commit', '-m', 'feature branch');
+  git(repo, 'switch', 'review-test');
+  write(repo, 'src/review.ts', 'export const value = "unsaved-work";\n');
+  await visitSession(page, request);
+  const trigger = page.getByRole('button', { name: '选择 Git 分支', exact: true });
+  await expect(trigger).toHaveText('review-test');
+  await trigger.click();
+  const dialog = page.getByRole('dialog', { name: '切换 Git 分支', exact: true });
+  const select = dialog.getByRole('combobox', { name: '目标分支', exact: true });
+  const submit = dialog.getByRole('button', { name: '切换分支', exact: true });
+  await expect(select).toHaveValue('review-test');
+  await expect(submit).toBeDisabled();
+  await select.selectOption(target);
+  await submit.click();
+  await expect(dialog.getByRole('alert')).toContainText('src/review.ts');
+  expect(git(repo, 'branch', '--show-current').trim()).toBe('review-test');
+  expect(readFileSync(path.join(repo, 'src/review.ts'), 'utf8')).toContain('unsaved-work');
+  await page.screenshot({
+    path: test.info().outputPath('git-branch-conflict.png'),
+    fullPage: true,
+  });
+  write(repo, 'src/review.ts', 'export const value = "local-working";\n');
+  await expect(submit).toBeEnabled();
+  await submit.click();
+  await expect(dialog).toHaveCount(0);
+  await expect(trigger).toHaveText(target);
+  await expect(trigger).toBeFocused();
+  expect(git(repo, 'branch', '--show-current').trim()).toBe(target);
+  expect(readFileSync(path.join(repo, 'src/review.ts'), 'utf8')).toContain('feature');
+  expect(git(projects[1].repo, 'branch', '--show-current').trim()).toBe('review-test');
+  await page.screenshot({
+    path: test.info().outputPath('git-branch-switched.png'),
+    fullPage: true,
+  });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.getByRole('button', { name: '查看代码变更', exact: true }).click();
+  await expect(page.locator('.git-diff-branch')).toHaveText(target);
+});
+
+test('branch changes follow the selected workspace and refresh after external Git operations', async ({
+  page,
+  request,
+}) => {
+  const { repo } = projects[1];
+  git(repo, 'branch', 'feature/second-client');
+  await visitSession(page, request, second);
+  const trigger = page.getByRole('button', { name: '选择 Git 分支', exact: true });
+  await expect(trigger).toHaveText('review-test');
+  await trigger.click();
+  const dialog = page.getByRole('dialog', { name: '切换 Git 分支', exact: true });
+  await expect(dialog.locator('.git-branch-header p')).toHaveText(realpathSync(repo));
+  await dialog
+    .getByRole('combobox', { name: '目标分支', exact: true })
+    .selectOption('feature/second-client');
+  const switched = page.waitForResponse(
+    (response) =>
+      response.request().method() === 'POST' &&
+      response.url().endsWith(`/api/workspaces/${second}/sessions/${ids.modern}/git/branch`),
+  );
+  await dialog.getByRole('button', { name: '切换分支', exact: true }).click();
+  expect((await switched).ok()).toBe(true);
+  await expect(trigger).toHaveText('feature/second-client');
+  expect(git(projects[0].repo, 'branch', '--show-current').trim()).toBe('review-test');
+  expect(git(repo, 'branch', '--show-current').trim()).toBe('feature/second-client');
+  git(repo, 'checkout', '--detach');
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+  await expect(trigger).toHaveAttribute('title', /分离 HEAD/);
+  await trigger.click();
+  await expect(dialog.locator('.git-branch-current')).toContainText('分离 HEAD');
+  await page.keyboard.press('Escape');
+  await expect(dialog).toHaveCount(0);
+  await expect(trigger).toBeFocused();
+});
+
+test('branch discovery explains non-Git directories and recovers after refreshing', async ({
+  page,
+  request,
+}) => {
+  const { db } = projects[0];
+  const repo = path.join(root, 'initially non-Git ' + randomUUID());
+  mkdirSync(repo);
+  db.prepare('UPDATE threads SET cwd=? WHERE id=?').run(repo, ids.modern);
+  await visitSession(page, request);
+  const trigger = page.getByRole('button', { name: '选择 Git 分支', exact: true });
+  await expect(trigger).toHaveText('Git 不可用');
+  await trigger.click();
+  const dialog = page.getByRole('dialog', { name: '切换 Git 分支', exact: true });
+  await expect(dialog.getByRole('alert')).toContainText('不是可读取的 Git 仓库');
+  git(repo, 'init', '-b', 'review-test');
+  git(repo, 'config', 'user.name', 'Branch test');
+  git(repo, 'config', 'user.email', 'branch@example.invalid');
+  git(repo, 'config', 'commit.gpgsign', 'false');
+  write(repo, 'initial.txt', 'initial\n');
+  git(repo, 'add', '.');
+  git(repo, 'commit', '-m', 'initial');
+  await expect(dialog.getByRole('button', { name: '刷新 Git 分支', exact: true })).toBeEnabled();
+  await dialog.getByRole('button', { name: '刷新 Git 分支', exact: true }).click();
+  await expect(dialog.getByRole('combobox', { name: '目标分支', exact: true })).toHaveValue(
+    'review-test',
+  );
+  await expect(dialog.getByRole('alert')).toHaveCount(0);
+  await expect(trigger).toHaveText('review-test');
+  await page.screenshot({
+    path: test.info().outputPath('git-branch-selector.png'),
+    fullPage: true,
+  });
 });

@@ -245,6 +245,12 @@ test('Git HTTP endpoints require admin, validate queries and resolve only the se
     fetch(`${url}/api/sessions/${id}/git${query}`, {
       headers: { Authorization: 'Bearer ' + bearer },
     });
+  const switchBranch = (body: unknown, bearer = token, query = '') =>
+    fetch(`${url}/api/sessions/${ids.modern}/git/branch${query}`, {
+      method: 'POST',
+      headers: { Authorization: 'Bearer ' + bearer, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
   try {
     f.write('new.ts', 'new content\n');
     assert.equal((await request('', '')).status, 401);
@@ -261,7 +267,12 @@ test('Git HTTP endpoints require admin, validate queries and resolve only the se
       }),
     });
     const viewer = (await service.auth.login('viewer', 'git-viewer-password!'))!;
-    assert.equal((await request('', service.auth.issue(viewer, 'viewer').token)).status, 403);
+    const viewerToken = service.auth.issue(viewer, 'viewer').token;
+    assert.equal((await request('', viewerToken)).status, 403);
+    assert.equal((await request('/branches', '')).status, 401);
+    assert.equal((await request('/branches', viewerToken)).status, 403);
+    assert.equal((await switchBranch({ branch: 'review-test' }, '')).status, 401);
+    assert.equal((await switchBranch({ branch: 'review-test' }, viewerToken)).status, 403);
     assert.equal((await request('?scope=invalid')).status, 400);
     assert.equal((await request('?cwd=/etc')).status, 400);
     assert.equal((await request('/diff?path=..%2Fprivate.jsonl')).status, 400);
@@ -271,8 +282,163 @@ test('Git HTTP endpoints require admin, validate queries and resolve only the se
     assert.equal(response.status, 200);
     assert.equal(response.headers.get('cache-control'), 'no-store');
     assert.match((await response.json()).patch, /\+new content/);
+    const branches = await request('/branches');
+    assert.equal(branches.headers.get('cache-control'), 'no-store');
+    assert.equal((await branches.json()).branch, 'review-test');
+    assert.equal((await request('/branches?cwd=/etc')).status, 400);
+    for (const body of [
+      {},
+      { branch: '--force' },
+      { branch: 'a\nb' },
+      { branch: 'review-test', cwd: '/etc' },
+    ])
+      assert.equal((await switchBranch(body)).status, 400);
+    assert.equal((await switchBranch({ branch: 'review-test' }, token, '?force=true')).status, 400);
+    assert.equal((await switchBranch({ branch: 'missing' })).status, 404);
+    f.command('branch', 'feature/中文');
+    const switched = await switchBranch({ branch: 'feature/中文' });
+    assert.equal(switched.status, 200);
+    assert.equal((await switched.json()).branch, 'feature/中文');
+    assert.equal(f.command('branch', '--show-current').trim(), 'feature/中文');
+    assert.equal((await request('/branches')).status, 200);
     f.f.state.prepare('UPDATE threads SET cwd=? WHERE id=?').run(f.f.root, ids.modern);
     assert.match((await (await request()).json()).error, /不是.*Git 仓库/);
+    assert.equal((await request('/branches')).status, 409);
+    assert.equal((await switchBranch({ branch: 'review-test' })).status, 409);
+  } finally {
+    await service.close();
+    server.closeAllConnections();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    f.close();
+  }
+});
+
+test('branch switching preserves staged and untracked changes and refuses overwriting local edits', async () => {
+  const f = projectFixture();
+  const authorize = async () => {};
+  try {
+    f.command('switch', '-c', 'feature/中文');
+    f.write('src/app.ts', 'feature branch\n');
+    f.command('add', '.');
+    f.command('commit', '-m', 'feature');
+    f.command('switch', 'review-test');
+    f.command('tag', 'review-test');
+    f.f.state
+      .prepare('UPDATE threads SET cwd=? WHERE id=?')
+      .run(path.join(f.repo, 'src'), ids.modern);
+    const branches = await f.git.branches(ids.modern);
+    assert.equal(branches.root, realpathSync(f.repo));
+    assert.equal(branches.branch, 'review-test');
+    assert.equal(branches.detached, false);
+    assert.deepEqual(
+      branches.branches.map((branch) => [branch.name, branch.current]),
+      [
+        ['feature/中文', false],
+        ['review-test', true],
+      ],
+    );
+    f.write('src/app.ts', 'local work\n');
+    f.write('literal1.ts', 'staged local work\n');
+    f.command('add', 'literal1.ts');
+    f.write('keep untracked.ts', 'untracked work\n');
+    const index = readFileSync(path.join(f.repo, '.git/index'));
+    await assert.rejects(
+      () => f.git.switchBranch(ids.modern, 'feature/中文', authorize),
+      (error: unknown) =>
+        error instanceof GitError && error.status === 409 && /src\/app.ts/.test(error.message),
+    );
+    assert.equal(f.command('branch', '--show-current').trim(), 'review-test');
+    assert.equal(readFileSync(path.join(f.repo, 'src/app.ts'), 'utf8'), 'local work\n');
+    assert.equal(readFileSync(path.join(f.repo, 'keep untracked.ts'), 'utf8'), 'untracked work\n');
+    assert.deepEqual(readFileSync(path.join(f.repo, '.git/index')), index);
+    f.write('src/app.ts', 'export const value = 1;\n');
+    const switched = await f.git.switchBranch(ids.modern, 'feature/中文', authorize);
+    assert.equal(switched.branch, 'feature/中文');
+    assert.equal(readFileSync(path.join(f.repo, 'src/app.ts'), 'utf8'), 'feature branch\n');
+    assert.match(f.command('diff', '--cached'), /staged local work/);
+    assert.equal(readFileSync(path.join(f.repo, 'keep untracked.ts'), 'utf8'), 'untracked work\n');
+    f.command('tag', 'tag-only');
+    for (const branch of ['tag-only', 'HEAD', '@{-1}', 'missing'])
+      await assert.rejects(() => f.git.switchBranch(ids.modern, branch, authorize), {
+        status: 404,
+      });
+    assert.throws(() => f.git.switchBranch(ids.modern, '--force', authorize), { status: 400 });
+  } finally {
+    f.close();
+  }
+});
+
+test('branch discovery handles unborn and detached HEAD and branches occupied by linked worktrees', async () => {
+  const f = projectFixture(false);
+  const authorize = async () => {};
+  try {
+    const unborn = await f.git.branches(ids.modern);
+    assert.equal(unborn.branch, 'review-test');
+    assert.equal(unborn.head, null);
+    assert.equal(unborn.detached, false);
+    assert.deepEqual(unborn.branches, []);
+    f.write('src/app.ts', 'initial\n');
+    f.command('add', '.');
+    f.command('commit', '-m', 'initial');
+    const worktree = path.join(f.f.root, 'linked worktree 中文');
+    f.command('worktree', 'add', '-b', 'linked', worktree);
+    const linked = (await f.git.branches(ids.modern)).branches.find(
+      (branch) => branch.name === 'linked',
+    );
+    assert.equal(linked?.worktree, realpathSync(worktree));
+    await assert.rejects(() => f.git.switchBranch(ids.modern, 'linked', authorize), {
+      status: 409,
+    });
+    f.command('checkout', '--detach');
+    const detached = await f.git.branches(ids.modern);
+    assert.equal(detached.detached, true);
+    assert.equal(detached.branch, detached.head!.slice(0, 8));
+    assert.ok(detached.branches.every((branch) => !branch.current));
+    assert.equal((await f.git.switchBranch(ids.modern, 'review-test', authorize)).detached, false);
+    f.f.state.prepare('UPDATE threads SET cwd=? WHERE id=?').run(worktree, ids.modern);
+    f.command('branch', 'available');
+    assert.equal((await f.git.branches(ids.modern)).branch, 'linked');
+    assert.equal(
+      (await f.git.switchBranch(ids.modern, 'available', authorize)).branch,
+      'available',
+    );
+    assert.equal(f.command('branch', '--show-current').trim(), 'review-test');
+  } finally {
+    f.close();
+  }
+});
+
+test('branch switching rechecks device authorization immediately before changing the worktree', async () => {
+  const f = projectFixture();
+  let checks = 0;
+  let revoke: (() => void) | undefined;
+  const service = createApp(f.f.config, {
+    control: new FixtureDesktop(f.f),
+    authorization: {
+      device: async () => {
+        if (++checks === 2) revoke?.();
+        return true;
+      },
+      user: async () => true,
+    },
+  });
+  const server = service.app.listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  const url = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
+  try {
+    const user = await service.auth.setup('owner', 'git-switch-test-password!');
+    const { token } = service.auth.issue(user, 'git switch');
+    const identity = service.auth.authenticate(token)!;
+    revoke = () => service.auth.revoke(user.id, identity.sessionId);
+    f.command('branch', 'other');
+    const response = await fetch(`${url}/api/sessions/${ids.modern}/git/branch`, {
+      method: 'POST',
+      headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ branch: 'other' }),
+    });
+    assert.equal(response.status, 403);
+    assert.equal(checks, 2);
+    assert.equal(f.command('branch', '--show-current').trim(), 'review-test');
   } finally {
     await service.close();
     server.closeAllConnections();

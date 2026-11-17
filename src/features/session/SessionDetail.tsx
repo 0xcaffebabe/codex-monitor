@@ -10,6 +10,7 @@ import { Timeline } from './Timeline';
 import { useSessionActions } from './useSessionActions';
 import { DetailProps, useTimeline } from './useTimeline';
 import { ComputerUseTimeline } from './ComputerUseTimeline';
+import { GitBranchSelector } from '../git/GitBranchSelector';
 const ProjectTerminal = lazy(() => import('../terminal/ProjectTerminal'));
 const GitDiff = lazy(() => import('../git/GitDiff'));
 
@@ -57,6 +58,11 @@ export function Detail(
         onComputerUse={() => setComputerUseSession(session?.id ?? '')}
         onTerminal={user.role === 'admin' ? () => setTerminalSession(session?.id ?? '') : undefined}
         onGitDiff={user.role === 'admin' ? () => setGitSession(session?.id ?? '') : undefined}
+        gitBranch={
+          !newSession && user.role === 'admin' && session?.cwd ? (
+            <GitBranchSelector key={`${session.id}:${session.cwd}`} session={session} />
+          ) : undefined
+        }
       />
       {session && gitSession === session.id && (
         <Suspense fallback={null}>

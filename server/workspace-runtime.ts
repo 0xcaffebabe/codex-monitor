@@ -44,7 +44,7 @@ export function installWorkspaceRuntime(
   const terminals = new ProjectTerminals(auth, source, services.authorization);
   installTerminalRoutes(app, terminals);
   const git = new ProjectGit(source);
-  installGitRoutes(app, git);
+  installGitRoutes(app, git, auth, services.authorization);
   const closeControl = installControl(
     app,
     auth.db,
