@@ -128,12 +128,6 @@
     flex-direction: column;
     gap: 3px;
   }
-  .running-workspace-message {
-    margin: 0;
-    padding: 10px 9px 14px;
-    color: var(--muted);
-    font-size: 10px;
-  }
   .running-shortcut {
     flex-direction: row;
     align-items: flex-start;

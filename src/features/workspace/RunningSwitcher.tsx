@@ -22,8 +22,9 @@ export function RunningSwitcher({
     const timer = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(timer);
   }, [expanded]);
-  const total = workspaces.reduce((count, group) => count + group.sessions.length, 0);
-  if (!total && !workspaces.some((group) => group.error)) return null;
+  const runningWorkspaces = workspaces.filter((group) => group.sessions.length > 0);
+  const total = runningWorkspaces.reduce((count, group) => count + group.sessions.length, 0);
+  if (!total) return null;
   return (
     <>
       {expanded && (
@@ -63,7 +64,7 @@ export function RunningSwitcher({
               </button>
             </header>
             <div className="running-switcher-list">
-              {workspaces.map(({ workspace, sessions, error, loading }) => (
+              {runningWorkspaces.map(({ workspace, sessions }) => (
                 <section
                   className="running-workspace"
                   key={workspace.id}
@@ -115,13 +116,6 @@ export function RunningSwitcher({
                       );
                     })}
                   </div>
-                  {!sessions.length && (
-                    <p className="running-workspace-message">
-                      {!workspace.online
-                        ? '空间已离线'
-                        : error || (loading ? '正在加载…' : '暂无进行中的会话')}
-                    </p>
-                  )}
                 </section>
               ))}
             </div>

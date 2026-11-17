@@ -621,13 +621,13 @@ test('mobile running shortcuts group workspaces and open identical session IDs i
   await expect(page.locator('.detail-heading')).toContainText('开发 codex-monitor');
 });
 
-test('mobile running shortcuts update activity times and recover individual workspace lists', async ({
+test('mobile running shortcuts update activity times, hide empty workspaces and recover their lists', async ({
   page,
   request,
 }) => {
   test.skip(test.info().project.name !== 'mobile', 'The fixed running switcher is mobile only');
   const now = Date.now();
-  let mode: 'running' | 'empty' | 'error' | 'offline' = 'running';
+  let mode: 'running' | 'empty' | 'error' | 'offline' | 'all-empty' | 'all-error' = 'running';
   await page.route('**/api/workspaces', async (route) => {
     const response = await route.fetch();
     const body = await response.json();
@@ -639,11 +639,11 @@ test('mobile running shortcuts update activity times and recover individual work
     const url = new URL(route.request().url());
     if (url.searchParams.get('status') !== 'running') return route.continue();
     const remote = url.pathname.includes(second);
-    if (remote && mode === 'error')
+    if ((remote && mode === 'error') || mode === 'all-error')
       return route.fulfill({ status: 503, json: { error: '测试连接失败' } });
     const response = await route.fetch();
     const body = await response.json();
-    if (remote && mode === 'empty') {
+    if ((remote && mode === 'empty') || mode === 'all-empty') {
       body.sessions = [];
       body.total = 0;
     }
@@ -674,20 +674,42 @@ test('mobile running shortcuts update activity times and recover individual work
   await expect(localTime).toHaveText('1 分钟前');
   mode = 'empty';
   await page.clock.fastForward(3000);
-  await expect(remote).toContainText('暂无进行中的会话');
-  await expect(remote.getByRole('button')).toHaveCount(0);
+  await expect(remote).toHaveCount(0);
+  await expect(shortcuts.locator('.running-switcher-header')).toContainText('1');
   await expect(local.getByRole('button')).toHaveCount(1);
+  await page.screenshot({
+    path: test.info().outputPath('running-shortcuts-hide-empty-workspaces.png'),
+    fullPage: true,
+  });
+  mode = 'running';
+  await page.clock.fastForward(3000);
+  await expect(remote.getByRole('button')).toHaveCount(1);
   mode = 'error';
   await page.clock.fastForward(3000);
-  await expect(remote).toContainText('暂时无法加载，正在重试');
+  await expect(remote).toHaveCount(0);
   await expect(local.getByRole('button')).toHaveCount(1);
+  mode = 'running';
+  await page.clock.fastForward(3000);
+  await expect(remote.getByRole('button')).toHaveCount(1);
   mode = 'offline';
   await page.clock.fastForward(3000);
-  await expect(remote).toContainText('空间已离线');
+  await expect(remote).toHaveCount(0);
   mode = 'running';
   await page.clock.fastForward(3000);
   await expect(remote.getByRole('button')).toHaveCount(1);
   await expect(shortcuts.locator('.running-switcher-header')).toContainText('2');
+  mode = 'all-empty';
+  await page.clock.fastForward(3000);
+  await expect(shortcuts).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '关闭运行会话列表', exact: true })).toHaveCount(0);
+  mode = 'running';
+  await page.clock.fastForward(3000);
+  await expect(local.getByRole('button')).toHaveCount(1);
+  await expect(remote.getByRole('button')).toHaveCount(1);
+  mode = 'all-error';
+  await page.clock.fastForward(3000);
+  await expect(shortcuts).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '关闭运行会话列表', exact: true })).toHaveCount(0);
 });
 
 test('shows real host CPU and memory for connected clients in the header and management list', async ({
