@@ -8,6 +8,25 @@ export type SessionRow<T extends Session = Session> = { session: T; heading?: st
 export const workspaceSessionKey = (session: WorkspaceSession) =>
   `${session.workspaceId}:${session.id}`;
 
+export function runningProjects(sessions: Session[], selectedProject = '') {
+  const projects = new Map<string, { path: string; name: string; count: number }>();
+  for (const session of sessions) {
+    if (session.status !== 'running' || session.archived || !session.cwd) continue;
+    const project = projects.get(session.cwd);
+    if (project) project.count++;
+    else projects.set(session.cwd, { path: session.cwd, name: session.project, count: 1 });
+  }
+  if (selectedProject && !projects.has(selectedProject))
+    projects.set(selectedProject, {
+      path: selectedProject,
+      name: selectedProject.split(/[\\/]/).filter(Boolean).pop() || selectedProject,
+      count: 0,
+    });
+  return [...projects.values()].sort(
+    (a, b) => a.name.localeCompare(b.name) || a.path.localeCompare(b.path),
+  );
+}
+
 export function mergeWorkspaceSessions(sessions: WorkspaceSession[]) {
   return [
     ...new Map(sessions.map((session) => [workspaceSessionKey(session), session])).values(),

@@ -1,4 +1,10 @@
 @media (max-width: 760px) {
+  .app-shell:not(.has-detail) .main {
+    overflow-y: auto;
+  }
+  .content:not(.split) {
+    min-height: 360px;
+  }
   .searching-sessions .overview {
     display: none;
   }

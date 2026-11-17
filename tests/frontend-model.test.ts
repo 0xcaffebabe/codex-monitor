@@ -3,6 +3,7 @@ import test from 'node:test';
 import { groupTimelineEvents, mergeSessionPage } from '../src/features/session/session-model.js';
 import {
   mergeWorkspaceSessions,
+  runningProjects,
   sessionRows,
   type WorkspaceSession,
 } from '../src/features/workspace/session-list-model.js';
@@ -156,6 +157,38 @@ test('session grouping preserves time order, sorts project copies and only label
     ['A', undefined, 'B', undefined],
   );
   assert.equal(sessions[0].id, 'running');
+});
+
+test('running project shortcuts count full paths across workspaces and ignore inactive sessions', () => {
+  const sessions = [
+    session('same-id', { status: 'running', cwd: '/work/app', project: 'app' }),
+    session('same-id', { status: 'running', cwd: '/work/app', project: 'app' }),
+    session('another-path', { status: 'running', cwd: '/other/app', project: 'app' }),
+    session('completed', { cwd: '/completed', project: 'completed', status: 'completed' }),
+    session('archived', {
+      cwd: '/archived',
+      project: 'archived',
+      status: 'running',
+      archived: true,
+    }),
+    session('no-path', { status: 'running' }),
+  ];
+  const expected = [
+    { path: '/other/app', name: 'app', count: 1 },
+    { path: '/work/app', name: 'app', count: 2 },
+  ];
+  assert.deepEqual(runningProjects(sessions), expected);
+  assert.deepEqual(runningProjects([...sessions].reverse()), expected);
+});
+
+test('running project shortcuts retain the selected path when its last session finishes', () => {
+  assert.deepEqual(runningProjects([], 'D:\\project\\finished-project'), [
+    { path: 'D:\\project\\finished-project', name: 'finished-project', count: 0 },
+  ]);
+  assert.deepEqual(runningProjects([], '/work/finished-project/'), [
+    { path: '/work/finished-project/', name: 'finished-project', count: 0 },
+  ]);
+  assert.deepEqual(runningProjects([]), []);
 });
 
 test('global session ordering keeps identical IDs in separate workspaces and puts live sessions first', () => {

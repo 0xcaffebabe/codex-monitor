@@ -381,6 +381,140 @@ test('session records search all workspaces and retain the query when opening id
   });
 });
 
+test('running project filters switch across workspaces and preserve search and session details', async ({
+  page,
+  request,
+  isMobile,
+}) => {
+  await page.route('**/api/workspaces/*/sessions?*', async (route) => {
+    const url = new URL(route.request().url());
+    const source = new URL(url);
+    source.searchParams.delete('project');
+    const response = await route.fetch({ url: source.href });
+    const body = await response.json();
+    if (url.pathname.includes(second))
+      for (const session of body.sessions)
+        if (session.id === ids.modern) {
+          session.cwd = 'D:/project/sample-project';
+          session.project = 'sample-project';
+        }
+    const project = url.searchParams.get('project');
+    if (project)
+      body.sessions = body.sessions.filter((session: Session) => session.cwd === project);
+    await route.fulfill({
+      response,
+      json: { ...body, total: body.sessions.length, hasMore: false },
+    });
+  });
+  await enter(page, request, 'workspace=local');
+  const filters = page.getByRole('group', { name: '进行中项目筛选' });
+  const all = filters.getByRole('button', { name: '全部项目', exact: true });
+  const localProject = filters.getByRole('button', {
+    name: '筛选项目：codex-monitor',
+    exact: true,
+  });
+  const remoteProject = filters.getByRole('button', {
+    name: '筛选项目：sample-project',
+    exact: true,
+  });
+  const rows = page.getByTestId('session-row');
+  await expect(all).toHaveAttribute('aria-pressed', 'true');
+  await expect(localProject.locator('.running-project-count')).toHaveText('1');
+  await expect(remoteProject.locator('.running-project-count')).toHaveText('1');
+  await remoteProject.click();
+  await expect(rows).toHaveCount(3);
+  await expect(rows.filter({ hasText: '第二台电脑的独立会话' })).toHaveCount(1);
+  await expect(localProject).toBeVisible();
+  await expect(remoteProject).toHaveAttribute('aria-pressed', 'true');
+  expect(new URL(page.url()).searchParams.get('project')).toBe('D:/project/sample-project');
+  await page.reload();
+  await expect(remoteProject).toHaveAttribute('aria-pressed', 'true');
+  const search = page.getByLabel('搜索会话', { exact: true });
+  await search.fill('旧版本');
+  await expect(rows).toHaveCount(2);
+  await localProject.click();
+  await expect(rows).toHaveCount(0);
+  await expect(search).toHaveValue('旧版本');
+  await all.click();
+  await expect(rows).toHaveCount(2);
+  await expect(search).toHaveValue('旧版本');
+  await page.getByTitle('清除搜索', { exact: true }).click();
+  await localProject.click();
+  await rows.filter({ hasText: '开发 codex-monitor 实时监控' }).click();
+  await expect(page.locator('.detail-heading')).toContainText('开发 codex-monitor 实时监控');
+  if (isMobile) await page.getByTitle('返回会话列表', { exact: true }).click();
+  await remoteProject.click();
+  await expect(remoteProject).toHaveAttribute('aria-pressed', 'true');
+  await expect(rows).toHaveCount(3);
+  if (!isMobile) {
+    await expect(page.locator('.detail-heading')).toContainText('开发 codex-monitor 实时监控');
+    expect(new URL(page.url()).searchParams.get('session')).toBe(ids.modern);
+    await page.screenshot({ path: test.info().outputPath('running-project-filters-compact.png') });
+  }
+  await remoteProject.click();
+  await expect(all).toHaveAttribute('aria-pressed', 'true');
+  expect(new URL(page.url()).searchParams.has('project')).toBe(false);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});
+
+test('running project filters refresh independently and keep the selected project clearable', async ({
+  page,
+  request,
+}) => {
+  let mode: 'running' | 'completed' | 'empty' = 'running';
+  await page.route('**/api/workspaces/*/sessions?*', async (route) => {
+    const url = new URL(route.request().url());
+    if (url.searchParams.has('q')) return route.continue();
+    const response = await route.fetch();
+    const body = await response.json();
+    const remote = url.pathname.includes(second);
+    const template = body.sessions[0];
+    const sessions =
+      mode === 'empty' || (remote && mode === 'completed')
+        ? []
+        : remote
+          ? Array.from({ length: 8 }, (_, index) => ({
+              ...template,
+              id: `${template.id}-${index}`,
+              cwd: `/remote/very-long-project-name-${index}`,
+              project: `very-long-project-name-${index}`,
+            }))
+          : body.sessions;
+    await route.fulfill({
+      response,
+      json: { ...body, sessions, total: sessions.length, hasMore: false },
+    });
+  });
+  await page.clock.install();
+  await enter(page, request, 'workspace=local');
+  const filters = page.getByRole('group', { name: '进行中项目筛选' });
+  const all = filters.getByRole('button', { name: '全部项目', exact: true });
+  const remote = filters.getByRole('button', {
+    name: '筛选项目：very-long-project-name-7',
+    exact: true,
+  });
+  await expect(filters.getByRole('button')).toHaveCount(10);
+  await remote.click();
+  await expect(remote).toHaveAttribute('aria-pressed', 'true');
+  await expect(all).toBeInViewport();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.screenshot({ path: test.info().outputPath('running-project-filters-overflow.png') });
+  mode = 'completed';
+  await page.clock.fastForward(3000);
+  await expect(remote.locator('.running-project-count')).toHaveText('0');
+  await expect(remote).toHaveAttribute('aria-pressed', 'true');
+  await expect(filters.getByRole('button')).toHaveCount(3);
+  await all.click();
+  await expect(remote).toHaveCount(0);
+  mode = 'running';
+  await page.clock.fastForward(3000);
+  await expect(remote.locator('.running-project-count')).toHaveText('1');
+  await expect(filters.getByRole('button')).toHaveCount(10);
+  mode = 'empty';
+  await page.clock.fastForward(3000);
+  await expect(filters).toHaveCount(0);
+});
+
 test('session records merge workspace pages, preserve loaded results and recover unavailable workspaces', async ({
   page,
   request,

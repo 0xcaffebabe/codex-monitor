@@ -223,6 +223,7 @@ export function Workspace(
               <SessionPanel
                 user={user}
                 model={model}
+                runningWorkspaces={props.runningWorkspaces}
                 onSessionSelected={layout.closeSessionDrawer}
               />
               {hasDetail && (

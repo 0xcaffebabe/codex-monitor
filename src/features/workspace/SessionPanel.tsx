@@ -12,15 +12,19 @@ import {
 } from 'lucide-react';
 import { cx } from '../../shared/format';
 import type { User } from '../../types';
+import type { RunningWorkspace } from '../workspaces/useRunningSessions';
+import { RunningProjectFilters } from './RunningProjectFilters';
 import { SessionRows } from './SessionRows';
 import type { WorkspaceModel } from './useWorkspace';
 
 export function SessionPanel({
   user,
   model,
+  runningWorkspaces,
   onSessionSelected,
 }: {
   user: User;
+  runningWorkspaces: RunningWorkspace[];
   onSessionSelected?: () => void;
   model: Pick<
     WorkspaceModel,
@@ -38,7 +42,6 @@ export function SessionPanel({
     | 'changeTab'
     | 'project'
     | 'setProject'
-    | 'overview'
     | 'error'
     | 'listWarning'
     | 'loadList'
@@ -65,7 +68,6 @@ export function SessionPanel({
     changeTab,
     project,
     setProject,
-    overview,
     error,
     listWarning,
     loadList,
@@ -153,6 +155,11 @@ export function SessionPanel({
           <kbd>/</kbd>
         )}
       </div>
+      <RunningProjectFilters
+        workspaces={runningWorkspaces}
+        project={project}
+        onProjectChange={setProject}
+      />
       {!hasDetail && (
         <div className="filter-row">
           <div className="filter-tabs">
@@ -173,13 +180,6 @@ export function SessionPanel({
               已归档
             </button>
           </div>
-          {project && (
-            <button className="project-filter" onClick={() => setProject('')}>
-              <Folder size={12} />
-              {overview?.projects.find((p) => p.path === project)?.name}
-              <X size={12} />
-            </button>
-          )}
           <span className="filtered-count">{total} 个会话</span>
         </div>
       )}
