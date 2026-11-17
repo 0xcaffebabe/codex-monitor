@@ -1,4 +1,5 @@
 import { createHmac } from 'node:crypto';
+import { larkMarkdown } from './lark-markdown.js';
 
 export function validLarkWebhook(value: string) {
   try {
@@ -48,10 +49,7 @@ export async function sendLark(
         elements: [
           {
             tag: 'markdown',
-            // Neutralize mentions while preserving blockquotes, autolinks and code operators.
-            content: text.replace(/<\/?at\b[^>]*>/gi, (tag) =>
-              tag.replaceAll('<', '＜').replaceAll('>', '＞'),
-            ),
+            content: larkMarkdown(text),
           },
         ],
       },
@@ -106,6 +104,10 @@ export async function sendLark(
     }
     const code = result?.code ?? result?.StatusCode;
     if (typeof code !== 'number') throw new LarkDeliveryError('飞书/Lark 返回了无效响应');
+    if (code === 11246)
+      throw new LarkDeliveryError(
+        '飞书/Lark 消息内容创建失败（错误码 11246），请检查卡片格式及图片资源',
+      );
     if (code !== 0)
       throw new LarkDeliveryError(`飞书/Lark 拒绝消息（错误码 ${code}），请检查机器人安全设置`);
   } catch (error) {

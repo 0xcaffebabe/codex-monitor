@@ -183,6 +183,36 @@ test('Lark Markdown cards preserve formatting and code while neutralizing mentio
   assert.equal(sent.sign, undefined);
 });
 
+test('Lark transport converts image URLs before delivery and identifies content errors', async () => {
+  await sendLark(
+    input,
+    '已完成\n![截图](https://example.com/screenshot.png)\n![本地截图](sandbox:/mnt/data/shot.png)',
+    new AbortController().signal,
+    async (_url, init) => {
+      const content = JSON.parse(String(init!.body)).card.body.elements[0].content;
+      assert.equal(
+        content,
+        '已完成\n[截图](<https://example.com/screenshot.png>)\n本地截图（请在会话中查看图片）',
+      );
+      return Response.json({ code: 0 });
+    },
+  );
+  for (const response of [
+    { code: 11246, msg: `invalid image: ${webhook}` },
+    { StatusCode: 11246, StatusMessage: 'create message content fail' },
+  ])
+    await assert.rejects(
+      sendLark(input, 'test', new AbortController().signal, async () => Response.json(response)),
+      (error) => {
+        assert.ok(error instanceof LarkDeliveryError);
+        assert.equal(error.retryable, false);
+        assert.match(error.message, /消息内容创建失败.*11246.*图片资源/);
+        assert.doesNotMatch(error.message, /安全设置|aaaaaaaa/);
+        return true;
+      },
+    );
+});
+
 test('session links remain clickable when the reply summary ends in a truncated code block', () => {
   const summary = '**执行结果**\n\n```bash\necho "内容未完';
   const message = notificationMessage(
