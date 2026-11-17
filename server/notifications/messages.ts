@@ -25,8 +25,6 @@ export function notificationMessage(
     }).format(event.occurredAt);
     lines.push(`完成时间：${date} (UTC+8)`);
   }
-  lines.push(`会话 ID：${event.sessionId}`);
-  if (completed) lines.push(`轮次 ID：${event.turnId}`);
   // Keep navigation outside summaries that may be truncated inside a code block.
   if (publicUrl) {
     const url = new URL(publicUrl);

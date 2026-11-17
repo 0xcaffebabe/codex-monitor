@@ -337,10 +337,10 @@ test('background completion outbox delivers fast turns over real HTTP without SS
     assert.equal(received.length, 2);
     assert.equal(received[0].msg_type, 'interactive');
     assert.equal(received[0].card.schema, '2.0');
-    assert.match(received[0].card.body.elements[0].content, new RegExp(first));
+    assert.doesNotMatch(received[0].card.body.elements[0].content, new RegExp(first));
     assert.ok(received[0].card.body.elements[0].content.includes(summary));
     assert.doesNotMatch(received[0].card.body.elements[0].content, /第二轮独立摘要/);
-    assert.match(received[1].card.body.elements[0].content, new RegExp(second));
+    assert.doesNotMatch(received[1].card.body.elements[0].content, new RegExp(second));
     assert.match(
       received[1].card.body.elements[0].content,
       /https:\/\/monitor.example.com\/\?session=/,
@@ -438,7 +438,7 @@ test('legacy JSONL completion events work without opening a detail page', async 
     await h.service.pollNotifications();
     assert.equal(messages.length, 1);
     assert.match(messages[0], /旧版完成摘要/);
-    assert.match(messages[0], /legacy-new-turn/);
+    assert.doesNotMatch(messages[0], /legacy-new-turn/);
   } finally {
     await h.close();
   }
