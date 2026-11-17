@@ -110,26 +110,80 @@ test('Git scopes reflect HEAD, index and working tree, preserve rename paths and
   }
 });
 
+test('Git scopes hide ignored tracked files and honor nested ignore exceptions', async () => {
+  const f = projectFixture();
+  try {
+    mkdirSync(path.join(f.repo, 'scripts/__pycache__'), { recursive: true });
+    const ignored = ['scripts/__pycache__/tracked.pyc', 'scripts/generated 中文.tmp', 'deleted.ts'];
+    const visible = 'scripts/keep [1].tmp';
+    for (const file of [...ignored, visible]) f.write(file, `original ${file}\n`);
+    f.command('add', '.');
+    f.command('commit', '-m', 'tracked generated files');
+    f.write('.gitignore', 'ignored.txt\n__pycache__/\ndeleted.ts\n');
+    f.write('scripts/.gitignore', '*.tmp\n!keep*.tmp\n');
+    for (const file of [...ignored.slice(0, 2), visible]) f.write(file, `staged ${file}\n`);
+    f.command('add', '-u');
+    f.command('rm', 'deleted.ts');
+    for (const file of [...ignored.slice(0, 2), visible]) f.write(file, `working ${file}\n`);
+    f.write('scripts/__pycache__/untracked.pyc', 'ignored untracked cache\n');
+    f.write('scripts/__pycache__/forced.pyc', 'force-added cache\n');
+    f.command('add', '-f', 'scripts/__pycache__/forced.pyc');
+    f.write('scripts/generated untracked.tmp', 'ignored by nested rule\n');
+    const index = readFileSync(path.join(f.repo, '.git/index'));
+    for (const scope of ['all', 'unstaged', 'staged'] as const) {
+      const status = await f.git.status(ids.modern, scope);
+      assert.ok(
+        status.files.some((file) => file.path === visible),
+        scope,
+      );
+      assert.deepEqual(
+        status.files.filter((file) => ignored.includes(file.path) || file.path.endsWith('.pyc')),
+        [],
+        scope,
+      );
+      assert.ok(!status.files.some((file) => file.path === 'scripts/generated untracked.tmp'));
+      await assert.rejects(f.git.diff(ids.modern, scope, ignored[0]), { status: 404 });
+    }
+    assert.deepEqual(readFileSync(path.join(f.repo, '.git/index')), index);
+    f.write('scripts/.gitignore', '!*.tmp\n');
+    assert.ok(
+      (await f.git.status(ids.modern, 'all')).files.some(
+        (file) => file.path === 'scripts/generated 中文.tmp',
+      ),
+    );
+  } finally {
+    f.close();
+  }
+});
+
 test('an unborn repository shows current additions, staged content and empty new files', async () => {
   const f = projectFixture(false);
   try {
     f.write('first.ts', 'staged\n');
     f.write('removed-before-commit.ts', 'removed\n');
+    f.write('.gitignore', 'ignored.log\n');
+    f.write('ignored.log', 'ignored staged\n');
     f.command('add', '.');
+    f.command('add', '-f', 'ignored.log');
     f.write('first.ts', 'working\n');
+    f.write('ignored.log', 'ignored working\n');
     unlinkSync(path.join(f.repo, 'removed-before-commit.ts'));
     f.write('empty.ts', '');
     const status = await f.git.status(ids.modern, 'all');
     assert.equal(status.head, null);
     assert.deepEqual(
       status.files.map((file) => file.path),
-      ['empty.ts', 'first.ts'],
+      ['.gitignore', 'empty.ts', 'first.ts'],
     );
     assert.match((await f.git.diff(ids.modern, 'all', 'first.ts')).patch, /\+working/);
     assert.match((await f.git.diff(ids.modern, 'staged', 'first.ts')).patch, /\+staged/);
     assert.ok(!(await f.git.diff(ids.modern, 'all', 'empty.ts')).truncated);
     const emptyStaged = await f.git.status(ids.modern, 'unstaged');
     assert.ok(emptyStaged.files.some((file) => file.path === 'empty.ts'));
+    assert.ok(!emptyStaged.files.some((file) => file.path === 'ignored.log'));
+    assert.ok(
+      !(await f.git.status(ids.modern, 'staged')).files.some((file) => file.path === 'ignored.log'),
+    );
   } finally {
     f.close();
   }

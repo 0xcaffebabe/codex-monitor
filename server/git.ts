@@ -201,10 +201,20 @@ export class ProjectGit {
     scope: GitScope,
   ): Promise<GitStatus> {
     const args = this.diffArgs(scope, repo.head);
-    const [names, counts, status] = await Promise.all([
+    const [names, counts, status, ignored] = await Promise.all([
       this.run(repo.root, [...args, '--name-status', '-z', '--']),
       this.run(repo.root, [...args, '--numstat', '-z', '--']),
       this.run(repo.root, ['status', '--porcelain=v1', '-z', '--untracked-files=all']),
+      this.run(repo.root, [
+        'ls-files',
+        '--cached',
+        '--ignored',
+        '--exclude-standard',
+        '-z',
+        // Include HEAD paths so ignored staged deletions are filtered too.
+        ...(repo.head ? [`--with-tree=${repo.head}`] : []),
+        '--',
+      ]),
     ]);
     const files = new Map<string, GitFile>();
     const namesParts = names.text.split('\0');
@@ -251,6 +261,7 @@ export class ProjectGit {
         if (file) file.status = 'conflicted';
       }
     }
+    for (const filePath of ignored.text.split('\0')) files.delete(filePath);
     if (files.size > FILE_LIMIT)
       throw new GitError(`变更超过 ${FILE_LIMIT} 个文件，请缩小未提交变更后重试。`, 413);
     return {

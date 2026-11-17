@@ -167,6 +167,44 @@ test('session diff shows real file changes, line numbers, scopes, binary files a
   await expect(page.getByRole('button', { name: '查看代码变更', exact: true })).toBeFocused();
 });
 
+test('ignored files stay hidden in every scope and refresh applies updated ignore rules', async ({
+  page,
+  request,
+}) => {
+  const { repo } = projects[0];
+  const cache = 'src/__pycache__/review.cpython-313.pyc';
+  mkdirSync(path.join(repo, 'src/__pycache__'), { recursive: true });
+  write(repo, '.gitignore', '__pycache__/\n');
+  write(repo, 'src/.gitignore', '*.tmp\n!keep.tmp\n');
+  write(repo, cache, 'staged cache\n');
+  write(repo, 'src/generated.tmp', 'staged generated\n');
+  write(repo, 'src/keep.tmp', 'staged visible\n');
+  git(repo, 'add', '-f', '--', cache, 'src/generated.tmp', 'src/keep.tmp');
+  write(repo, cache, 'working cache\n');
+  write(repo, 'src/generated.tmp', 'working generated\n');
+  write(repo, 'src/keep.tmp', 'working visible\n');
+  write(repo, 'src/__pycache__/untracked.pyc', 'untracked cache\n');
+  const dialog = await enter(page, request);
+  for (const scope of ['全部变更', '已暂存', '未暂存']) {
+    await dialog.getByRole('button', { name: scope, exact: true }).click();
+    await expect(
+      dialog.getByRole('button', { name: '查看变更：src/keep.tmp', exact: true }),
+    ).toBeVisible();
+    for (const file of [cache, 'src/generated.tmp', 'src/__pycache__/untracked.pyc'])
+      await expect(
+        dialog.getByRole('button', { name: `查看变更：${file}`, exact: true }),
+      ).toHaveCount(0);
+  }
+  await dialog.getByRole('button', { name: '查看变更：src/keep.tmp', exact: true }).click();
+  await expect(dialog.locator('.git-line.added .git-line-code')).toHaveText('working visible');
+  write(repo, 'src/.gitignore', '*.tmp\n');
+  await dialog.getByRole('button', { name: '刷新代码变更', exact: true }).click();
+  await expect(
+    dialog.getByRole('button', { name: '查看变更：src/keep.tmp', exact: true }),
+  ).toHaveCount(0);
+  await expect(dialog.locator('.git-file-heading strong')).not.toHaveText('src/keep.tmp');
+});
+
 test('a file review goes to the current conversation with the selected Git scope', async ({
   page,
   request,
