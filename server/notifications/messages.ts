@@ -26,8 +26,15 @@ export function notificationMessage(
     lines.push(`完成时间：${date} (UTC+8)`);
   }
   lines.push(`会话 ID：${event.sessionId}`);
+  if (completed) lines.push(`轮次 ID：${event.turnId}`);
+  // Keep navigation outside summaries that may be truncated inside a code block.
+  if (publicUrl) {
+    const url = new URL(publicUrl);
+    url.searchParams.set('session', event.sessionId);
+    url.searchParams.set('workspace', workspace.id);
+    lines.push('', `[查看会话](<${url.href}>)`);
+  }
   if (completed) {
-    lines.push(`轮次 ID：${event.turnId}`);
     if (event.summary.trim()) lines.push('', `回复摘要：\n${event.summary}`);
   } else {
     event.questions.forEach((question, index) => {
@@ -35,12 +42,6 @@ export function notificationMessage(
       question.options.forEach((option, i) => lines.push(`  ${i + 1}) ${option}`));
     });
     lines.push('', '请在 Codex 中选择或回复。');
-  }
-  if (publicUrl) {
-    const url = new URL(publicUrl);
-    url.searchParams.set('session', event.sessionId);
-    url.searchParams.set('workspace', workspace.id);
-    lines.push('', `查看会话：${url.href}`);
   }
   return lines.join('\n');
 }

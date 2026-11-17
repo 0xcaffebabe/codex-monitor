@@ -42,7 +42,10 @@ async function harness(status = 200) {
   const messages: string[] = [];
   const service = createApp(f.config, {
     webhookTransport: async (_url, init) => {
-      messages.push(JSON.parse(String(init!.body)).content.text);
+      const message = JSON.parse(String(init!.body));
+      assert.equal(message.msg_type, 'interactive');
+      assert.equal(message.card.schema, '2.0');
+      messages.push(message.card.body.elements[0].content);
       return Response.json({ code: 0 }, { status });
     },
   });

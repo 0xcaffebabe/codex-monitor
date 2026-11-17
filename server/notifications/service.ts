@@ -162,7 +162,7 @@ export class NotificationService {
       {
         kind: 'test',
         title: 'Webhook 测试通知',
-        message: '✅ Codex Monitor 测试通知\n飞书/Lark Webhook 连接测试成功。',
+        message: '✅ **Codex Monitor 测试通知**\n飞书/Lark Webhook 连接测试成功。',
       },
       config.revision,
     )!;

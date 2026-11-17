@@ -5,7 +5,9 @@ import { createServer } from 'node:http';
 import { createHmac, randomUUID } from 'node:crypto';
 import { appendFileSync, rmSync } from 'node:fs';
 import path from 'node:path';
+import { fromMarkdown } from 'mdast-util-from-markdown';
 import { createApp } from '../server/app.js';
+import { notificationMessage } from '../server/notifications/messages.js';
 import {
   LarkDeliveryError,
   sendLark,
@@ -111,7 +113,10 @@ test('Lark transport validates endpoints, signs requests, neutralizes mentions a
     sent.sign,
     createHmac('sha256', `${sent.timestamp}\n${input.signingSecret}`).update('').digest('base64'),
   );
-  assert.doesNotMatch(sent.content.text, /<at/);
+  assert.equal(sent.msg_type, 'interactive');
+  assert.equal(sent.card.schema, '2.0');
+  assert.equal(sent.card.body.elements[0].tag, 'markdown');
+  assert.doesNotMatch(sent.card.body.elements[0].content, /<at/);
   for (const response of [
     Response.json({ code: 19024 }),
     Response.json({}),
@@ -132,6 +137,78 @@ test('Lark transport validates endpoints, signs requests, neutralizes mentions a
       return true;
     },
   );
+});
+
+test('Lark Markdown cards preserve formatting and code while neutralizing mention tags', async () => {
+  const markdown = [
+    '# 完成结果',
+    '',
+    '**加粗**、*斜体*、~~删除线~~、`行内代码`',
+    '',
+    '- 列表项',
+    '  - 子列表',
+    '',
+    '> 引用内容',
+    '',
+    '[查看文档](https://example.com/docs?a=1&b=2)',
+    '<https://example.com/>',
+    '',
+    '```bash',
+    'if [ "$count" -gt 0 ]; then echo "<result>" > output.txt; fi',
+    '```',
+    '',
+    '| 项目 | 状态 |',
+    '| --- | --- |',
+    '| 检查 | 完成 |',
+  ].join('\n');
+  let sent: any;
+  await sendLark(
+    { ...input, signingSecret: '' },
+    markdown + '\n<at id=all></at> <at user_id="someone">用户</at> <AT id=all></AT>',
+    new AbortController().signal,
+    async (_url, init) => {
+      sent = JSON.parse(String(init!.body));
+      return Response.json({ code: 0 });
+    },
+  );
+  assert.equal(sent.msg_type, 'interactive');
+  assert.equal(sent.card.schema, '2.0');
+  assert.equal(sent.card.body.elements.length, 1);
+  assert.equal(sent.card.body.elements[0].tag, 'markdown');
+  assert.equal(
+    sent.card.body.elements[0].content,
+    markdown + '\n＜at id=all＞＜/at＞ ＜at user_id="someone"＞用户＜/at＞ ＜AT id=all＞＜/AT＞',
+  );
+  assert.equal(sent.timestamp, undefined);
+  assert.equal(sent.sign, undefined);
+});
+
+test('session links remain clickable when the reply summary ends in a truncated code block', () => {
+  const summary = '**执行结果**\n\n```bash\necho "内容未完';
+  const message = notificationMessage(
+    {
+      kind: 'session.completed',
+      sessionId: ids.modern,
+      title: 'Markdown 通知',
+      project: '测试项目',
+      turnId: 'markdown-turn',
+      occurredAt: Date.now(),
+      summary,
+    },
+    { id: 'local', name: '本机工作空间' },
+    'https://monitor.example.com/path(with-parentheses)',
+  );
+  const parsed = fromMarkdown(message);
+  const link = parsed.children
+    .flatMap((node) => (node.type === 'paragraph' ? node.children : []))
+    .find((node) => node.type === 'link');
+  assert.equal(
+    link?.url,
+    `https://monitor.example.com/path(with-parentheses)?session=${ids.modern}&workspace=local`,
+  );
+  assert.ok(message.endsWith(summary));
+  const code = parsed.children.find((node) => node.type === 'code');
+  assert.equal(code?.value, 'echo "内容未完');
 });
 
 test('notification APIs enforce admin access, validation, secret masking, test result and throttling', async () => {
@@ -217,7 +294,8 @@ test('background completion outbox delivers fast turns over real HTTP without SS
     assert.equal((await h.request('/api/notifications', 'PUT', input)).status, 200);
     await h.service.pollNotifications();
     assert.equal(received.length, 0);
-    const first = complete(h.f, ids.modern, 'completed', '第一轮完成摘要');
+    const summary = '**第一轮完成摘要**\n\n```bash\necho "完成" > result.txt\n```';
+    const first = complete(h.f, ids.modern, 'completed', summary);
     const second = complete(h.f, ids.modern, 'completed', '第二轮独立摘要');
     complete(h.f, ids.modern, 'failed');
     complete(h.f, ids.legacy, 'interrupted');
@@ -227,11 +305,16 @@ test('background completion outbox delivers fast turns over real HTTP without SS
     await h.service.pollNotifications();
     await h.service.pollNotifications();
     assert.equal(received.length, 2);
-    assert.match(received[0].content.text, new RegExp(first));
-    assert.match(received[0].content.text, /第一轮完成摘要/);
-    assert.doesNotMatch(received[0].content.text, /第二轮独立摘要/);
-    assert.match(received[1].content.text, new RegExp(second));
-    assert.match(received[1].content.text, /https:\/\/monitor.example.com\/\?session=/);
+    assert.equal(received[0].msg_type, 'interactive');
+    assert.equal(received[0].card.schema, '2.0');
+    assert.match(received[0].card.body.elements[0].content, new RegExp(first));
+    assert.ok(received[0].card.body.elements[0].content.includes(summary));
+    assert.doesNotMatch(received[0].card.body.elements[0].content, /第二轮独立摘要/);
+    assert.match(received[1].card.body.elements[0].content, new RegExp(second));
+    assert.match(
+      received[1].card.body.elements[0].content,
+      /https:\/\/monitor.example.com\/\?session=/,
+    );
     assert.equal(h.service.notifications.state().deliveries.length, 2);
     await h.service.close();
     complete(h.f, ids.modern, 'completed', '服务停止期间完成');
@@ -239,7 +322,7 @@ test('background completion outbox delivers fast turns over real HTTP without SS
     await restarted.pollNotifications();
     await restarted.pollNotifications();
     assert.equal(received.length, 3);
-    assert.match(received[2].content.text, /服务停止期间完成/);
+    assert.match(received[2].card.body.elements[0].content, /服务停止期间完成/);
     assert.equal(restarted.notifications.state().settings.enabled, true);
     assert.equal(
       restarted.notifications.state().deliveries.filter((d) => d.status === 'sent').length,
@@ -298,7 +381,7 @@ test('delivery retry is persisted, provider rejection fails visibly, disabling c
 test('legacy JSONL completion events work without opening a detail page', async () => {
   const messages: string[] = [];
   const h = await harness(async (_url, init) => {
-    messages.push(JSON.parse(String(init!.body)).content.text);
+    messages.push(JSON.parse(String(init!.body)).card.body.elements[0].content);
     return Response.json({ code: 0 });
   });
   try {

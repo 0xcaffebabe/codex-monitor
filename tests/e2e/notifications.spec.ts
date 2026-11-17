@@ -44,6 +44,18 @@ test('admins configure Lark, send a test, complete a chat and see background del
     headers,
     data: { enabled: false, provider: 'lark', publicUrl: '' },
   });
+  // Desktop and mobile share the server; old completion cards can cover the mobile composer.
+  const pending = await (await request.get('/api/notifications/completions', { headers })).json();
+  if (pending.notifications.length) {
+    const dismissed = await request.post('/api/notifications/completions/dismiss', {
+      headers,
+      data: {
+        generation: pending.generation,
+        ids: pending.notifications.map((notice: { id: number }) => notice.id),
+      },
+    });
+    expect(dismissed.ok()).toBeTruthy();
+  }
   const before = captured().length;
   const questionId = randomUUID();
   try {
@@ -64,9 +76,21 @@ test('admins configure Lark, send a test, complete a chat and see background del
     await section.getByRole('button', { name: '保存通知配置' }).click();
     await expect(section.getByRole('button', { name: '发送测试通知', exact: true })).toBeEnabled();
     await expect(section.getByLabel('飞书 / Lark Webhook', { exact: true })).toHaveValue('');
-    await section.getByRole('button', { name: '发送测试通知', exact: true }).click();
+    // Both projects also share the test-notification rate limit; retry a throttled UI request.
+    await expect(async () => {
+      const result = page.waitForResponse(
+        (response) =>
+          response.url().endsWith('/api/notifications/test') &&
+          response.request().method() === 'POST',
+      );
+      await section.getByRole('button', { name: '发送测试通知', exact: true }).click();
+      expect((await result).status()).toBe(200);
+    }).toPass({ intervals: [1000], timeout: 10000 });
     await expect(section.getByText('已发送', { exact: true }).first()).toBeVisible();
     await expect.poll(() => captured().length).toBe(before + 1);
+    expect(captured().at(-1).msg_type).toBe('interactive');
+    expect(captured().at(-1).card.schema).toBe('2.0');
+    expect(captured().at(-1).card.body.elements[0].tag).toBe('markdown');
     await section.screenshot({ path: testInfo.outputPath('notification-settings.png') });
     expect(await settings.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(
       true,
@@ -85,8 +109,9 @@ test('admins configure Lark, send a test, complete a chat and see background del
     // Remove the viewer and its SSE connection; the outbox must continue running.
     await page.goto('about:blank');
     await expect.poll(() => captured().length).toBe(before + 2);
-    expect(captured().at(-1).content.text).toContain(prompt);
-    expect(captured().at(-1).content.text).toContain(`?session=${ids.legacy}`);
+    expect(captured().at(-1).msg_type).toBe('interactive');
+    expect(captured().at(-1).card.body.elements[0].content).toContain(prompt);
+    expect(captured().at(-1).card.body.elements[0].content).toContain(`?session=${ids.legacy}`);
     const state = await (await request.get('/api/notifications', { headers })).json();
     expect(state.deliveries[0].status).toBe('sent');
     expect(JSON.stringify(state)).not.toContain(webhook);
@@ -123,8 +148,9 @@ test('admins configure Lark, send a test, complete a chat and see background del
       history.close();
     }
     await expect.poll(() => captured().length).toBe(before + 3);
-    expect(captured().at(-1).content.text).toContain('需要你选择或回答');
-    expect(captured().at(-1).content.text).toContain('继续验证');
+    expect(captured().at(-1).msg_type).toBe('interactive');
+    expect(captured().at(-1).card.body.elements[0].content).toContain('需要你选择或回答');
+    expect(captured().at(-1).card.body.elements[0].content).toContain('继续验证');
     await page.goto('/');
     if (testInfo.project.name === 'mobile') await page.getByTitle('打开菜单').click();
     await page.getByRole('button', { name: '设置与访问管理' }).click();

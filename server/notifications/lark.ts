@@ -40,9 +40,22 @@ export async function sendLark(
     throw new LarkDeliveryError('请配置有效的飞书/Lark Webhook');
   const timestamp = String(Math.floor(Date.now() / 1000));
   const body = {
-    msg_type: 'text',
-    // Neutralize mention markup in session titles and model-generated text.
-    content: { text: text.replaceAll('<', '＜').replaceAll('>', '＞') },
+    msg_type: 'interactive',
+    card: {
+      // Card 2.0 supports Markdown headings, lists, links and code blocks.
+      schema: '2.0',
+      body: {
+        elements: [
+          {
+            tag: 'markdown',
+            // Neutralize mentions while preserving blockquotes, autolinks and code operators.
+            content: text.replace(/<\/?at\b[^>]*>/gi, (tag) =>
+              tag.replaceAll('<', '＜').replaceAll('>', '＞'),
+            ),
+          },
+        ],
+      },
+    },
     ...(config.signingSecret
       ? {
           timestamp,

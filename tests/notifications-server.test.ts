@@ -191,17 +191,17 @@ test('Server owns one configuration and delivers events from two encrypted clien
     assert.ok(
       received.some(
         (message) =>
-          message.content.text.includes('电脑 A') &&
-          message.content.text.includes('A 的完成结果') &&
-          message.content.text.includes(`workspace=${wa.workspace.id}`),
+          message.card.body.elements[0].content.includes('电脑 A') &&
+          message.card.body.elements[0].content.includes('A 的完成结果') &&
+          message.card.body.elements[0].content.includes(`workspace=${wa.workspace.id}`),
       ),
     );
     assert.ok(
       received.some(
         (message) =>
-          message.content.text.includes('电脑 B') &&
-          message.content.text.includes('B 的完成结果') &&
-          message.content.text.includes(`workspace=${wb.workspace.id}`),
+          message.card.body.elements[0].content.includes('电脑 B') &&
+          message.card.body.elements[0].content.includes('B 的完成结果') &&
+          message.card.body.elements[0].content.includes(`workspace=${wb.workspace.id}`),
       ),
     );
   } finally {
