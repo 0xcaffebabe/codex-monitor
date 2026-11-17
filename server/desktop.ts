@@ -3,7 +3,12 @@ import { readdir } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { ControlError, compactingError } from './control-error.js';
 import { NativeRpc, compactOwnedThread, interruptOwnedThread } from './native.js';
-import type { CodexModel, SessionModelSettings, SessionCreationSettings } from '../src/types.js';
+import type {
+  CodexModel,
+  SessionModelSettings,
+  SessionMessageSettings,
+  SessionCreationSettings,
+} from '../src/types.js';
 import type { ApprovalControl } from '../src/approval-types.js';
 export { ControlError } from './control-error.js';
 export interface DesktopProject {
@@ -15,6 +20,7 @@ export interface DesktopControl {
   contextRequired?: boolean;
   approvals?: ApprovalControl;
   creationPermissions?: boolean;
+  desktopChannel?: boolean;
   projects(context: string): Promise<DesktopProject[]>;
   models(): Promise<CodexModel[]>;
   state(
@@ -25,7 +31,7 @@ export interface DesktopControl {
     context: string,
     threadId: string,
     prompt: string,
-    settings?: SessionModelSettings,
+    settings?: SessionMessageSettings,
   ): Promise<{ threadId: string }>;
   create(
     context: string,
@@ -57,6 +63,7 @@ function rejection(message: string) {
 
 /** The desktop app owns routing to the live thread, including mid-turn input. */
 export class DesktopBridge implements DesktopControl {
+  readonly desktopChannel = true;
   private native: NativeRpc;
   constructor(
     private options: {
@@ -268,8 +275,14 @@ export class DesktopBridge implements DesktopControl {
     context: string,
     projectId: string,
     prompt: string,
-    settings: SessionModelSettings = {},
+    settings: SessionCreationSettings = {},
   ) {
+    if (
+      settings.channel === 'desktop' &&
+      settings.permissionMode &&
+      settings.permissionMode !== 'inherit'
+    )
+      throw new ControlError('桌面通道沿用 Codex 桌面端的权限设置。', false, 400);
     const result = await this.call(context, 'create_thread', {
       prompt,
       target: { type: 'project', projectId, environment: { type: 'local' } },

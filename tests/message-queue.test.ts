@@ -48,7 +48,7 @@ async function until(check: () => Promise<boolean>) {
 }
 const route = `/api/sessions/${ids.modern}/messages`;
 
-test('idle sends preserve model settings through queue migration, restart and deduplication', async () => {
+test('idle sends preserve model and desktop channel through queue migration, restart and deduplication', async () => {
   const f = fixture(),
     control = new FixtureDesktop(f);
   mkdirSync(f.data, { recursive: true });
@@ -64,16 +64,19 @@ test('idle sends preserve model settings through queue migration, restart and de
     prompt: 'continue with another model',
     model: 'gpt-6-luna',
     thinking: 'high',
+    channel: 'desktop',
   };
   try {
     assert.equal((await service.request(route, input)).status, 202);
     assert.equal((await service.request(route, input)).status, 202);
     assert.equal((await service.request(route, { ...input, thinking: 'medium' })).status, 409);
+    assert.equal((await service.request(route, { ...input, channel: undefined })).status, 409);
     const saved = service.app.auth.db
-      .prepare('SELECT model,thinking FROM control_message_queue WHERE request_id=?')
+      .prepare('SELECT model,thinking,channel FROM control_message_queue WHERE request_id=?')
       .get(input.requestId)!;
     assert.equal(saved.model, input.model);
     assert.equal(saved.thinking, input.thinking);
+    assert.equal(saved.channel, input.channel);
     const token = service.token;
     await service.close();
     service = await boot(f, control, token);
@@ -85,9 +88,104 @@ test('idle sends preserve model settings through queue migration, restart and de
         'succeeded',
     );
     assert.equal(control.sends, 1);
-    assert.deepEqual(control.lastSend, { model: 'gpt-6-luna', thinking: 'high' });
+    assert.deepEqual(control.lastSend, {
+      model: 'gpt-6-luna',
+      thinking: 'high',
+      channel: 'desktop',
+    });
     assert.equal((await service.request(route, input)).status, 200);
     assert.equal(control.sends, 1);
+  } finally {
+    await service.close();
+    f.close();
+    rmSync(f.root, { recursive: true, force: true });
+  }
+});
+
+test('desktop messages wait for running turns and handoff readiness, then deliver once', async () => {
+  const f = fixture(),
+    control = new FixtureDesktop(f),
+    service = await boot(f, control);
+  const input = {
+    requestId: randomUUID(),
+    prompt: 'desktop after the current turn',
+    channel: 'desktop',
+    model: 'gpt-6.1-sol',
+    thinking: 'high',
+  };
+  const send = control.send.bind(control);
+  let ready = false,
+    attempts = 0;
+  control.send = async (...args) => {
+    attempts++;
+    if (!ready) throw new ControlError('waiting for goal completion', false, 409, 'desktop_busy');
+    return send(...args);
+  };
+  try {
+    const queued = await service.request(route, input);
+    assert.equal(queued.status, 202);
+    assert.match((await queued.json()).message, /桌面通道.*等待当前执行/);
+    assert.equal(attempts, 0, 'an active turn must not be submitted to desktop');
+    f.hist.prepare("UPDATE thread_turns SET status='completed' WHERE thread_id=?").run(ids.modern);
+    await until(async () => attempts > 0);
+    const waiting = await (
+      await service.request(`/api/control/requests/${input.requestId}`)
+    ).json();
+    assert.equal(waiting.state, 'queued');
+    assert.equal(control.sends, 0);
+    ready = true;
+    await until(
+      async () =>
+        (await (await service.request(`/api/control/requests/${input.requestId}`)).json()).state ===
+        'succeeded',
+    );
+    assert.equal(control.sends, 1);
+    assert.deepEqual(control.lastSend, {
+      channel: 'desktop',
+      model: 'gpt-6.1-sol',
+      thinking: 'high',
+    });
+    assert.equal((await service.request(route, input)).status, 200);
+    assert.equal(control.sends, 1);
+  } finally {
+    await service.close();
+    f.close();
+    rmSync(f.root, { recursive: true, force: true });
+  }
+});
+
+test('desktop selection rejects unsupported clients and slash commands without dispatch', async () => {
+  const f = fixture(),
+    control = new FixtureDesktop(f),
+    service = await boot(f, control);
+  try {
+    assert.equal(
+      (await (await service.request(`/api/sessions/${ids.modern}/control`)).json()).desktopChannel,
+      true,
+    );
+    for (const overrides of [{ channel: 'invalid' }, { channel: 'desktop', prompt: '/help' }]) {
+      assert.equal(
+        (await service.request(route, { requestId: randomUUID(), prompt: 'desktop', ...overrides }))
+          .status,
+        400,
+      );
+    }
+    Object.defineProperty(control, 'desktopChannel', { value: false });
+    assert.equal(
+      (await (await service.request(`/api/sessions/${ids.modern}/control`)).json()).desktopChannel,
+      false,
+    );
+    assert.equal(
+      (
+        await service.request(route, {
+          requestId: randomUUID(),
+          prompt: 'desktop',
+          channel: 'desktop',
+        })
+      ).status,
+      409,
+    );
+    assert.equal(control.sends, 0);
   } finally {
     await service.close();
     f.close();

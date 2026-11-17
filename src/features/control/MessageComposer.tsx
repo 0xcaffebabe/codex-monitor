@@ -163,6 +163,7 @@ export function MessageComposer(props: MessageComposerProps) {
         storageKey={`codex-monitor.draft.${user.id}.${threadId}`}
         submitOnEnter
         allowAttachments
+        allowDesktopChannel={!!state?.desktopChannel}
         submitActions={
           <CommandButton
             user={user}

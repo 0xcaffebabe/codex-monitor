@@ -20,7 +20,10 @@ export type SessionModelSettings = {
   model?: string;
   thinking?: ReasoningEffort;
 };
-export type SessionCreationSettings = SessionModelSettings & {
+export type SessionMessageSettings = SessionModelSettings & {
+  channel?: 'desktop';
+};
+export type SessionCreationSettings = SessionMessageSettings & {
   permissionMode?: import('./approval-types').SessionPermissionMode;
 };
 export interface Session {

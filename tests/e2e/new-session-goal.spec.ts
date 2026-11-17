@@ -62,6 +62,18 @@ async function enter(page: Page, request: APIRequestContext) {
   return page.getByRole('region', { name: '新建会话', exact: true });
 }
 
+async function restoreLegacyDesktopSelection(page: Page) {
+  return page.evaluate(() => {
+    const key = Object.keys(sessionStorage).find(
+      (key) => key.startsWith('codex-monitor.draft.') && key.endsWith('.new'),
+    );
+    if (!key) throw new Error('Missing new-session draft');
+    const draft = JSON.parse(sessionStorage.getItem(key)!);
+    sessionStorage.setItem(key, JSON.stringify({ ...draft, desktopChannel: true }));
+    return draft.requestId as string | undefined;
+  });
+}
+
 test('new sessions use the detail page and preserve separate drafts while navigating', async ({
   page,
   request,
@@ -108,6 +120,63 @@ test('new sessions use the detail page and preserve separate drafts while naviga
   await page.getByTestId('session-row').filter({ hasText: '开发 codex-monitor' }).click();
   await expect(existingInput).toHaveValue('已有会话的独立草稿');
   expect(creates).toBe(0);
+});
+
+test('new sessions discard legacy desktop selections and preserve explicit permissions', async ({
+  page,
+  request,
+}) => {
+  await page.route('**/api/workspaces/local/control', async (route) => {
+    const response = await route.fetch();
+    const body = await response.json();
+    await route.fulfill({ json: { ...body, creationPermissions: true, desktopChannel: true } });
+  });
+  await page.route('**/api/workspaces/local/sessions', async (route) => {
+    if (route.request().method() !== 'POST') return route.continue();
+    // Adapt only the fixture call; the browser request must retain its explicit permission.
+    const payload = route.request().postDataJSON();
+    delete payload.permissionMode;
+    await route.fulfill({ response: await route.fetch({ postData: payload }) });
+  });
+  const newSession = await enter(page, request);
+  const desktop = newSession.getByRole('checkbox', { name: '桌面通道', exact: true });
+  const input = newSession.getByLabel('发送给 Codex 的消息');
+  await expect(desktop).toHaveCount(0);
+  await expect(newSession.getByLabel('新会话权限')).toHaveValue('danger-full-access');
+  await input.fill('native first message ' + test.info().project.name);
+  await restoreLegacyDesktopSelection(page);
+  await page.reload();
+  await expect(desktop).toHaveCount(0);
+  await expect(input).toHaveValue('native first message ' + test.info().project.name);
+  await expect(newSession.getByLabel('新会话权限')).toHaveValue('danger-full-access');
+  await expect(newSession.getByRole('alert')).toHaveCount(0);
+  await expect(newSession).not.toContainText('审批在桌面端处理');
+  await newSession.getByLabel('新会话权限').selectOption('read-only');
+  await newSession.getByLabel('新会话模型').selectOption('gpt-6.1-sol');
+  await newSession.getByLabel('新会话思考级别').selectOption('high');
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.screenshot({
+    path: test.info().outputPath('new-session-default-channel.png'),
+    fullPage: true,
+  });
+  const sent = page.waitForResponse(
+    (response) =>
+      response.request().method() === 'POST' &&
+      response.url().endsWith('/api/workspaces/local/sessions'),
+  );
+  await newSession.getByRole('button', { name: '创建并发送', exact: true }).click();
+  const response = await sent;
+  expect(response.ok()).toBeTruthy();
+  const payload = response.request().postDataJSON();
+  expect(payload).toMatchObject({
+    permissionMode: 'read-only',
+    model: 'gpt-6.1-sol',
+    thinking: 'high',
+  });
+  expect(payload).not.toHaveProperty('channel');
+  expect(payload).not.toHaveProperty('desktopChannel');
+  await expect(page.locator('.timeline')).toContainText('测试回复：native first message');
+  await expect(page.getByRole('checkbox', { name: '桌面通道', exact: true })).not.toBeChecked();
 });
 
 test('ordinary creation stays compatible with a client that rejects goal fields', async ({
@@ -222,12 +291,22 @@ test('a lost goal creation receipt survives reload and is queried without anothe
   await newSession.getByLabel('目标内容', { exact: true }).fill(objective);
   await newSession.getByRole('button', { name: '创建并执行目标' }).click();
   await expect(newSession.getByRole('button', { name: '查询发送结果' })).toBeVisible();
-  await expect(newSession.getByRole('checkbox')).toBeDisabled();
+  await expect(
+    newSession.getByRole('checkbox', { name: '将首条消息设为目标', exact: true }),
+  ).toBeDisabled();
+  await expect(newSession.getByRole('checkbox', { name: '桌面通道', exact: true })).toHaveCount(0);
+  const requestId = await restoreLegacyDesktopSelection(page);
+  expect(requestId).toBeTruthy();
   await page.reload();
   await expect(newSession).toBeVisible();
   await expect(newSession.getByRole('checkbox', { name: '将首条消息设为目标' })).toBeChecked();
   await expect(newSession.getByLabel('目标内容', { exact: true })).toHaveValue(objective);
+  await expect(newSession.getByRole('checkbox', { name: '桌面通道', exact: true })).toHaveCount(0);
+  const checked = page.waitForResponse((response) =>
+    response.url().endsWith('/control/requests/' + requestId),
+  );
   await newSession.getByRole('button', { name: '查询发送结果' }).click();
+  expect((await checked).ok()).toBeTruthy();
   await expect(newSession).toHaveCount(0);
   await expect(page.getByLabel('会话目标').locator('.goal-objective')).toHaveText(objective);
   expect(creates).toBe(1);

@@ -185,7 +185,7 @@ test('synchronization has a timeout, supports retry and retains real not-found e
   await expect(page.getByText('新会话已创建，正在同步记录…', { exact: true })).toHaveCount(0);
   ready = true;
   await page.getByRole('button', { name: '重试', exact: true }).click();
-  await expect(page.locator('.timeline .user-message')).toBeVisible();
+  await expect(page.locator('.timeline .user-message').last()).toBeVisible();
   await expect(page.getByRole('alert')).toHaveCount(0);
 
   await page.goto('/?session=99999999-9999-4999-8999-999999999999');

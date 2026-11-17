@@ -18,6 +18,7 @@ export function useMessageComposer({
 }: MessageComposerProps) {
   const [state, setState] = useState<{
     available: boolean;
+    desktopChannel?: boolean;
     running?: boolean;
     compacting?: boolean;
     turnId?: string;

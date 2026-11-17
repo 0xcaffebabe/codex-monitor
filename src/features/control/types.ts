@@ -25,6 +25,7 @@ export type Draft = {
   queued?: boolean;
   attachments?: Attachment[];
   asGoal?: boolean;
+  desktopChannel?: boolean;
   creation?: Receipt;
 };
 export type Project = { id: string; name: string; path: string };
