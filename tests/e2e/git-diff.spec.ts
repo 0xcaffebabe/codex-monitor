@@ -9,6 +9,7 @@ import { ids } from '../fixture.js';
 
 const root = process.env.MONITOR_TEST_ROOT || path.join(os.tmpdir(), 'codex-monitor-e2e-01a1d7fa');
 const second = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+const globalConfig = path.join(root, 'empty-gitconfig');
 let token = '';
 let projects: { repo: string; db: DatabaseSync; restore: () => void }[] = [];
 const git = (repo: string, ...args: string[]) =>
@@ -16,12 +17,13 @@ const git = (repo: string, ...args: string[]) =>
     cwd: repo,
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'pipe'],
-    env: { ...process.env, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: os.devNull },
+    env: { ...process.env, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: globalConfig },
   });
 const write = (repo: string, file: string, text: string | Buffer) =>
   writeFileSync(path.join(repo, file), text);
 
 test.beforeEach(() => {
+  writeFileSync(globalConfig, '');
   projects = [root, path.join(root, 'client-b')].map((folder, index) => {
     const repo = path.join(folder, 'git review 中文 ' + randomUUID());
     mkdirSync(path.join(repo, 'src'), { recursive: true });
@@ -191,7 +193,9 @@ test('diff requests and review prompts follow the selected workspace client', as
   request,
 }) => {
   const dialog = await enter(page, request, second);
-  await expect(dialog.locator('.git-diff-header p')).toHaveText(realpathSync(projects[1].repo));
+  await expect(dialog.locator('.git-diff-header p')).toHaveText(
+    realpathSync(projects[1].repo).replaceAll('\\', '/'),
+  );
   await dialog.getByRole('button', { name: '查看变更：src/review.ts', exact: true }).click();
   await expect(dialog.locator('.git-line.added .git-line-code')).toContainText('second-working');
   await expect(dialog.locator('.git-patch')).not.toContainText('local-working');

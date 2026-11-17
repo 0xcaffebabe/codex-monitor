@@ -17,6 +17,7 @@ export function PromptForm(props: PromptFormProps) {
     attachmentControls,
     submitActions,
     allowGoal = false,
+    allowDesktopChannel = false,
   } = props;
   const {
     draft,
@@ -125,7 +126,34 @@ export function PromptForm(props: PromptFormProps) {
           disabled={busy || !!draft.requestId || !enabled}
           picker={attachmentPicker}
         >
-          {attachmentControls}
+          {(attachmentControls || allowDesktopChannel || draft.desktopChannel) && (
+            <>
+              {attachmentControls}
+              {(allowDesktopChannel || draft.desktopChannel) && (
+                <label
+                  className="composer-desktop-channel"
+                  title={
+                    allowGoal
+                      ? '通过当前工作空间的 Codex 桌面应用创建会话并发送首条消息。'
+                      : '通过当前工作空间的 Codex 桌面应用发送，执行中的消息会等待本轮结束。'
+                  }
+                >
+                  <input
+                    type="checkbox"
+                    checked={!!draft.desktopChannel}
+                    disabled={busy || !!draft.requestId || !enabled}
+                    onChange={(event) =>
+                      setDraft((previous) => ({
+                        ...previous,
+                        desktopChannel: event.target.checked,
+                      }))
+                    }
+                  />
+                  桌面通道
+                </label>
+              )}
+            </>
+          )}
         </AttachmentPicker>
       )}
       {(error || validationError) && (

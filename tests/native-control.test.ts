@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import path from 'node:path';
 import { NativeDesktopControl } from '../server/native-control.js';
 import { ControlError } from '../server/control-error.js';
 import { EventEmitter } from 'node:events';
@@ -44,7 +45,9 @@ class AppServerProcess extends EventEmitter {
 
 function fixture(generateTitle: typeof generateSessionTitle = async () => undefined) {
   const calls: { method: string; params: any }[] = [],
-    ownerCalls: any[] = [];
+    ownerCalls: any[] = [],
+    desktopCalls: any[] = [],
+    desktopCreates: any[] = [];
   let status = 'idle',
     goal: any = null;
   const native = {
@@ -74,10 +77,18 @@ function fixture(generateTitle: typeof generateSessionTitle = async () => undefi
       goal = null;
     },
     close() {},
+    dispose: async () => {
+      f.disposals++;
+    },
   };
   const f = {
     calls,
     ownerCalls,
+    desktopCalls,
+    desktopCreates,
+    desktopProjects: [{ id: 'desktop-project', name: '项目', path: '/tmp/project with spaces' }],
+    desktopError: undefined as Error | undefined,
+    disposals: 0,
     native,
     activity: { turnId: 'turn', running: true, compacting: false },
     ownerReply: { result: { turn: { id: 'turn' } } } as any,
@@ -101,10 +112,177 @@ function fixture(generateTitle: typeof generateSessionTitle = async () => undefi
         if (f.ownerError) throw f.ownerError;
         return f.ownerReply;
       },
+      desktop: {
+        projects: async () => f.desktopProjects,
+        create: async (...args) => {
+          desktopCreates.push(args);
+          if (f.desktopError) throw f.desktopError;
+          return { threadId: 'desktop-thread' };
+        },
+        send: async (...args) => {
+          desktopCalls.push(args);
+          if (f.desktopError) throw f.desktopError;
+          return { threadId: args[1] };
+        },
+      },
     },
   );
   return f;
 }
+
+test('desktop message selection uses desktop tools with model settings and never falls back', async () => {
+  const f = fixture();
+  try {
+    assert.equal(f.control.desktopChannel, true);
+    assert.deepEqual(
+      await f.control.send('', 'thread', 'use the browser', {
+        channel: 'desktop',
+        model: 'gpt-6.1-sol',
+        thinking: 'high',
+      }),
+      { threadId: 'thread' },
+    );
+    assert.deepEqual(f.desktopCalls, [
+      ['thread', 'thread', 'use the browser', { model: 'gpt-6.1-sol', thinking: 'high' }],
+    ]);
+    for (const uncertain of [false, true]) {
+      f.desktopError = new ControlError('desktop unavailable', uncertain, 503);
+      await assert.rejects(
+        f.control.send('context', 'thread', 'retry using desktop', { channel: 'desktop' }),
+        (error: any) => error === f.desktopError,
+      );
+    }
+    assert.deepEqual(f.ownerCalls, []);
+    assert.deepEqual(f.calls, []);
+  } finally {
+    f.control.close();
+  }
+});
+
+test('selected desktop creation delegates the first message and reports errors without CLI fallback', async () => {
+  const f = fixture();
+  try {
+    if (process.platform === 'win32')
+      f.desktopProjects[0].path = path
+        .toNamespacedPath(path.resolve('/tmp/project with spaces'))
+        .toUpperCase();
+    assert.deepEqual(
+      await f.control.create('caller', 'project', 'first desktop task', {
+        channel: 'desktop',
+        model: 'gpt-6.1-sol',
+        thinking: 'high',
+        permissionMode: 'inherit',
+      }),
+      { threadId: 'desktop-thread' },
+    );
+    assert.deepEqual(f.desktopCreates, [
+      [
+        'caller',
+        'desktop-project',
+        'first desktop task',
+        { model: 'gpt-6.1-sol', thinking: 'high' },
+      ],
+    ]);
+    await assert.rejects(
+      f.control.create('caller', 'project', 'explicit permissions', {
+        channel: 'desktop',
+        permissionMode: 'danger-full-access',
+      }),
+      /桌面端的权限设置/,
+    );
+    assert.equal(f.desktopCreates.length, 1);
+    for (const uncertain of [false, true]) {
+      f.desktopError = new ControlError('desktop create rejected', uncertain, 502);
+      await assert.rejects(
+        f.control.create('caller', 'project', 'do not retry through CLI', { channel: 'desktop' }),
+        (error: any) => error === f.desktopError,
+      );
+    }
+    assert.ok(f.calls.every((call) => call.method === 'project/list'));
+    assert.deepEqual(f.desktopCalls, []);
+    assert.deepEqual(f.ownerCalls, []);
+  } finally {
+    f.control.close();
+  }
+});
+
+test('desktop handoff waits for an idle CLI writer to exit and preserves native creation', async () => {
+  const f = fixture();
+  let release!: () => void;
+  const released = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  try {
+    await f.control.create('', 'project', 'first CLI message');
+    assert.equal(f.desktopCalls.length, 0);
+    f.setStatus('idle');
+    f.native.dispose = async () => {
+      await released;
+      f.disposals++;
+    };
+    const sent = f.control.send('caller', 'thread', 'continue on desktop', { channel: 'desktop' });
+    for (let i = 0; i < 5; i++) await nextTick();
+    assert.equal(f.desktopCalls.length, 0, 'must wait until the CLI process has exited');
+    release();
+    await sent;
+    assert.equal(f.disposals, 1);
+    assert.deepEqual(f.desktopCalls, [['caller', 'thread', 'continue on desktop', {}]]);
+    assert.equal(f.calls.filter((c) => c.method === 'turn/start').length, 1);
+    assert.equal(f.calls.filter((c) => c.method === 'thread/resume').length, 0);
+  } finally {
+    release();
+    f.control.close();
+  }
+});
+
+test('desktop creation rejects missing and ambiguous directory mappings before sending', async () => {
+  const f = fixture();
+  try {
+    f.desktopProjects = [];
+    await assert.rejects(
+      f.control.create('caller', 'project', 'task', { channel: 'desktop' }),
+      /未找到此项目目录/,
+    );
+    f.desktopProjects = [
+      { id: 'one', name: 'one', path: '/tmp/project with spaces' },
+      { id: 'two', name: 'two', path: '/tmp/project with spaces' },
+    ];
+    await assert.rejects(
+      f.control.create('caller', 'project', 'task', { channel: 'desktop' }),
+      /多个对应目录/,
+    );
+    assert.deepEqual(f.desktopCreates, []);
+    assert.ok(f.calls.every((call) => call.method === 'project/list'));
+  } finally {
+    f.control.close();
+  }
+});
+
+test('desktop selection leaves running CLI turns and active goals intact until they finish', async () => {
+  const f = fixture();
+  try {
+    await f.control.create('', 'project', 'keep working');
+    f.setStatus('active');
+    await assert.rejects(
+      f.control.send('', 'thread', 'desktop next', { channel: 'desktop' }),
+      (error: any) => error.code === 'desktop_busy' && !error.uncertain,
+    );
+    f.setStatus('idle');
+    f.setGoal({ status: 'active' });
+    await assert.rejects(
+      f.control.send('', 'thread', 'desktop next', { channel: 'desktop' }),
+      (error: any) => error.code === 'desktop_busy',
+    );
+    assert.equal(f.disposals, 0);
+    assert.equal(f.desktopCalls.length, 0);
+    f.setGoal({ status: 'paused' });
+    await f.control.send('', 'thread', 'desktop next', { channel: 'desktop' });
+    assert.equal(f.disposals, 1);
+    assert.equal(f.desktopCalls.length, 1);
+  } finally {
+    f.control.close();
+  }
+});
 
 test('completed CLI threads release the writer for desktop handoff; active goals retain it', async () => {
   let status = 'idle',

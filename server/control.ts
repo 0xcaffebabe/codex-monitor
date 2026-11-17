@@ -113,8 +113,8 @@ export function installControl(
       input.prompt
     );
   };
-  const context = async (target?: string) => {
-    if (bridge.contextRequired === false) return target || '';
+  const context = async (target?: string, desktop = false) => {
+    if (bridge.contextRequired === false && !desktop) return target || '';
     const inherited = process.env.CODEX_THREAD_ID;
     if (inherited && validId(inherited) && (await source.get(inherited))) return inherited;
     if (target) return target;
@@ -129,6 +129,7 @@ export function installControl(
         available: true,
         projects: await bridge.projects(await context()),
         creationPermissions: !!bridge.creationPermissions,
+        desktopChannel: !!bridge.desktopChannel,
       });
     } catch (error) {
       res.json({
@@ -214,6 +215,7 @@ export function installControl(
       if (state.compacting)
         return res.json({
           available: true,
+          desktopChannel: !!bridge.desktopChannel,
           compacting: true,
           running: false,
           turnId: state.turnId,
@@ -224,7 +226,12 @@ export function installControl(
           available: false,
           reason: '该会话正在其他客户端中执行，当前桌面版无法追加消息。',
         });
-      res.json({ available: true, running: state.status === 'active', turnId: state.turnId });
+      res.json({
+        available: true,
+        desktopChannel: !!bridge.desktopChannel,
+        running: state.status === 'active',
+        turnId: state.turnId,
+      });
     } catch (error) {
       res.json({
         available: false,
@@ -567,7 +574,10 @@ export function installControl(
     }
   }
   app.post('/api/sessions/:id/messages', admin, async (req, res) => {
-    const parsed = schema.extend(modelFields).refine(hasModelForThinking).safeParse(req.body),
+    const parsed = schema
+        .extend({ ...modelFields, channel: z.literal('desktop').optional() })
+        .refine(hasModelForThinking)
+        .safeParse(req.body),
       id = String(req.params.id);
     if (!parsed.success || !hasContent(parsed.data) || !validId(id))
       return res
@@ -577,8 +587,14 @@ export function installControl(
     if (!session) return res.status(404).json({ error: '找不到此会话' });
     if (session.archived || session.subagent)
       return res.status(409).json({ error: '归档或内部子代理会话不能发送消息。' });
+    if (parsed.data.channel && !bridge.desktopChannel)
+      return res
+        .status(409)
+        .json({ state: 'failed', error: '此客户端暂不支持桌面通道，请更新客户端后重试。' });
     const text = parsed.data.prompt;
     if (text.startsWith('/')) {
+      if (parsed.data.channel)
+        return res.status(400).json({ error: '桌面通道用于普通消息，请取消勾选后使用斜杠指令。' });
       if (parsed.data.model)
         return res
           .status(400)
@@ -616,6 +632,7 @@ export function installControl(
           prompt: compose(req, parsed.data),
           ...(parsed.data.model ? { model: parsed.data.model } : {}),
           ...(parsed.data.thinking ? { thinking: parsed.data.thinking } : {}),
+          ...(parsed.data.channel ? { channel: parsed.data.channel } : {}),
         },
       );
       res.status(httpStatus).json(receipt);
@@ -631,6 +648,7 @@ export function installControl(
         asGoal: z.boolean().optional(),
         permissionMode: z.enum(sessionPermissionModes).optional(),
         ...modelFields,
+        channel: z.literal('desktop').optional(),
       })
       .refine(hasModelForThinking)
       .safeParse(req.body);
@@ -647,12 +665,18 @@ export function installControl(
     )
       return res.status(400).json({ error: '新会话目标需 1–4000 字符，请填写目标内容。' });
     const input = { ...parsed.data, prompt, asGoal };
-    if (input.permissionMode && !bridge.creationPermissions)
+    if (input.channel && !bridge.desktopChannel)
+      return res
+        .status(409)
+        .json({ state: 'failed', error: '此客户端暂不支持桌面通道，请更新客户端后重试。' });
+    if (input.channel === 'desktop' && input.permissionMode && input.permissionMode !== 'inherit')
+      return res.status(400).json({ error: '桌面通道沿用 Codex 桌面端的权限设置。' });
+    if (input.permissionMode && !bridge.creationPermissions && input.channel !== 'desktop')
       return res
         .status(409)
         .json({ error: '此 client 暂不支持会话权限设置，请更新 client 或沿用本机配置。' });
     await mutate(req, res, input, 'project:' + input.projectId, async () => {
-      const caller = await context();
+      const caller = await context(undefined, input.channel === 'desktop');
       const projects = await bridge.projects(caller);
       if (!projects.some((p) => p.id === parsed.data.projectId))
         throw new ControlError('项目不可用，请刷新项目列表。', false, 400);
@@ -668,6 +692,7 @@ export function installControl(
           ...(model ? { model } : {}),
           ...(thinking ? { thinking } : {}),
           ...(input.permissionMode ? { permissionMode: input.permissionMode } : {}),
+          ...(input.channel ? { channel: input.channel } : {}),
         },
       );
       if (!validId(result.threadId))

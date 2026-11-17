@@ -2,11 +2,12 @@ import { createHash } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
 import { ControlError, type DesktopControl } from './desktop.js';
 import type { CodexSource } from './source.js';
-import type { ReasoningEffort, SessionModelSettings } from '../src/types.js';
+import type { ReasoningEffort, SessionMessageSettings } from '../src/types.js';
 import { validateModelSettings } from './model-settings.js';
 
 export type ControlLane = <T>(threadId: string, operation: () => Promise<T>) => Promise<T>;
 const waitingMessage = '消息已排队，等待上下文压缩结束后自动发送。';
+const desktopWaitingMessage = '桌面通道消息已排队，等待当前执行结束后自动发送。';
 
 /** Only queued inputs can be resumed. A dispatched input always needs a definite receipt. */
 export class MessageQueue {
@@ -30,7 +31,7 @@ export class MessageQueue {
         .all()
         .map((row) => row.name),
     );
-    for (const name of ['model', 'thinking'])
+    for (const name of ['model', 'thinking', 'channel'])
       if (!columns.has(name)) db.exec(`ALTER TABLE control_message_queue ADD COLUMN ${name} TEXT`);
     db.prepare(
       "DELETE FROM control_message_queue WHERE request_id NOT IN (SELECT id FROM control_requests WHERE state='queued')",
@@ -61,7 +62,7 @@ export class MessageQueue {
     userId: string,
     ip: string,
     threadId: string,
-    input: { requestId: string; prompt: string } & SessionModelSettings,
+    input: { requestId: string; prompt: string } & SessionMessageSettings,
   ) {
     const fingerprint = createHash('sha256')
       .update(
@@ -69,6 +70,7 @@ export class MessageQueue {
           threadId,
           input.prompt,
           ...(input.model ? [{ model: input.model, thinking: input.thinking }] : []),
+          ...(input.channel ? [{ channel: input.channel }] : []),
         ]),
       )
       .digest('hex');
@@ -93,7 +95,7 @@ export class MessageQueue {
           );
         this.db
           .prepare(
-            'INSERT INTO control_message_queue (request_id,thread_id,prompt,ip,model,thinking) VALUES(?,?,?,?,?,?)',
+            'INSERT INTO control_message_queue (request_id,thread_id,prompt,ip,model,thinking,channel) VALUES(?,?,?,?,?,?,?)',
           )
           .run(
             input.requestId,
@@ -102,6 +104,7 @@ export class MessageQueue {
             ip,
             input.model ?? null,
             input.thinking ?? null,
+            input.channel ?? null,
           );
         this.db.exec('COMMIT');
       } catch (error) {
@@ -226,10 +229,25 @@ export class MessageQueue {
       return;
     }
     if (this.closed) return;
-    const settings: SessionModelSettings = {
+    const settings: SessionMessageSettings = {
       ...(row.model ? { model: String(row.model) } : {}),
       ...(row.thinking ? { thinking: String(row.thinking) as ReasoningEffort } : {}),
+      ...(row.channel === 'desktop' ? { channel: 'desktop' as const } : {}),
     };
+    if (settings.channel === 'desktop' && !this.bridge.desktopChannel) {
+      this.finish(requestId, 'failed', {
+        httpStatus: 409,
+        error: '此客户端暂不支持桌面通道，请更新客户端后重试。',
+      });
+      return;
+    }
+    if (
+      settings.channel === 'desktop' &&
+      (state.status === 'active' || (state.status === 'notLoaded' && session.status === 'running'))
+    ) {
+      this.waiting(requestId, threadId, desktopWaitingMessage);
+      return;
+    }
     if (settings.model && !state.compacting && state.status !== 'active') {
       try {
         await validateModelSettings(this.bridge, settings);
@@ -261,6 +279,13 @@ export class MessageQueue {
     }
     if (state.compacting) {
       this.waiting(requestId, threadId);
+      return;
+    }
+    if (
+      settings.channel === 'desktop' &&
+      (state.status === 'active' || (state.status === 'notLoaded' && current.status === 'running'))
+    ) {
+      this.waiting(requestId, threadId, desktopWaitingMessage);
       return;
     }
     if (settings.model && state.status === 'active') {
@@ -302,6 +327,10 @@ export class MessageQueue {
       if (this.closed) return;
       if (error instanceof ControlError && !error.uncertain && error.code === 'compacting') {
         this.waiting(requestId, threadId);
+        return;
+      }
+      if (error instanceof ControlError && !error.uncertain && error.code === 'desktop_busy') {
+        this.waiting(requestId, threadId, error.message);
         return;
       }
       const failure =

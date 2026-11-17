@@ -206,6 +206,29 @@
   flex: 1;
   min-width: 0;
 }
+.composer-desktop-channel {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  gap: 6px;
+  min-height: 32px;
+  color: var(--muted);
+  font-size: 11px;
+  cursor: pointer;
+}
+.composer-desktop-channel input {
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  accent-color: var(--accent);
+}
+.composer-desktop-channel:has(input:checked) {
+  color: var(--accent);
+}
+.composer-desktop-channel:has(input:disabled) {
+  cursor: default;
+  opacity: 0.6;
+}
 .composer-choice {
   position: relative;
   flex: 0 1 auto;

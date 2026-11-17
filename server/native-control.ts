@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import type { DesktopControl, DesktopProject } from './desktop.js';
+import { DesktopBridge, type DesktopControl, type DesktopProject } from './desktop.js';
 import { ControlError } from './control-error.js';
 import {
   NativeRpc,
@@ -8,7 +8,7 @@ import {
   interruptOwnedThread,
   compactOwnedThread,
 } from './native.js';
-import type { SessionModelSettings, SessionCreationSettings } from '../src/types.js';
+import type { SessionMessageSettings, SessionCreationSettings } from '../src/types.js';
 import { NativeApprovals } from './native-approvals.js';
 import { generateSessionTitle } from './session-title.js';
 
@@ -29,14 +29,21 @@ function noOwner(error: unknown) {
   );
 }
 
+function projectPathKey(directory: string) {
+  const resolved = path.resolve(directory);
+  return process.platform === 'win32' ? path.toNamespacedPath(resolved).toLowerCase() : resolved;
+}
+
 /** Share the CLI app-server and approval callbacks across Windows and macOS,
  * while routing desktop-owned threads to their existing owner. */
 export class NativeDesktopControl implements DesktopControl {
   readonly contextRequired = false;
   readonly creationPermissions = true;
+  readonly desktopChannel = true;
   readonly approvals = new NativeApprovals();
   private fileChanges = new Map<string, unknown>();
   private native: NativeControl;
+  private desktop: Pick<DesktopControl, 'projects' | 'send' | 'create' | 'close'>;
   private runtimes = new Map<string, NativeControl>();
   private pendingRuntimes = new Set<NativeControl>();
   private turns = new Map<string, { turnId: string; running: boolean; compacting: boolean }>();
@@ -52,9 +59,13 @@ export class NativeDesktopControl implements DesktopControl {
       owner?: typeof requestOwnedThread;
       launch?: ConstructorParameters<typeof NativeRpc>[1];
       generateTitle?: typeof generateSessionTitle;
+      desktop?: Pick<DesktopControl, 'projects' | 'send' | 'create' | 'close'>;
     } = {},
   ) {
     this.native = dependencies.native ?? new NativeRpc(options.codexHome);
+    this.desktop =
+      dependencies.desktop ??
+      new DesktopBridge({ codexHome: options.codexHome, activity: options.activity });
   }
 
   private createRuntime() {
@@ -289,16 +300,52 @@ export class NativeDesktopControl implements DesktopControl {
     }
   }
 
-  send(context: string, threadId: string, prompt: string, settings: SessionModelSettings = {}) {
+  send(context: string, threadId: string, prompt: string, settings: SessionMessageSettings = {}) {
     return this.serial(threadId, () => this.sendNow(context, threadId, prompt, settings));
   }
 
-  private async sendNow(
-    _context: string,
+  private async sendDesktop(
+    context: string,
     threadId: string,
     prompt: string,
-    settings: SessionModelSettings,
+    settings: SessionMessageSettings,
   ) {
+    const runtime = this.runtimes.get(threadId);
+    if (runtime) {
+      const { thread } = await runtime.request('thread/read', {
+        threadId,
+        includeTurns: false,
+      });
+      if (
+        thread.status?.type === 'active' ||
+        (await this.native.get(threadId))?.status === 'active'
+      )
+        throw new ControlError(
+          '桌面通道消息已排队，等待当前执行或目标结束后自动发送。',
+          false,
+          409,
+          'desktop_busy',
+        );
+      // The desktop must acquire the same writer after this idle CLI process exits.
+      this.runtimes.delete(threadId);
+      await (runtime.dispose?.() ?? runtime.close());
+      this.turns.delete(threadId);
+    }
+    if (this.closed) throw new ControlError('客户端正在停止，消息未发送。', false, 503);
+    return this.desktop.send(context || threadId, threadId, prompt, {
+      ...(settings.model ? { model: settings.model } : {}),
+      ...(settings.thinking ? { thinking: settings.thinking } : {}),
+    });
+  }
+
+  private async sendNow(
+    context: string,
+    threadId: string,
+    prompt: string,
+    settings: SessionMessageSettings,
+  ) {
+    if (settings.channel === 'desktop')
+      return this.sendDesktop(context, threadId, prompt, settings);
     // Desktop owner IPC retains this input for rendering before CLI defaults apply.
     const input = [{ type: 'text', text: prompt, text_elements: [] }];
     const request = {
@@ -385,6 +432,37 @@ export class NativeDesktopControl implements DesktopControl {
     prompt: string,
     settings: SessionCreationSettings = {},
   ) {
+    if (settings.channel === 'desktop') {
+      if (this.closed) throw new ControlError('客户端正在停止，会话未创建。', false, 503);
+      if (settings.permissionMode && settings.permissionMode !== 'inherit')
+        throw new ControlError('桌面通道沿用 Codex 桌面端的权限设置。', false, 400);
+      const project = (await this.projects(context)).find((project) => project.id === projectId);
+      if (!project) throw new ControlError('项目不可用，请刷新项目列表。', false, 400);
+      // Desktop logical project IDs differ from the app-server catalog IDs.
+      const matches = (await this.desktop.projects(context)).filter(
+        (candidate) => projectPathKey(candidate.path) === projectPathKey(project.path),
+      );
+      const named = matches.filter((candidate) => candidate.name === project.name);
+      const target =
+        matches.find((candidate) => candidate.id === projectId) ??
+        (named.length === 1 ? named[0] : undefined) ??
+        (matches.length === 1 ? matches[0] : undefined);
+      if (!target)
+        throw new ControlError(
+          matches.length
+            ? '桌面端有多个对应目录的项目，请核对项目名称后重试。'
+            : 'Codex 桌面端未找到此项目目录，请先在桌面端添加该项目。',
+          false,
+          409,
+        );
+      if (this.closed) throw new ControlError('客户端正在停止，会话未创建。', false, 503);
+      const result = await this.desktop.create(context, target.id, prompt, {
+        ...(settings.model ? { model: settings.model } : {}),
+        ...(settings.thinking ? { thinking: settings.thinking } : {}),
+      });
+      this.options.onCreated?.(result.threadId);
+      return result;
+    }
     const project = (await this.projects(context)).find((project) => project.id === projectId);
     if (!project) throw new ControlError('项目不可用，请刷新项目列表。', false, 400);
     const created = this.createRuntime();
@@ -540,6 +618,7 @@ export class NativeDesktopControl implements DesktopControl {
     for (const job of this.titleJobs.values()) job.abort();
     this.titleJobs.clear();
     this.approvals.close();
+    this.desktop.close?.();
     this.fileChanges.clear();
     for (const runtime of new Set([
       this.native,

@@ -110,6 +110,56 @@ test('new sessions use the detail page and preserve separate drafts while naviga
   expect(creates).toBe(0);
 });
 
+test('new sessions can select the desktop channel, preserve its draft and use desktop permissions', async ({
+  page,
+  request,
+}) => {
+  await page.route('**/api/workspaces/local/control', async (route) => {
+    const response = await route.fetch();
+    const body = await response.json();
+    await route.fulfill({ json: { ...body, creationPermissions: true } });
+  });
+  const newSession = await enter(page, request);
+  const desktop = newSession.getByRole('checkbox', { name: '桌面通道', exact: true });
+  const input = newSession.getByLabel('发送给 Codex 的消息');
+  await expect(desktop).not.toBeChecked();
+  await newSession.getByLabel('新会话权限').selectOption('read-only');
+  await input.fill('desktop first message ' + test.info().project.name);
+  await desktop.check();
+  await expect(newSession.getByLabel('新会话权限')).toHaveCount(0);
+  await expect(newSession).toContainText('审批在桌面端处理');
+  await desktop.uncheck();
+  await expect(newSession.getByLabel('新会话权限')).toHaveValue('read-only');
+  await desktop.check();
+  await page.reload();
+  await expect(desktop).toBeChecked();
+  await expect(input).toHaveValue('desktop first message ' + test.info().project.name);
+  await expect(newSession.getByLabel('新会话权限')).toHaveCount(0);
+  await newSession.getByLabel('新会话模型').selectOption('gpt-6.1-sol');
+  await newSession.getByLabel('新会话思考级别').selectOption('high');
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.screenshot({
+    path: test.info().outputPath('new-session-desktop-channel.png'),
+    fullPage: true,
+  });
+  const sent = page.waitForResponse(
+    (response) =>
+      response.request().method() === 'POST' &&
+      response.url().endsWith('/api/workspaces/local/sessions'),
+  );
+  await newSession.getByRole('button', { name: '创建并发送', exact: true }).click();
+  const response = await sent;
+  expect(response.ok()).toBeTruthy();
+  expect(response.request().postDataJSON()).toMatchObject({
+    channel: 'desktop',
+    permissionMode: 'inherit',
+    model: 'gpt-6.1-sol',
+    thinking: 'high',
+  });
+  await expect(page.locator('.timeline')).toContainText('测试回复：desktop first message');
+  await expect(page.getByRole('checkbox', { name: '桌面通道', exact: true })).not.toBeChecked();
+});
+
 test('ordinary creation stays compatible with a client that rejects goal fields', async ({
   page,
   request,
@@ -222,7 +272,10 @@ test('a lost goal creation receipt survives reload and is queried without anothe
   await newSession.getByLabel('目标内容', { exact: true }).fill(objective);
   await newSession.getByRole('button', { name: '创建并执行目标' }).click();
   await expect(newSession.getByRole('button', { name: '查询发送结果' })).toBeVisible();
-  await expect(newSession.getByRole('checkbox')).toBeDisabled();
+  await expect(
+    newSession.getByRole('checkbox', { name: '将首条消息设为目标', exact: true }),
+  ).toBeDisabled();
+  await expect(newSession.getByRole('checkbox', { name: '桌面通道', exact: true })).toBeDisabled();
   await page.reload();
   await expect(newSession).toBeVisible();
   await expect(newSession.getByRole('checkbox', { name: '将首条消息设为目标' })).toBeChecked();

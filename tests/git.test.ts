@@ -11,7 +11,6 @@ import {
   realpathSync,
 } from 'node:fs';
 import { once } from 'node:events';
-import os from 'node:os';
 import path from 'node:path';
 import { fixture, ids } from './fixture.js';
 import { FixtureDesktop } from './control-fixture.js';
@@ -23,13 +22,15 @@ import { parseDiff, reviewPrompt } from '../src/features/git/diff-model.js';
 function projectFixture(commit = true) {
   const f = fixture();
   const repo = path.join(f.root, '代码 review project');
+  const globalConfig = path.join(f.root, 'empty-gitconfig');
+  writeFileSync(globalConfig, '');
   mkdirSync(path.join(repo, 'src'), { recursive: true });
   const command = (...args: string[]) =>
     execFileSync('git', args, {
       cwd: repo,
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'pipe'],
-      env: { ...process.env, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: os.devNull },
+      env: { ...process.env, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: globalConfig },
     });
   command('init', '-b', 'review-test');
   command('config', 'user.name', 'Git review test');
@@ -78,7 +79,7 @@ test('Git scopes reflect HEAD, index and working tree, preserve rename paths and
     const index = readFileSync(path.join(f.repo, '.git/index'));
     const all = await f.git.status(ids.modern, 'all');
     assert.equal(all.branch, 'review-test');
-    assert.equal(all.root, realpathSync(f.repo));
+    assert.equal(path.normalize(all.root), realpathSync(f.repo));
     assert.ok(all.head);
     assert.equal(
       all.files.find((file) => file.path === '中文 renamed.ts')?.previousPath,

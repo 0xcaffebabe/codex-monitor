@@ -3,15 +3,16 @@ import { writeFileSync } from 'node:fs';
 import path from 'node:path';
 import type { DesktopControl } from '../server/desktop.js';
 import { ControlError } from '../server/control-error.js';
-import type { CodexModel, SessionModelSettings } from '../src/types.js';
+import type { CodexModel, SessionCreationSettings, SessionMessageSettings } from '../src/types.js';
 import type { fixture } from './fixture.js';
 
 export const projectId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 export class FixtureDesktop implements DesktopControl {
+  readonly desktopChannel = true;
   sends = 0;
   creates = 0;
-  lastCreation: SessionModelSettings = {};
-  lastSend: SessionModelSettings = {};
+  lastCreation: SessionCreationSettings = {};
+  lastSend: SessionMessageSettings = {};
   compactions = 0;
   interruptions = 0;
   compacting = false;
@@ -49,7 +50,7 @@ export class FixtureDesktop implements DesktopControl {
       turnId: turn?.turn_id as string | undefined,
     };
   }
-  async send(_context: string, id: string, prompt: string, settings: SessionModelSettings = {}) {
+  async send(_context: string, id: string, prompt: string, settings: SessionMessageSettings = {}) {
     if (this.compacting)
       throw new ControlError(
         'ActiveTurnNotSteerable { turn_kind: Compact }',
@@ -106,7 +107,7 @@ export class FixtureDesktop implements DesktopControl {
     context: string,
     selectedProject: string,
     prompt: string,
-    settings: SessionModelSettings = {},
+    settings: SessionCreationSettings = {},
   ) {
     if (selectedProject !== projectId) throw new Error('Invalid fixture project');
     this.creates++;

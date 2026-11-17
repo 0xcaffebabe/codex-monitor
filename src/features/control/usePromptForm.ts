@@ -8,7 +8,7 @@ import { workspaceStorageKey } from '../../workspace-scope';
 export type PromptFormProps = {
   storageKey: string;
   url: string;
-  extra?: object;
+  extra?: object | ((draft: Draft) => object);
   label: string;
   enabled: boolean;
   onAccepted: (receipt: Receipt) => void;
@@ -22,6 +22,8 @@ export type PromptFormProps = {
   submitActions?: React.ReactNode;
   initialPrompt?: string;
   allowGoal?: boolean;
+  allowDesktopChannel?: boolean;
+  onDesktopChannelChange?: (selected: boolean) => void;
 };
 export function usePromptForm({
   storageKey: unscopedKey,
@@ -32,6 +34,8 @@ export function usePromptForm({
   initialPrompt = '',
   allowAttachments = false,
   allowGoal = false,
+  allowDesktopChannel = false,
+  onDesktopChannelChange,
   maxLength = 12000,
 }: PromptFormProps) {
   const storageKey = workspaceStorageKey(unscopedKey);
@@ -39,7 +43,12 @@ export function usePromptForm({
     try {
       const stored = sessionStorage.getItem(storageKey);
       const saved: Draft | undefined = stored ? JSON.parse(stored) : undefined;
-      return saved && (saved.prompt || saved.requestId || saved.attachments?.length || saved.asGoal)
+      return saved &&
+        (saved.prompt ||
+          saved.requestId ||
+          saved.attachments?.length ||
+          saved.asGoal ||
+          saved.desktopChannel)
         ? saved
         : { prompt: initialPrompt };
     } catch {
@@ -62,7 +71,9 @@ export function usePromptForm({
   const validationError =
     characterCount > characterLimit
       ? `${asGoal ? '目标' : '消息'}最多 ${characterLimit} 字符，请缩短内容。`
-      : '';
+      : draft.desktopChannel && !allowDesktopChannel && enabled
+        ? '此工作空间暂不支持桌面通道，请更新客户端或取消勾选。'
+        : '';
   const hasContent = asGoal ? !!objective : !!draft.prompt.trim() || !!attachments.length;
   const canSubmit = !!enabled && hasContent && !validationError;
   const attachmentPicker = useAttachmentPicker({
@@ -89,6 +100,9 @@ export function usePromptForm({
   useEffect(() => {
     sessionStorage.setItem(storageKey, JSON.stringify(draft));
   }, [draft, storageKey]);
+  useEffect(() => {
+    onDesktopChannelChange?.(!!draft.desktopChannel);
+  }, [draft.desktopChannel, onDesktopChannelChange]);
   function accept(result: Receipt) {
     if (result.requestId && result.requestId !== currentRequest.current) return false;
     if (
@@ -159,6 +173,7 @@ export function usePromptForm({
         requestId,
         // Ordinary creation must remain compatible with clients predating goal creation.
         ...(asGoal ? { asGoal: true } : {}),
+        ...(draft.desktopChannel ? { desktopChannel: true } : {}),
       };
     currentRequest.current = requestId;
     // Persist the ID before the request, so a reload never repeats an uncertain send.
@@ -167,8 +182,11 @@ export function usePromptForm({
     try {
       accept(
         await post<Receipt>(url, {
-          ...extra,
-          ...payload,
+          ...(typeof extra === 'function' ? extra(draft) : extra),
+          prompt: payload.prompt,
+          requestId: payload.requestId,
+          ...(payload.asGoal ? { asGoal: true } : {}),
+          ...(payload.desktopChannel ? { channel: 'desktop' } : {}),
           attachments: payload.attachments?.map((attachment) => attachment.id),
         }),
       );

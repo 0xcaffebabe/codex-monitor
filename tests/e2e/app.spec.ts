@@ -12,10 +12,10 @@ let cachedToken = '';
 let restoreControlFixture: (() => void) | undefined;
 const pendingMutations = new Set<Request>();
 test.beforeEach(async ({ page }, info) => {
-  if (info.title.startsWith('web controls'))
-    await page.route('**/api/notifications/completions', (route) =>
-      route.fulfill({ json: { generation: 'controls-test', revision: 0, notifications: [] } }),
-    );
+  // Notification delivery has its own specs; stale cards must not cover these controls.
+  await page.route('**/api/notifications/completions', (route) =>
+    route.fulfill({ json: { generation: 'controls-test', revision: 0, notifications: [] } }),
+  );
   pendingMutations.clear();
   page.on('request', (request) => { if (request.method() === 'POST' && request.url().includes('/api/workspaces/')) pendingMutations.add(request); });
   page.on('requestfinished', (request) => pendingMutations.delete(request));
@@ -726,6 +726,114 @@ test('web controls change models when continuing completed sessions and retain s
   } finally {
     hist.close();
   }
+});
+
+test('web controls desktop channel preserves drafts, submits model settings and resets after sending', async ({
+  page,
+  request,
+}) => {
+  const hist = new DatabaseSync(path.join(root, 'codex', 'thread_history_1.sqlite'));
+  hist.prepare("UPDATE thread_turns SET status='completed' WHERE thread_id=?").run(ids.modern);
+  hist.close();
+  await enter(page, request);
+  await page.getByTestId('session-row').filter({ hasText: '开发 codex-monitor' }).click();
+  const desktop = page.getByRole('checkbox', { name: '桌面通道', exact: true });
+  const input = page.getByLabel('发送给 Codex 的消息');
+  await expect(desktop).not.toBeChecked();
+  await input.fill('desktop channel request ' + test.info().project.name);
+  await desktop.check();
+  await page.reload();
+  await expect(desktop).toBeChecked();
+  await expect(input).toHaveValue('desktop channel request ' + test.info().project.name);
+  await page.getByLabel('继续会话模型', { exact: true }).selectOption('gpt-6.1-sol');
+  await page.getByLabel('继续会话思考级别', { exact: true }).selectOption('high');
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.screenshot({
+    path: test.info().outputPath('desktop-channel-selected.png'),
+    fullPage: true,
+  });
+  const sent = page.waitForResponse(
+    (response) => response.request().method() === 'POST' && response.url().endsWith('/messages'),
+  );
+  await page.locator('.message-composer button[type="submit"]').click();
+  const response = await sent;
+  expect(response.ok()).toBeTruthy();
+  expect(response.request().postDataJSON()).toMatchObject({
+    channel: 'desktop',
+    model: 'gpt-6.1-sol',
+    thinking: 'high',
+  });
+  expect(response.request().postDataJSON()).not.toHaveProperty('desktopChannel');
+  await expect(desktop).not.toBeChecked();
+  await expect(input).toHaveValue('');
+  await input.fill('ordinary send after desktop');
+  const ordinary = page.waitForRequest(
+    (req) => req.method() === 'POST' && req.url().endsWith('/messages'),
+  );
+  await page.locator('.message-composer button[type="submit"]').click();
+  expect((await ordinary).postDataJSON()).not.toHaveProperty('channel');
+  await expect(input).toHaveValue('');
+});
+
+test('web controls desktop channel waits for the running turn and survives a queued reload', async ({
+  page,
+  request,
+}) => {
+  const activeHistory = new DatabaseSync(path.join(root, 'codex', 'thread_history_1.sqlite'));
+  activeHistory.prepare("UPDATE thread_turns SET status='inProgress' WHERE thread_id=?").run(ids.modern);
+  activeHistory.close();
+  await enter(page, request);
+  await page.getByTestId('session-row').filter({ hasText: '开发 codex-monitor' }).click();
+  const input = page.getByLabel('发送给 Codex 的消息');
+  const desktop = page.getByRole('checkbox', { name: '桌面通道', exact: true });
+  let submissions = 0;
+  page.on('request', (req) => {
+    if (req.method() === 'POST' && req.url().endsWith('/messages')) submissions++;
+  });
+  await desktop.check();
+  await input.fill('queued desktop channel ' + test.info().project.name);
+  const queued = page.waitForResponse(
+    (response) => response.request().method() === 'POST' && response.url().endsWith('/messages'),
+  );
+  await page.locator('.message-composer button[type="submit"]').click();
+  expect((await queued).status()).toBe(202);
+  await expect(desktop).toBeDisabled();
+  await expect(page.locator('.message-composer .control-notice')).toContainText('等待当前执行');
+  await page.reload();
+  await expect(desktop).toBeChecked();
+  await expect(desktop).toBeDisabled();
+  await expect(input).toHaveValue('queued desktop channel ' + test.info().project.name);
+  expect(submissions).toBe(1);
+  const hist = new DatabaseSync(path.join(root, 'codex', 'thread_history_1.sqlite'));
+  hist.prepare("UPDATE thread_turns SET status='completed' WHERE thread_id=?").run(ids.modern);
+  hist.close();
+  await expect(input).toHaveValue('', { timeout: 15000 });
+  await expect(desktop).not.toBeChecked();
+  await expect(desktop).toBeEnabled();
+  await expect(page.locator('.timeline')).toContainText('测试回复：queued desktop channel');
+  expect(submissions).toBe(1);
+});
+
+test('web controls desktop channel cannot silently drop a saved selection on an older client', async ({
+  page,
+  request,
+}) => {
+  await enter(page, request);
+  await page.getByTestId('session-row').filter({ hasText: '开发 codex-monitor' }).click();
+  const input = page.getByLabel('发送给 Codex 的消息');
+  const desktop = page.getByRole('checkbox', { name: '桌面通道', exact: true });
+  await input.fill('keep this channel choice');
+  await desktop.check();
+  await page.route('**/api/workspaces/local/sessions/*/control', (route) =>
+    route.fulfill({ json: { available: true, running: false } }),
+  );
+  await page.reload();
+  await expect(desktop).toBeChecked();
+  await expect(page.locator('.message-composer button[type="submit"]')).toBeDisabled();
+  await expect(page.getByRole('alert')).toContainText('暂不支持桌面通道');
+  await desktop.click();
+  await expect(desktop).toHaveCount(0);
+  await expect(page.locator('.message-composer button[type="submit"]')).toBeEnabled();
 });
 
 test('web controls can create with defaults when the model catalog is unavailable', async ({

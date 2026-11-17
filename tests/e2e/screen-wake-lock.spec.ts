@@ -120,7 +120,7 @@ test('iOS details keep the screen awake through refresh and rotation, and releas
   expect(await state(page)).toEqual({ requests: 0, held: 0, pending: 0 });
   await page.getByTestId('session-row').filter({ hasText: '开发 codex-monitor' }).click();
   if (!isMobile) {
-    await expect(page.locator('.timeline .user-message')).toBeVisible();
+    await expect(page.locator('.timeline .user-message').last()).toBeVisible();
     await expect(indicator(page)).toHaveCount(0);
     expect(await state(page)).toEqual({ requests: 0, held: 0, pending: 0 });
     return;
@@ -248,7 +248,7 @@ for (const scenario of [
     await mockWakeLock(page, scenario.options);
     await enter(page, request, ids.modern);
     await expect(indicator(page)).toHaveText(scenario.label);
-    await expect(page.locator('.timeline .user-message')).toBeVisible();
+    await expect(page.locator('.timeline .user-message').last()).toBeVisible();
     await page.getByLabel('发送给 Codex 的消息').fill('仍可阅读和输入');
     expect(await state(page)).toEqual({ requests: 0, held: 0, pending: 0 });
     await page.setViewportSize({ width: 320, height: 700 });

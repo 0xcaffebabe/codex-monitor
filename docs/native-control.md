@@ -28,6 +28,18 @@ Monitor 自己承载的 App Server 会话支持命令执行、文件修改、额
 
 ## CLI 与旧通道
 
+### 按消息选择桌面通道
+
+默认仍通过统一 App Server 控制器创建或续接会话。新建和追加表单都可勾选“桌面通道”；请求使用可选的 `channel: "desktop"`，未勾选时省略该字段，兼容旧 client。
+
+新建勾选后委托桌面 `create_thread`，首条消息直接在桌面执行，不先启动 CLI 轮次；权限控件改为沿用桌面端设置，后端拒绝同时指定非继承权限。模型和 thinking 原样传给桌面工具，当前桌面版本在 custom provider 下可能拒绝显式模型组合，错误直接返回，不自动换模型或通道。
+
+CLI 项目目录与桌面逻辑项目使用不同 ID；创建前按目录映射到桌面项目，Windows 同时规范扩展路径和大小写。目录无匹配或名称也无法区分多个项目时明确报错，不将 CLI 项目 ID 直接发给桌面。
+
+追加勾选后使用桌面 `send_message_to_thread`，保留模型与 thinking 覆盖；不使用原来的裸 owner `thread-follower-start-turn` 作为所选桌面通道。消息队列持久化通道，并将它纳入请求 ID 指纹。当前执行未完成时等待，CLI 空闲后先等其进程退出再交接同一个会话；active goal 不被自动暂停或中断。桌面连接或创建失败直接报告，回执不确定时不重发。
+
+表单通道选择与草稿按工作空间隔离；排队时锁定，刷新后恢复，成功发送后重置。新建页会同步显示桌面权限说明。更新 Server 和对应 client 才能使用此能力；旧 client 未上报支持时不提供可选入口。
+
 `MONITOR_CODEX_CLI` / `--codex-cli` 可指定 Codex CLI；也支持桌面运行环境的 `CODEX_APP_RUNTIME_CLI_PATH`。Windows 优先检查指定桌面程序旁的 `resources/codex.exe`，再通过 `Get-AppxPackage` 获取当前用户的 Store 安装位置，并检查常见独立安装目录和可读取的 Windows Store 安装目录，最后才使用已有 `OpenAI/Codex/bin` 运行时缓存。此顺序避免 `WindowsApps` 拒绝目录枚举时漏掉桌面安装，以及桌面升级后继续选中旧缓存。找不到时明确提示配置 CLI 路径，不会将桌面 GUI 当作 CLI 启动。
 
 macOS 沿用桌面 `.app` 内 CLI 自动发现。两端都沿用当前用户的 Codex 配置与登录，`CODEX_HOME` 控制读取及执行的数据目录。

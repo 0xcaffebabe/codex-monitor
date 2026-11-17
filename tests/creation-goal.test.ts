@@ -91,6 +91,49 @@ test('a first-message goal creates once, preserves model settings, and never sen
   assert.equal(h.desktop.sends, 1);
 });
 
+test('desktop creation preserves its channel, model and goal intent through idempotent requests', async (t) => {
+  const h = await harness(t);
+  const input = {
+    requestId: randomUUID(),
+    projectId,
+    prompt: 'desktop goal',
+    asGoal: true,
+    channel: 'desktop',
+    model: 'gpt-6.1-sol',
+    thinking: 'high',
+    permissionMode: 'inherit',
+  };
+  assert.equal((await (await h.send('/api/control')).json()).desktopChannel, true);
+  const response = await h.send('/api/sessions', input);
+  assert.equal(response.status, 200);
+  const receipt = await response.json();
+  assert.equal(receipt.goalState, 'saved');
+  assert.equal(h.desktop.creates, 1);
+  assert.equal(h.desktop.sends, 1);
+  assert.deepEqual(h.desktop.lastCreation, {
+    channel: 'desktop',
+    model: input.model,
+    thinking: input.thinking,
+    permissionMode: 'inherit',
+  });
+  assert.equal((await h.send('/api/sessions', input)).status, 200);
+  assert.equal(h.desktop.creates, 1);
+  assert.equal((await h.send('/api/sessions', { ...input, channel: undefined })).status, 409);
+  assert.equal(
+    (
+      await h.send('/api/sessions', {
+        ...input,
+        requestId: randomUUID(),
+        permissionMode: 'danger-full-access',
+      })
+    ).status,
+    400,
+  );
+  Object.defineProperty(h.desktop, 'desktopChannel', { value: false });
+  assert.equal((await h.send('/api/sessions', { ...input, requestId: randomUUID() })).status, 409);
+  assert.equal(h.desktop.creates, 1);
+});
+
 test('new-session /goal input is normalized and rejects invalid objectives before creating', async (t) => {
   const h = await harness(t);
   for (const input of [

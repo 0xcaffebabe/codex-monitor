@@ -3,7 +3,7 @@ export class ControlError extends Error {
     message: string,
     public uncertain = false,
     public status = 503,
-    public code?: 'compacting' | 'no_owner' | 'owner_unavailable',
+    public code?: 'compacting' | 'desktop_busy' | 'no_owner' | 'owner_unavailable',
   ) {
     super(message);
   }
