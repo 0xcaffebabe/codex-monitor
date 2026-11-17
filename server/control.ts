@@ -11,6 +11,8 @@ import { validateModelSettings } from './model-settings.js';
 import { sessionPermissionModes } from '../src/approval-types.js';
 import type { SessionCreationSettings } from '../src/types.js';
 import type { Identity } from './http/access.js';
+import { ProjectFiles } from './project-files.js';
+import { installProjectFileRoutes } from './http/project-file-routes.js';
 import {
   creationReceipt,
   restoreControlRequests,
@@ -123,6 +125,17 @@ export function installControl(
     return latest.sessions[0].id;
   };
   const messages = new MessageQueue(db, source, bridge, context, inLane, authorization?.user);
+  installProjectFileRoutes(
+    app,
+    new ProjectFiles({
+      session: async (id) => {
+        await source.refresh(true);
+        return (await source.get(id))?.cwd;
+      },
+      project: async (id) =>
+        (await bridge.projects(await context())).find((project) => project.id === id)?.path,
+    }),
+  );
   app.get('/api/control', admin, async (_req, res) => {
     try {
       res.json({

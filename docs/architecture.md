@@ -18,7 +18,7 @@ src/
     terminal/              # 项目终端弹窗、终端屏幕、输入顺序与输出游标
     git/                   # 会话项目 diff、范围切换、逐行展示和审查请求
     control/               # 消息草稿、回执、队列、命令、目标、新建会话
-    attachments/           # 上传、移除、缩略图
+    attachments/           # 上传、移除、缩略图、项目文件树与文件名搜索
     usage/                 # 用量查询、筛选、指标、图表、请求日志
     settings/              # 设备、密码、访问账户和 Webhook 通知配置
   shared/                  # 通用展示组件、格式化、剪贴板
@@ -60,6 +60,7 @@ server/
   image-previews.ts        # AVIF/WebP 尺寸分级、并发与像素上限、源版本缓存和原图回退
   terminal.ts              # 登录设备隔离、目录校验、容量与输出上限、授权复核和终端生命周期
   git.ts                   # 会话目录中的只读 Git 查询、字面路径、文件校验与 diff 大小上限
+  project-files.ts         # 已登记项目／会话目录内的文件列表、按文件名递归搜索与读取上限
   terminal-process.ts      # 子进程 IPC 与终止兜底
   terminal-worker.mjs       # 独立进程内的 node-pty；原生 PTY 句柄随进程回收
   desktop-watchdog.ts      # Windows 桌面主进程检查、缺失自动启动、冷却与退出清理

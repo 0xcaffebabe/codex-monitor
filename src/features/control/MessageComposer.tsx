@@ -140,6 +140,7 @@ export function MessageComposer(props: MessageComposerProps) {
         storageKey={`codex-monitor.draft.${user.id}.${threadId}`}
         submitOnEnter
         allowAttachments
+        projectFilesUrl={`/api/sessions/${threadId}/files`}
         allowDesktopChannel={!!state?.desktopChannel}
         promptShortcuts={promptShortcuts}
         shortcutActions={[

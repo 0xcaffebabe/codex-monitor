@@ -107,6 +107,7 @@ export function NewSessionComposer(props: NewSessionProps) {
         autoFocus
         submitOnEnter
         allowAttachments
+        projectFilesUrl={selected ? `/api/control/projects/${selected}/files` : undefined}
         allowGoal
         attachmentControls={
           <ModelSettings

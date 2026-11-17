@@ -5,6 +5,7 @@ import { newRequestId } from './request-id';
 import type { Draft, Receipt } from './types';
 import type { ComposerAction, PromptShortcut } from './prompt-shortcuts';
 import { workspaceStorageKey } from '../../workspace-scope';
+import { appendProjectFilePaths } from '../attachments/project-file-model';
 
 export type PromptFormProps = {
   storageKey: string;
@@ -20,6 +21,7 @@ export type PromptFormProps = {
   submitOnEnter?: boolean;
   maxLength?: number;
   allowAttachments?: boolean;
+  projectFilesUrl?: string;
   attachmentControls?: React.ReactNode;
   submitActions?: React.ReactNode;
   initialPrompt?: string;
@@ -166,6 +168,17 @@ export function usePromptForm({
   async function submit() {
     if (!canSubmit) return;
     await sendDraft({ ...draft, asGoal });
+  }
+  function insertProjectFiles(paths: string[]) {
+    if (!enabled || submitting.current || draft.requestId) return '当前消息暂不可编辑。';
+    const prompt = appendProjectFilePaths(draft.prompt, paths);
+    const count = asGoal
+      ? (goalCommand ? prompt.trimStart().slice(5).trim() : prompt.trim()).length
+      : prompt.length;
+    if (count > characterLimit)
+      return `插入后超过 ${characterLimit} 字符，请减少所选文件或缩短消息。`;
+    setDraft((previous) => ({ ...previous, prompt }));
+    return undefined;
   }
   async function submitPresetPrompt(shortcut: PromptShortcut) {
     const desktopChannel = shortcut.channel === 'desktop' || !!draft.desktopChannel;
@@ -316,6 +329,7 @@ export function usePromptForm({
     uploadBusy,
     attachments,
     attachmentPicker,
+    insertProjectFiles,
     submit,
     submitPresetPrompt,
     check,

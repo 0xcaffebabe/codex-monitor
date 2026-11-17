@@ -3,6 +3,7 @@ import { useRef } from 'react';
 import { Popover } from '../../shared/ui/Popover';
 import { useMediaQuery } from '../../shared/useMediaQuery';
 import { AttachmentPicker } from '../attachments/AttachmentPicker';
+import { ProjectFilePicker } from '../attachments/ProjectFilePicker';
 import { PromptFormProps, usePromptForm } from './usePromptForm';
 import { PromptShortcuts } from './PromptShortcuts';
 
@@ -18,6 +19,7 @@ export function PromptForm(props: PromptFormProps) {
     submitOnEnter = false,
     maxLength = 12000,
     allowAttachments = false,
+    projectFilesUrl,
     attachmentControls,
     submitActions,
     allowGoal = false,
@@ -35,6 +37,7 @@ export function PromptForm(props: PromptFormProps) {
     uploadBusy,
     attachments,
     attachmentPicker,
+    insertProjectFiles,
     submit,
     submitPresetPrompt,
     check,
@@ -135,6 +138,14 @@ export function PromptForm(props: PromptFormProps) {
           disabled={busy || !!draft.requestId || !enabled}
           picker={attachmentPicker}
         >
+          {projectFilesUrl && (
+            <ProjectFilePicker
+              key={projectFilesUrl}
+              url={projectFilesUrl}
+              disabled={busy || !!draft.requestId || !enabled}
+              onInsert={insertProjectFiles}
+            />
+          )}
           {(!!promptShortcuts?.length || !!shortcutActions?.length) && (
             <PromptShortcuts
               shortcuts={promptShortcuts ?? []}
