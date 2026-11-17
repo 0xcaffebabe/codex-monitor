@@ -1,7 +1,7 @@
 import { existsSync, realpathSync, statSync } from 'node:fs';
 import { open } from 'node:fs/promises';
 import path from 'node:path';
-import type { SessionStatus, TimelineEvent } from '../../src/types.js';
+import type { SessionStatus, SessionTurnTiming, TimelineEvent } from '../../src/types.js';
 import { jsonLines } from '../jsonl.js';
 import { normalizeRecord } from '../normalize.js';
 import type { InternalSession } from './session.js';
@@ -10,7 +10,13 @@ import type { InternalSession } from './session.js';
 export class RolloutStore {
   private jsonCache = new Map<
     string,
-    { mtime: number; size: number; events: TimelineEvent[]; status: SessionStatus }
+    {
+      mtime: number;
+      size: number;
+      events: TimelineEvent[];
+      status: SessionStatus;
+      turnTiming?: SessionTurnTiming;
+    }
   >();
   private rolloutReads = new Map<
     string,
@@ -71,7 +77,12 @@ export class RolloutStore {
   }
   async read(s: InternalSession) {
     const file = this.safeFile(s.file);
-    if (!file) return { events: [], status: 'idle' as SessionStatus };
+    if (!file)
+      return {
+        events: [],
+        status: 'idle' as SessionStatus,
+        turnTiming: undefined,
+      };
     const stat = statSync(file),
       cached = this.jsonCache.get(s.id);
     if (cached?.mtime === stat.mtimeMs && cached.size === stat.size) return cached;
@@ -95,15 +106,23 @@ export class RolloutStore {
     const byId = new Map<string, TimelineEvent>();
     let ordinal = 0;
     let status: SessionStatus = 'idle';
+    let turnTiming: SessionTurnTiming | undefined;
     for await (const line of jsonLines(file, 8_000_000)) {
       ordinal++;
       try {
         const r = JSON.parse(line),
           p = r.payload ?? {};
         if (r.type === 'event_msg') {
-          if (['task_started', 'turn_started'].includes(p.type)) status = 'running';
-          else if (['task_complete', 'task_completed'].includes(p.type)) status = 'completed';
+          if (['task_started', 'turn_started'].includes(p.type)) {
+            status = 'running';
+            if (turnTiming) turnTiming.finishedAt = null;
+          } else if (['task_complete', 'task_completed'].includes(p.type)) status = 'completed';
           else if (p.type === 'turn_aborted') status = 'interrupted';
+          if (['task_complete', 'task_completed', 'turn_aborted'].includes(p.type)) {
+            const timestamp = Date.parse(r.timestamp);
+            if (turnTiming && Number.isFinite(timestamp))
+              turnTiming.finishedAt = Math.max(turnTiming.startedAt, timestamp);
+          }
         }
         const e = normalizeRecord(r, ordinal);
         if (
@@ -117,6 +136,14 @@ export class RolloutStore {
           if (e?.kind !== 'user') continue;
         }
         if (!e) continue;
+        const previous = events.at(-1);
+        if (
+          e.kind === 'user' &&
+          Number.isFinite(e.timestamp) &&
+          e.timestamp > 0 &&
+          !(previous?.kind === 'user' && previous.text === e.text)
+        )
+          turnTiming = { startedAt: e.timestamp, finishedAt: null };
         if (byId.has(e.id)) Object.assign(byId.get(e.id)!, e);
         else {
           events.push(e);
@@ -140,7 +167,7 @@ export class RolloutStore {
       dedup.push(e);
     }
     if (status === 'running' && Date.now() - stat.mtimeMs > 15 * 60000) status = 'stale';
-    const result = { mtime: stat.mtimeMs, size: stat.size, events: dedup, status };
+    const result = { mtime: stat.mtimeMs, size: stat.size, events: dedup, status, turnTiming };
     if (this.jsonCache.size >= 5) this.jsonCache.delete(this.jsonCache.keys().next().value!);
     this.jsonCache.set(s.id, result);
     return result;

@@ -92,6 +92,11 @@ export interface SessionPage {
   warnings: string[];
   context?: SessionContext;
   hasComputerUse?: boolean;
+  turnTiming?: SessionTurnTiming;
+}
+export interface SessionTurnTiming {
+  startedAt: number;
+  finishedAt: number | null;
 }
 export interface PendingSession {
   state: 'syncing';

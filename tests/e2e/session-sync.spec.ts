@@ -5,6 +5,7 @@ import os from 'node:os';
 import { DatabaseSync } from 'node:sqlite';
 import { setTimeout as delay } from 'node:timers/promises';
 import { ids } from '../fixture.js';
+import type { SessionPage, SessionTurnTiming } from '../../src/types.js';
 
 const root = process.env.MONITOR_TEST_ROOT || path.join(os.tmpdir(), 'codex-monitor-e2e-01a1d7fa');
 
@@ -189,4 +190,60 @@ test('synchronization has a timeout, supports retry and retains real not-found e
 
   await page.goto('/?session=99999999-9999-4999-8999-999999999999');
   await expect(page.getByRole('alert')).toContainText('找不到此会话');
+});
+
+test('the latest-turn timer survives refresh, resets on a new prompt and stops when finished', async ({
+  page,
+  request,
+  isMobile,
+}) => {
+  const now = new Date('2026-11-17T12:00:00Z');
+  await page.clock.install({ time: now });
+  await page.clock.pauseAt(now);
+  let timing: SessionTurnTiming | undefined = {
+    startedAt: now.getTime() - 3665000,
+    finishedAt: null,
+  };
+  await page.route(`**/api/workspaces/local/sessions/${ids.modern}`, async (route) => {
+    const response = await route.fetch();
+    const data = (await response.json()) as SessionPage;
+    await route.fulfill({ response, json: { ...data, turnTiming: timing } });
+  });
+  await enter(page, request);
+  await page.getByTestId('session-row').filter({ hasText: '开发 codex-monitor' }).click();
+  const timer = page.getByRole('timer', { name: '最近一轮 AI 对话用时' });
+  await expect(timer).toHaveText('01:01:05');
+  await page.clock.fastForward(2000);
+  await expect(timer).toHaveText('01:01:07');
+  await page.getByTitle('刷新数据').click();
+  await expect(timer).toHaveText('01:01:07');
+  await page.reload();
+  await expect(timer).toHaveText('01:01:07');
+
+  timing = { startedAt: now.getTime() + 1000, finishedAt: null };
+  await page.getByTitle('刷新数据').click();
+  await expect(timer).toHaveText('00:00:01');
+  await page.clock.fastForward(2000);
+  await expect(timer).toHaveText('00:00:03');
+  if (isMobile) await page.setViewportSize({ width: 320, height: 700 });
+  expect(
+    await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
+  ).toBeTruthy();
+  await expect(timer).toBeVisible();
+  await page.screenshot({ path: test.info().outputPath('turn-timer-running.png'), fullPage: true });
+
+  timing = { ...timing, finishedAt: now.getTime() + 4000 };
+  await page.getByTitle('刷新数据').click();
+  await expect(page.locator('.session-turn-timer')).toHaveAttribute('data-running', 'false');
+  await expect(timer).toHaveText('00:00:03');
+  await page.clock.fastForward(5000);
+  await expect(timer).toHaveText('00:00:03');
+  await page.screenshot({
+    path: test.info().outputPath('turn-timer-finished.png'),
+    fullPage: true,
+  });
+
+  timing = undefined;
+  await page.getByTitle('刷新数据').click();
+  await expect(timer).toHaveCount(0);
 });

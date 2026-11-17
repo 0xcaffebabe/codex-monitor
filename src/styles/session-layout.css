@@ -111,6 +111,29 @@
   white-space: nowrap;
   letter-spacing: -0.3px;
 }
+.session-turn-timer {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0 6px;
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.6;
+}
+.session-turn-timer-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+.session-turn-timer time {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.session-turn-timer[data-running='true'] time {
+  color: var(--accent);
+}
 .detail-info,
 .detail-summary {
   display: contents;

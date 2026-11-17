@@ -19,6 +19,7 @@ import { cx, number } from '../../shared/format';
 import { Status } from '../../shared/ui/Status';
 import { SessionUsage } from '../usage/SessionUsage';
 import { ScreenWakeLockIndicator } from './ScreenWakeLockIndicator';
+import { SessionTurnTimer } from './SessionTurnTimer';
 import { useSessionActions } from './useSessionActions';
 import type { TimelineModel } from './useTimeline';
 import { DetailProps } from './useTimeline';
@@ -62,6 +63,7 @@ export function DetailHeader({
         <div className="detail-heading">
           <span className="eyebrow">SESSION DETAIL</span>
           <h1 title={session?.title}>{creating ? '新建会话' : session?.title || '读取会话…'}</h1>
+          {!creating && <SessionTurnTimer key={session?.id} timing={page?.turnTiming} />}
         </div>
         {!creating && (
           <>

@@ -1,5 +1,10 @@
 import { existsSync, statSync } from 'node:fs';
-import type { SessionOutline, SessionPage, TimelineEvent } from '../src/types.js';
+import type {
+  SessionOutline,
+  SessionPage,
+  SessionTurnTiming,
+  TimelineEvent,
+} from '../src/types.js';
 import { contextFromRollout } from './context.js';
 import { localImage, normalizeImagePath } from './media.js';
 import { normalizeItem } from './normalize.js';
@@ -16,6 +21,7 @@ import { CompletionReader, type SessionCompletion } from './source/completions.j
 import { InputRequestReader } from './source/input-requests.js';
 import { ComputerUseReader } from './source/computer-use.js';
 import type { SessionScope } from './session-scope.js';
+import { historyTurnTiming } from './source/turn-timing.js';
 
 export { validId } from './source/session.js';
 /** Coordinates metadata, persisted history and rollout readers. */
@@ -111,6 +117,7 @@ export class CodexSource {
     let total = 0;
     let next: number | null = null;
     let hasComputerUse = false;
+    let turnTiming: SessionTurnTiming | undefined;
     if (this.databases.history && s.historyMode !== 'legacy') {
       try {
         total = Number(
@@ -149,6 +156,7 @@ export class CodexSource {
           }
         }
         if (hasMore && rows[0]) next = Number(rows[0].rollout_ordinal);
+        turnTiming = historyTurnTiming(this.databases, s);
         if (before === undefined) {
           try {
             const live = this.databases.history
@@ -179,6 +187,7 @@ export class CodexSource {
     }
     if (!total) {
       const parsed = await this.rollouts.read(s);
+      turnTiming = parsed.turnTiming;
       hasComputerUse = parsed.events.some((event) => event.computerUse);
       events = parsed.events;
       total = events.length;
@@ -202,6 +211,7 @@ export class CodexSource {
       total,
       before: next,
       version,
+      turnTiming,
       hasComputerUse:
         hasComputerUse ||
         events.some((event) => event.computerUse) ||
