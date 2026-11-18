@@ -361,12 +361,30 @@ test('session records search all workspaces and retain the query when opening id
   expect(new URL(page.url()).searchParams.get('q')).toBe('旧版本');
   if (!isMobile) {
     await expect(page.getByRole('region', { name: '会话记录', exact: true })).toBeVisible();
+    const scope = page.getByLabel('筛选会话工作空间', { exact: true });
+    await expect(scope).toHaveValue('');
+    await scope.selectOption('local');
+    await expect(rows).toHaveCount(1);
+    await expect(rows.first()).toContainText('本机工作空间');
+    await expect(page.getByLabel('切换工作空间')).toHaveValue(second);
+    await scope.selectOption('');
+    await expect(rows).toHaveCount(2);
     await expect(rows.filter({ hasText: '第二台测试电脑' })).toHaveAttribute(
       'aria-current',
       'page',
     );
     await expect(rows.filter({ hasText: '本机工作空间' })).not.toHaveAttribute('aria-current');
     await page.screenshot({ path: test.info().outputPath('global-session-records-compact.png') });
+  } else {
+    await page.getByTitle('打开菜单').tap();
+    const recent = page.getByRole('navigation', { name: '最近会话', exact: true });
+    const scope = page.getByLabel('筛选最近会话工作空间', { exact: true });
+    const copies = recent.getByRole('button', { name: '打开会话：检查旧版本会话解析', exact: true });
+    await expect(copies).toHaveCount(2);
+    await scope.selectOption('local');
+    await expect(copies).toHaveCount(1);
+    await expect(copies.first()).toContainText('本机工作空间');
+    await page.getByTitle('关闭菜单').tap();
   }
   await page.getByTitle('返回会话列表').click();
   await expect(search).toHaveValue('旧版本');

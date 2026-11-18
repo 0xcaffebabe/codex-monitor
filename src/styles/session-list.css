@@ -350,6 +350,80 @@
   flex-shrink: 0;
   font-size: var(--font-meta);
 }
+.session-list-scope {
+  margin: -4px 21px 10px;
+  flex-shrink: 0;
+}
+.compact .session-list-scope {
+  margin-inline: 12px;
+}
+.session-scope {
+  position: relative;
+  display: flex;
+  align-items: center;
+  color: var(--muted);
+}
+.session-scope select {
+  appearance: none;
+  min-width: 0;
+  width: 100%;
+  min-height: 36px;
+  padding: 0 30px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--ink);
+  background: var(--surface);
+  text-overflow: ellipsis;
+}
+.session-scope > svg {
+  position: absolute;
+  left: 9px;
+  pointer-events: none;
+}
+.session-scope > svg:last-child {
+  left: auto;
+  right: 9px;
+}
+.compact-session-filters {
+  display: flex;
+  gap: 6px;
+  margin: 0 12px 8px;
+  flex-shrink: 0;
+}
+.compact-session-filters button {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  padding: 4px 7px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  color: var(--muted);
+  font-size: var(--font-meta);
+}
+.compact-session-filters svg {
+  flex: 0 0 auto;
+}
+.compact-session-filters span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.recent-workspace-scope {
+  display: none;
+}
+@media (max-width: 760px) {
+  .session-list-scope {
+    margin-inline: 14px;
+  }
+  .session-scope select {
+    min-height: 44px;
+  }
+  .recent-workspace-scope {
+    display: block;
+    margin: 8px 2px 0;
+  }
+}
 .status {
   display: inline-flex;
   gap: 5px;

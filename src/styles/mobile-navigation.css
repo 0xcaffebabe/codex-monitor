@@ -149,6 +149,18 @@
   .sidebar-session time {
     text-align: right;
   }
+  .sidebar-session-project {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .sidebar-session-project svg {
+    flex-shrink: 0;
+  }
+  .sidebar-session-project > span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
   .sidebar .projects-label,
   .sidebar .projects-nav,
   .sidebar-browse.show-projects .recent-sessions-nav {

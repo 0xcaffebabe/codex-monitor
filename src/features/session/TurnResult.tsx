@@ -1,6 +1,7 @@
 import { ArrowDown, FileText } from 'lucide-react';
 import type { SessionOutline, SessionPage } from '../../types';
 import type { TimelineModel } from './useTimeline';
+import { markdownExcerpt } from '../../shared/ui/markdown-excerpt';
 
 export function TurnResult({
   turn,
@@ -34,7 +35,7 @@ export function TurnResult({
           本轮结果
         </h2>
         <p>
-          {reply ||
+          {(reply && (markdownExcerpt(reply, 180) || '本轮含代码或其他格式内容，见原记录。')) ||
             (error
               ? '无法读取本轮摘要。'
               : !outline

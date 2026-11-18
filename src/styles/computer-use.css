@@ -1,13 +1,3 @@
-.computer-use-trigger {
-  width: auto;
-  gap: 6px;
-  padding: 0 8px;
-  color: var(--accent);
-}
-.computer-use-trigger > span {
-  font-size: 11px;
-  white-space: nowrap;
-}
 .computer-use-dialog {
   width: min(1180px, calc(100vw - 48px));
   height: min(820px, calc(100dvh - 48px));
@@ -265,13 +255,6 @@
   flex-shrink: 0;
 }
 @media (max-width: 760px) {
-  .detail-header > .computer-use-trigger {
-    width: 36px;
-    padding: 0;
-  }
-  .computer-use-trigger > span {
-    display: none;
-  }
   .computer-use-dialog {
     width: calc(100vw - 16px);
     height: calc(100dvh - 32px);

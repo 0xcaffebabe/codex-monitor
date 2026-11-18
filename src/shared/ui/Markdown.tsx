@@ -28,6 +28,11 @@ const components: Components = {
   ),
   img: MarkdownImage,
   pre: ({ children }) => <pre tabIndex={0}>{children}</pre>,
+  table: ({ children }) => (
+    <div className="markdown-table-scroll" role="region" aria-label="表格" tabIndex={0}>
+      <table>{children}</table>
+    </div>
+  ),
 };
 
 export function Markdown({ text, renderImage }: { text: string; renderImage?: ImageRenderer }) {

@@ -62,7 +62,7 @@ export class NotificationReporter {
       project: event.session.project.slice(0, 200),
       requestId: event.requestId,
       occurredAt: event.createdAt,
-      questions: event.questions,
+      questions: event.questions.map(({ title, options }) => ({ title, options })),
     };
   }
   configure(policy: NotificationPolicy, baseline = false) {

@@ -1,8 +1,11 @@
 import { test, expect, type APIRequestContext, type Page } from '@playwright/test';
 import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
+import { DatabaseSync } from 'node:sqlite';
 import os from 'node:os';
 import path from 'node:path';
+import { sessionActions } from './session-action-helpers';
+import { ids } from '../fixture.js';
 
 const root = process.env.MONITOR_TEST_ROOT || path.join(os.tmpdir(), 'codex-monitor-e2e-01a1d7fa');
 const remote = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
@@ -72,7 +75,7 @@ test('default attention workspace preserves last observation across offline relo
     });
   });
   await page.reload();
-  await expect(page.getByText('第二台测试电脑（离线）', { exact: true })).toBeVisible();
+  await expect(page.locator('.attention-coverage').getByText('第二台测试电脑（离线）', { exact: true })).toBeVisible();
   await expect(page.getByRole('region', { name: '待处理' })).toContainText('最后同步');
   await expect(page.getByRole('region', { name: '运行中' })).not.toContainText('第二台测试电脑');
   if (isMobile) await page.getByTitle('打开菜单').click();
@@ -140,9 +143,79 @@ test('review remote approval from home and recover the original receipt after a 
     .getByRole('button', { name: '定位本轮记录' })
     .click();
   const watch = page.getByRole('button', { name: '关注通知（团队）' });
+  await sessionActions(page).click();
   await watch.click();
   await expect(watch).toHaveAttribute('aria-pressed', 'true');
   await page.reload();
+  await sessionActions(page).click();
   await expect(watch).toHaveAttribute('aria-pressed', 'true');
   await watch.click();
+});
+
+test('attention previews prose and renders long Markdown questions on demand', async ({ page, request, isMobile }) => {
+  const history = new DatabaseSync(path.join(root, 'codex/thread_history_1.sqlite'));
+  const id = `question-${randomUUID()}`;
+  const now = Date.now();
+  const longLine = 'x'.repeat(680);
+  const text = ['请先核对 **日志输出**。', '', '```text', longLine, '最后一行仍保留', '```', '', '| 结果 | 状态 |', '| --- | --- |', '| 样例 | 正常 |'].join('\n');
+  try {
+    history.prepare('INSERT INTO thread_items VALUES(?,?,?,?,?,?,?,?)').run(
+      ids.modern, 'turn-1', id, 999999, now,
+      JSON.stringify({ type: 'agentMessage', questions: [{ title: text, options: ['继续', '暂停'] }] }), now, now,
+    );
+    await enter(page, request);
+    if (isMobile) await page.setViewportSize({ width: 440, height: 763 });
+    await page.goto('/');
+    const pending = page.getByRole('region', { name: '待处理', exact: true });
+    await expect(pending).toContainText('请先核对 日志输出。');
+    await expect(pending).not.toContainText(longLine);
+    await page.screenshot({ path: test.info().outputPath('attention-question-preview.png') });
+    await pending.getByRole('button', { name: /查看问题：开发 codex-monitor/ }).click();
+    const dialog = page.getByRole('dialog', { name: '查看待答复问题', exact: true });
+    await expect(dialog.locator('strong')).toHaveText('日志输出');
+    const code = dialog.locator('pre');
+    await expect(code).toContainText(longLine);
+    await expect(code).toContainText('最后一行仍保留');
+    await expect(dialog.getByRole('table')).toContainText('正常');
+    await expect(dialog.getByRole('list')).toContainText('继续');
+    expect(await code.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(true);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await page.screenshot({ path: test.info().outputPath('attention-question-markdown.png') });
+  } finally {
+    history.prepare('DELETE FROM thread_items WHERE item_id=?').run(id);
+    history.close();
+  }
+});
+
+test('mobile running shortcut opens a remote conversation from the bottom right and marks offline coverage', async ({ page, request, isMobile }) => {
+  test.skip(!isMobile, 'Mobile task navigation');
+  let localOffline = false;
+  await page.route('**/api/workspaces', async (route) => {
+    const response = await route.fetch();
+    const payload = await response.json();
+    if (localOffline) payload.workspaces.find((workspace: { id: string }) => workspace.id === 'local').online = false;
+    await route.fulfill({ response, json: payload });
+  });
+  await enter(page, request);
+  await page.setViewportSize({ width: 440, height: 763 });
+  await page.goto('/?workspace=local');
+  const trigger = page.getByRole('button', { name: '查看运行中的会话', exact: true });
+  await expect(trigger).toContainText('2');
+  const bounds = (await trigger.boundingBox())!;
+  expect(bounds.x).toBeGreaterThan(220);
+  expect(bounds.y).toBeGreaterThan(680);
+  await trigger.tap();
+  const sheet = page.getByRole('dialog', { name: '运行中的会话', exact: true });
+  await expect(sheet.getByRole('button', { name: /第二台电脑的独立会话/ })).toContainText('第二台测试电脑');
+  await page.screenshot({ path: test.info().outputPath('mobile-running-sheet.png') });
+  await sheet.getByRole('button', { name: /第二台电脑的独立会话/ }).tap();
+  await expect(page.getByRole('heading', { name: '第二台电脑的独立会话', exact: true })).toBeVisible();
+  await expect(sheet).toHaveCount(0);
+  await expect(trigger).toBeVisible();
+  localOffline = true;
+  await page.reload();
+  await trigger.tap();
+  await expect(sheet).toContainText('未同步：本机工作空间');
+  await expect(sheet.getByRole('button', { name: /开发 codex-monitor/ })).toHaveCount(0);
+  await expect(sheet.getByRole('button', { name: /第二台电脑的独立会话/ })).toHaveAttribute('aria-current', 'page');
 });

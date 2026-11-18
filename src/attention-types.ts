@@ -13,6 +13,7 @@ export type AttentionRequest = {
   id: string;
   session: AttentionSession;
   title: string;
+  questions?: { text: string; options: string[] }[];
   createdAt: number;
 };
 export type AttentionReceipt = {

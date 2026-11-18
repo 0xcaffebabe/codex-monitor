@@ -5,12 +5,10 @@ import { isToolRunning } from './session-model';
 
 export function ActivityGroup({
   events,
-  searching,
   onCopy,
   sessionId,
 }: {
   events: TimelineEvent[];
-  searching: boolean;
   onCopy: (s: string) => void;
   sessionId?: string;
 }) {
@@ -24,7 +22,7 @@ export function ActivityGroup({
       0,
     );
   return (
-    <details className="activity-group" open={searching || undefined}>
+    <details className="activity-group">
       <summary className="activity-summary">
         {running ? <LoaderCircle size={14} className="spin" /> : <Activity size={14} />}
         <span className="activity-label" title={latestTitle}>
@@ -57,7 +55,6 @@ export function ActivityGroup({
             sessionId={sessionId}
             event={event}
             onCopy={onCopy}
-            searching={searching}
           />
         ))}
       </div>

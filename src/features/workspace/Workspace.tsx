@@ -2,7 +2,6 @@ import {
   Check,
   ChevronRight,
   Maximize2,
-  ListTodo,
   Menu,
   Minimize2,
   Monitor,
@@ -15,11 +14,13 @@ import {
   TriangleAlert,
 } from 'lucide-react';
 import { cx } from '../../shared/format';
+import { useMediaQuery } from '../../shared/useMediaQuery';
 import { Detail } from '../session/SessionDetail';
 import { Settings } from '../settings/Settings';
 import { UsageDashboard } from '../usage/UsageDashboard';
 import { AttentionBoard } from '../attention/AttentionBoard';
 import { SessionPanel } from './SessionPanel';
+import { MobileTaskDock } from './MobileTaskDock';
 import { Sidebar } from './Sidebar';
 import { useWorkspace, WorkspaceProps } from './useWorkspace';
 import { useDesktopLayout } from './useDesktopLayout';
@@ -79,6 +80,7 @@ export function Workspace(
     title,
   } = model;
   const hasDetail = !!selected || creating;
+  const mobile = useMediaQuery('(max-width: 760px)');
   const activeObservation = props.attention.groups.find(({ workspace, fresh }) => fresh && workspace.id === props.workspaceId)?.snapshot;
   const watched = props.taskWatches.watches.some((item) => item.workspaceId === props.workspaceId && item.sessionId === selected);
   const layout = useDesktopLayout(creating ? 'new' : selected, model.searchRef);
@@ -151,9 +153,6 @@ export function Workspace(
                 <SquarePen size={20} />
               </button>
             )}
-            {(tab !== 'attention' || hasDetail) && <button className="icon-button mobile-attention" aria-label="返回任务动态" title="任务动态" onClick={() => changeTab('attention')}>
-              <ListTodo size={19} />
-            </button>}
           </div>
           <div className="breadcrumb">
             <Monitor size={16} />
@@ -229,10 +228,10 @@ export function Workspace(
                   onClick={layout.closeSessionDrawer}
                 />
               )}
-              {tab === 'attention' && !creating ? (
-                <AttentionBoard {...props.attention} watches={props.taskWatches.watches} user={user} compact={hasDetail} startSession={startSession} />
+              {tab === 'attention' && !hasDetail ? (
+                <AttentionBoard {...props.attention} watches={props.taskWatches.watches} user={user} startSession={startSession} />
               ) : (
-                <SessionPanel user={user} model={model} onSessionSelected={layout.closeSessionDrawer} />
+                <SessionPanel user={user} workspaces={props.workspaces} model={model} onSessionSelected={layout.closeSessionDrawer} />
               )}
               {hasDetail && (
                 <Detail
@@ -315,6 +314,7 @@ export function Workspace(
           </>
         )}
       </main>
+      {mobile && <MobileTaskDock groups={props.attention.groups} workspaceId={props.workspaceId} selected={selected} onHome={() => changeTab('attention')} home={tab === 'attention' && !hasDetail} />}
       {settings && (
         <Settings
           user={user}

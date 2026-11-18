@@ -65,26 +65,9 @@
   font-size: var(--font-meta);
 }
 @media (max-width: 760px) {
-  .detail-summary .context-meter {
-    flex: 1;
-    min-width: 0;
-    min-height: 24px;
-    margin: 0;
-    padding: 0;
-    gap: 5px;
-    border: 0;
-    background: none;
-  }
-  .detail-summary .context-track,
-  .detail-summary .context-values small {
-    display: none;
-  }
   .context-values {
     font-size: var(--font-meta);
     white-space: nowrap;
-  }
-  .detail-summary .context-meter > strong {
-    margin-left: auto;
   }
   .context-label {
     font-size: var(--font-meta);

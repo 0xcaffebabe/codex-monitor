@@ -14,6 +14,8 @@ export function useSessionList({
   subagents,
   workspaces,
   archived,
+  sort = 'running',
+  pageSize = 60,
   enabled = true,
 }: {
   query: string;
@@ -22,6 +24,8 @@ export function useSessionList({
   subagents: boolean;
   workspaces: ManagedWorkspace[];
   archived?: 'true' | 'false' | 'all';
+  sort?: 'recent' | 'running';
+  pageSize?: number;
   enabled?: boolean;
 }) {
   const [sessions, setSessions] = useState<WorkspaceSession[]>([]),
@@ -32,17 +36,17 @@ export function useSessionList({
   const workspaceRef = useRef(workspaces);
   workspaceRef.current = workspaces;
   const workspaceKey = JSON.stringify(workspaces.map(({ id, online }) => [id, online]).sort());
-  const loadedLimit = useRef(60);
+  const loadedLimit = useRef(pageSize);
   const activeRequest = useRef<ListRequest | null>(null);
   const fetchList = useCallback(
     (append = false, preserveLoaded = false): Promise<void> => {
       if (!enabled) return Promise.resolve();
-      const key = JSON.stringify([query, project, tab, subagents, workspaceKey, archived]);
+      const key = JSON.stringify([query, project, tab, subagents, workspaceKey, archived, sort]);
       if (preserveLoaded && activeRequest.current?.key === key)
         return activeRequest.current.promise;
       activeRequest.current?.controller.abort();
-      if (append) loadedLimit.current += 60;
-      else if (!preserveLoaded) loadedLimit.current = 60;
+      if (append) loadedLimit.current += pageSize;
+      else if (!preserveLoaded) loadedLimit.current = pageSize;
       const target = loadedLimit.current;
       const request: ListRequest = {
         key,
@@ -65,6 +69,7 @@ export function useSessionList({
                 archived: archived ?? (tab === 'archived' ? 'true' : 'false'),
                 subagents: String(subagents),
               });
+              if (sort === 'recent') params.set('sort', sort);
               const page = (offset: number, limit: number) => {
                 const search = new URLSearchParams(params);
                 search.set('limit', String(limit));
@@ -104,7 +109,7 @@ export function useSessionList({
             } else unavailable.push(`${online[index].name}（加载失败）`);
           });
           // Each workspace's first N rows contain every candidate for the global first N rows.
-          setSessions(mergeWorkspaceSessions(available).slice(0, target));
+          setSessions(mergeWorkspaceSessions(available, sort).slice(0, target));
           setTotal(count);
           setListWarning(
             unavailable.length ? `暂不可查询：${unavailable.join('、')}。将自动重试。` : '',
@@ -124,7 +129,7 @@ export function useSessionList({
       })();
       return request.promise;
     },
-    [query, project, tab, subagents, workspaceKey, archived, enabled],
+    [query, project, tab, subagents, workspaceKey, archived, sort, pageSize, enabled],
   );
 
   const loadListRef = useRef(fetchList);
@@ -146,6 +151,6 @@ export function useSessionList({
       activeRequest.current?.controller.abort();
       activeRequest.current = null;
     };
-  }, [query, project, tab, subagents, workspaceKey, archived, enabled, loadList]);
+  }, [query, project, tab, subagents, workspaceKey, archived, sort, pageSize, enabled, loadList]);
   return { sessions, total, error, listWarning, listBusy, loadList };
 }

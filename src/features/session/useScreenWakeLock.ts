@@ -1,28 +1,14 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect } from 'react';
 
-export type ScreenWakeLockStatus =
-  'inactive' | 'requesting' | 'active' | 'paused' | 'insecure' | 'unsupported';
-
-export function useScreenWakeLock() {
-  const [status, setStatus] = useState<ScreenWakeLockStatus>('inactive');
-  const requestRef = useRef<() => void>(() => {});
-  const retry = useCallback(() => requestRef.current(), []);
-
+export function useScreenWakeLock(enabled: boolean) {
   useEffect(() => {
     // iPadOS can use a desktop Safari user agent, including in landscape.
     const ios =
       /iPad|iPhone|iPod/.test(navigator.userAgent) ||
       (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1);
-    if (!ios) return;
-    if (!window.isSecureContext) {
-      setStatus('insecure');
-      return;
-    }
+    if (!enabled || !ios || !window.isSecureContext) return;
     const wakeLock = navigator.wakeLock;
-    if (!wakeLock?.request) {
-      setStatus('unsupported');
-      return;
-    }
+    if (!wakeLock?.request) return;
 
     let disposed = false;
     let pageShown = true;
@@ -39,7 +25,6 @@ export function useScreenWakeLock() {
       const lock = held;
       held = undefined;
       if (lock) release(lock);
-      if (!disposed) setStatus('paused');
     };
     const request = async () => {
       if (!visible() || held) return;
@@ -49,7 +34,6 @@ export function useScreenWakeLock() {
       }
       const requestedGeneration = generation;
       pendingGeneration = requestedGeneration;
-      setStatus('requesting');
       try {
         const lock = await wakeLock.request('screen');
         // Requests cannot be aborted. Release late results after leaving or hiding the page.
@@ -57,23 +41,17 @@ export function useScreenWakeLock() {
           release(lock);
           return;
         }
-        if (lock.released) {
-          setStatus('paused');
-          return;
-        }
+        if (lock.released) return;
         held = lock;
         lock.addEventListener(
           'release',
           () => {
             if (held !== lock) return;
             held = undefined;
-            if (!disposed) setStatus('paused');
           },
           { once: true },
         );
-        setStatus('active');
       } catch {
-        if (visible() && requestedGeneration === generation) setStatus('paused');
       } finally {
         pendingGeneration = undefined;
         if (requestAfterPending) {
@@ -95,7 +73,6 @@ export function useScreenWakeLock() {
       pageShown = true;
       resume();
     };
-    requestRef.current = resume;
     document.addEventListener('visibilitychange', visibilityChanged);
     window.addEventListener('pagehide', pageHidden);
     window.addEventListener('pageshow', pageRestored);
@@ -105,7 +82,6 @@ export function useScreenWakeLock() {
     resume();
     return () => {
       disposed = true;
-      requestRef.current = () => {};
       document.removeEventListener('visibilitychange', visibilityChanged);
       window.removeEventListener('pagehide', pageHidden);
       window.removeEventListener('pageshow', pageRestored);
@@ -113,7 +89,5 @@ export function useScreenWakeLock() {
       document.removeEventListener('keydown', resume, true);
       suspend();
     };
-  }, []);
-
-  return { status, retry };
+  }, [enabled]);
 }

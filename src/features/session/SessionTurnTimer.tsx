@@ -30,7 +30,7 @@ export function SessionTurnTimer({ timing }: { timing?: SessionTurnTiming }) {
     >
       <span className="session-turn-timer-label">
         <Timer size={12} aria-hidden="true" />
-        本轮用时
+        <span className="session-turn-timer-caption">本轮用时</span>
       </span>
       <time role="timer" aria-label="最近一轮 AI 对话用时" dateTime={`PT${seconds}S`}>
         {duration}

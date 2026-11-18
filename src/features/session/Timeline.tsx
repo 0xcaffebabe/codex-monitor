@@ -1,4 +1,4 @@
-import { ArrowDown, Clock, Code2, LoaderCircle, Search } from 'lucide-react';
+import { ArrowDown, Clock, Code2, LoaderCircle, MessageSquare } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { date, time } from '../../shared/format';
 import { ActivityGroup } from './ActivityGroup';
@@ -22,7 +22,6 @@ export function Timeline({
   children?: ReactNode;
 }) {
   const {
-    find,
     follow,
     olderBusy,
     olderFailed,
@@ -53,11 +52,6 @@ export function Timeline({
             </div>
           ) : (
             <>
-              {find && (
-                <p className="timeline-search-status" role="status">
-                  {events.length} 条匹配 · {page?.before == null ? '全部记录' : '已加载记录'}
-                </p>
-              )}
               {page?.before != null && (
                 <button
                   className="load-earlier"
@@ -70,23 +64,19 @@ export function Timeline({
                     ? '正在加载更早的记录…'
                     : olderFailed || error
                       ? '重试加载更早的记录'
-                      : find
-                        ? '加载更早的记录并搜索'
-                        : '加载更早的记录'}
+                      : '加载更早的记录'}
                   <span>{page.total} 条原始记录</span>
                 </button>
               )}
-              {!find && (
-                <div className="timeline-date">
-                  <span />
-                  {session ? `${date(session.createdAt)} · ${time(session.createdAt)} 开始` : ''}
-                  <span />
-                </div>
-              )}
+              <div className="timeline-date">
+                <span />
+                {session ? `${date(session.createdAt)} · ${time(session.createdAt)} 开始` : ''}
+                <span />
+              </div>
               {!events.length && (
                 <div className="empty">
-                  <Search size={24} />
-                  <p>{find ? '没有匹配的内容' : '本会话暂无记录'}</p>
+                  <MessageSquare size={24} />
+                  <p>本会话暂无记录</p>
                 </div>
               )}
               {blocks.map((block) =>
@@ -95,7 +85,6 @@ export function Timeline({
                     key={block.id}
                     sessionId={session?.id}
                     events={block.events}
-                    searching={!!find}
                     onCopy={copied}
                   />
                 ) : block.kind === 'images' && session ? (
@@ -109,7 +98,7 @@ export function Timeline({
                   />
                 ) : null,
               )}
-              {session?.status === 'running' && !find && (
+              {session?.status === 'running' && (
                 <div className="working-indicator">
                   <span className="assistant-avatar">
                     <Code2 size={17} />
@@ -128,7 +117,7 @@ export function Timeline({
         </div>
       </div>
       {children}
-      {!follow && !find && (
+      {!follow && (
         <button className="jump-latest" onClick={jumpToLatest}>
           <ArrowDown size={14} />
           回到最新

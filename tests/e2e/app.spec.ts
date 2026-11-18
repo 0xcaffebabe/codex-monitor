@@ -5,6 +5,7 @@ import os from 'node:os';
 import { DatabaseSync } from 'node:sqlite';
 import { pathToFileURL } from 'node:url';
 import { ids } from '../fixture.js';
+import { openSessionAction } from './session-action-helpers';
 import { openComposerMenu, closeComposerMenu, openReferencePicker } from './composer-helpers';
 const root = process.env.MONITOR_TEST_ROOT || path.join(os.tmpdir(), 'codex-monitor-e2e-01a1d7fa'),
   username = 'owner',
@@ -227,7 +228,6 @@ test('web controls preserve delegated launch input in conversation, directory an
       fullPage: true,
     });
     if (mobile) await page.getByRole('button', { name: '定位第 1 次提问', exact: true }).tap();
-    else await page.getByLabel('搜索会话内容', { exact: true }).click();
     await question.scrollIntoViewIfNeeded();
     await page.screenshot({
       path: test.info().outputPath('initial-message-conversation.png'),
@@ -1348,7 +1348,7 @@ test('web controls stop the current turn beside send and preserve the draft', as
   await expect(stop).toBeDisabled();
   await expect(input).toHaveValue('Keep this unsent draft');
   await expect(page.getByRole('button', { name: '发送消息', exact: true })).toBeEnabled();
-  await expect(page.locator('.detail-meta .status')).toContainText('已中断');
+  await expect(page.locator('.detail-heading-meta .status')).toContainText('已中断');
 });
 
 test('web controls recover a lost stop receipt without interrupting a new turn', async ({
@@ -1786,7 +1786,7 @@ test('search, archived sessions and legacy tool results work', async ({ page, re
     '已归档的历史会话',
   );
 });
-test('conversation keeps messages visible, folds activity, searches details and exports history', async ({
+test('conversation keeps messages visible, folds activity and exports history', async ({
   page,
   request,
 }) => {
@@ -1800,10 +1800,7 @@ test('conversation keeps messages visible, folds activity, searches details and 
   await expect(page.locator('.timeline table')).toBeVisible();
   expect(await page.evaluate(() => (window as any).__xss)).toBeUndefined();
   expect(tracker).toBe(false);
-  await expect(page.locator('.conversation-label')).toContainText('会话');
-  await expect(
-    page.locator('.conversation-toolbar button', { hasText: /全部|对话|工具|思考/ }),
-  ).toHaveCount(0);
+  await expect(page.getByLabel('搜索会话内容', { exact: true })).toHaveCount(0);
   await expect(page.locator('[id="event-user-1"]')).toHaveCount(1);
   await expect(page.locator('[id="event-agent-1"]')).toHaveCount(1);
   const messageCount = await page.locator('.timeline .message').count();
@@ -1830,16 +1827,10 @@ test('conversation keeps messages visible, folds activity, searches details and 
   await refreshed;
   await expect(activity).toHaveAttribute('open', '');
   await expect(page.locator('.tool-body pre').first()).toBeVisible();
-  const search = page.getByLabel('搜索会话内容', { exact: true });
-  await search.fill('  NPM TEST  ');
-  await expect(page.locator('.tool-card')).toHaveCount(1);
-  await expect(page.locator('.tool-body pre')).toBeVisible();
-  await expect(page.locator('.timeline-search-status')).toContainText('1 条匹配');
-  await search.fill('检查权限边界');
+  await page.locator('.reasoning-card summary').click();
   await expect(page.locator('.reasoning-card .markdown')).toBeVisible();
-  await search.press('Escape');
-  await expect(search).toHaveValue('');
-  await expect(search).toBeFocused();
+  await page.locator('.tool-card').filter({ hasText: 'npm test' }).locator('summary').click();
+  await page.locator('.activity-summary').click();
   await expect(page.locator('.timeline .message')).toHaveCount(messageCount);
   await expect(activity).not.toHaveAttribute('open', '');
   expect(await exportSession(request)).toContain('请开发一个实时会话监控应用。');
@@ -1860,7 +1851,7 @@ test('conversation keeps messages visible, folds activity, searches details and 
     fullPage: true,
   });
 });
-test('semantic tool titles appear in folded activity, update live and remain searchable on mobile', async ({
+test('semantic tool titles appear in folded activity and update live on mobile', async ({
   page,
   request,
 }) => {
@@ -1919,8 +1910,7 @@ test('semantic tool titles appear in folded activity, update live and remain sea
       path: test.info().outputPath('semantic-tool-titles.png'),
       fullPage: true,
     });
-    await page.getByLabel('搜索会话内容', { exact: true }).fill(updatedTitle);
-    await expect(page.locator('.tool-card')).toHaveCount(1);
+    await card.locator('summary').click();
     await expect(card.locator('.tool-body pre')).toBeVisible();
     await expect(card.locator('.tool-body pre')).not.toContainText(updatedTitle);
     await expect(card.locator('.code-label')).toContainText('js · 调用参数');
@@ -2601,7 +2591,7 @@ test('conversation rail previews long conversations and tracks the reading posit
     path: test.info().outputPath('codex-outline-dark.png'),
     animations: 'disabled',
   });
-  await page.getByLabel('搜索会话内容', { exact: true }).click();
+  await page.getByRole('region', { name: '会话时间线', exact: true }).click({ position: { x: 35, y: 12 } });
   await expect(page.locator('.outline')).toBeVisible();
   await expect(popover).toHaveCount(0);
 });
@@ -2744,17 +2734,18 @@ test('mobile drawer sorts recent sessions by activity across statuses and follow
       'aria-label',
       '打开会话：检查旧版本会话解析',
     );
-    await expect(recent.locator('.status.running')).toBeVisible();
+    await expect(recent.locator('.status.running').first()).toBeVisible();
     await expect(recent.locator('.status.completed').first()).toBeVisible();
     await expect(recent).toContainText('已归档');
     await page.screenshot({ path: 'test-results/mobile-recent-drawer.png', fullPage: true });
-    await recent.getByRole('button', { name: '打开会话：检查旧版本会话解析', exact: true }).click();
+    const legacy = recent
+      .getByRole('button', { name: '打开会话：检查旧版本会话解析', exact: true })
+      .filter({ hasText: '本机工作空间' });
+    await legacy.click();
     await expect(page.locator('.detail-heading')).toContainText('检查旧版本会话解析');
     await expect(page.locator('.sidebar')).not.toHaveClass(/open/);
     await page.getByTitle('打开菜单').click();
-    await expect(
-      recent.getByRole('button', { name: '打开会话：检查旧版本会话解析', exact: true }),
-    ).toHaveAttribute('aria-current', 'page');
+    await expect(legacy).toHaveAttribute('aria-current', 'page');
     await page
       .locator('.sidebar-section-tabs')
       .getByRole('button', { name: '项目', exact: true })
@@ -2965,6 +2956,7 @@ test('session details show recent context tokens and usage percentage', async ({
       .filter({ hasText: '检查旧版本会话解析' })
       .filter({ hasText: '本机工作空间' })
       .click();
+    await openSessionAction(page, '会话信息');
     await expect(page.locator('.context-meter')).toContainText('100K / 200K');
     await expect(page.locator('.context-meter')).toContainText('50.0%');
     if (test.info().project.name === 'desktop')

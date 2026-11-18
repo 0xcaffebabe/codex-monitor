@@ -27,12 +27,12 @@ export function runningProjects(sessions: Session[], selectedProject = '') {
   );
 }
 
-export function mergeWorkspaceSessions(sessions: WorkspaceSession[]) {
+export function mergeWorkspaceSessions(sessions: WorkspaceSession[], sort: 'recent' | 'running' = 'running') {
   return [
     ...new Map(sessions.map((session) => [workspaceSessionKey(session), session])).values(),
   ].sort(
     (a, b) =>
-      Number(b.status === 'running') - Number(a.status === 'running') ||
+      (sort === 'running' ? Number(b.status === 'running') - Number(a.status === 'running') : 0) ||
       b.updatedAt - a.updatedAt ||
       a.workspaceId.localeCompare(b.workspaceId),
   );

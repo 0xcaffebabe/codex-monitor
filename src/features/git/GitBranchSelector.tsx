@@ -28,7 +28,6 @@ export function ProjectBranchDialog({ session, workspaceName, activeSessions, on
     return () => {
       element.close();
       if (opener.current?.getClientRects().length) opener.current.focus({ preventScroll: true });
-      else document.querySelector<HTMLElement>('.project-tools-trigger')?.focus({ preventScroll: true });
     };
   }, []);
   useEffect(() => {

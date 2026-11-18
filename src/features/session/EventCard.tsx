@@ -20,12 +20,10 @@ export const EventCard = React.memo(function EventCard({
   event: e,
   sessionId,
   onCopy,
-  searching = false,
 }: {
   event: TimelineEvent;
   sessionId?: string;
   onCopy: (s: string) => void;
-  searching?: boolean;
 }) {
   const renderImage = (offset: number | undefined, alt: string) => {
     const image =
@@ -39,7 +37,6 @@ export const EventCard = React.memo(function EventCard({
       <details
         className={cx('tool-card', e.status === 'failed' && 'tool-error')}
         id={'event-' + e.id}
-        open={searching || undefined}
       >
         <summary>
           <span className="tool-icon">
@@ -93,7 +90,7 @@ export const EventCard = React.memo(function EventCard({
     );
   if (e.kind === 'reasoning')
     return (
-      <details className="reasoning-card" id={'event-' + e.id} open={searching || undefined}>
+      <details className="reasoning-card" id={'event-' + e.id}>
         <summary>
           <Activity size={14} />
           思考摘要

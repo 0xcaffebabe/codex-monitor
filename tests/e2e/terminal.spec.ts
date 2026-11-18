@@ -4,6 +4,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { DatabaseSync } from 'node:sqlite';
 import { ids } from '../fixture.js';
+import { sessionActions } from './session-action-helpers';
 
 const root = process.env.MONITOR_TEST_ROOT || path.join(os.tmpdir(), 'codex-monitor-e2e-01a1d7fa');
 const second = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
@@ -34,11 +35,11 @@ async function enter(page: Page, request: APIRequestContext, workspace = 'local'
   }
   await page.addInitScript((value) => localStorage.setItem('codex-monitor.auth.v1', value), token);
   await page.goto(`/?workspace=${workspace}&session=${ids.modern}`);
-  await expect(page.getByRole('button', { name: '项目工具', exact: true })).toBeVisible();
+  await expect(sessionActions(page)).toBeVisible();
 }
 
 async function open(page: Page) {
-  await page.getByRole('button', { name: '项目工具', exact: true }).click();
+  await sessionActions(page).click();
   await page.getByRole('button', { name: '打开项目终端', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: '项目终端', exact: true });
   await expect(input(dialog)).toBeEditable();
@@ -279,7 +280,7 @@ test('project terminals use the selected workspace client and report missing pro
     ids.modern,
   );
   db.close();
-  await page.getByRole('button', { name: '项目工具', exact: true }).click();
+  await sessionActions(page).click();
   await page.getByRole('button', { name: '打开项目终端', exact: true }).click();
   await expect(page.getByRole('dialog', { name: '项目终端' }).getByRole('alert')).toContainText(
     '项目目录不存在',

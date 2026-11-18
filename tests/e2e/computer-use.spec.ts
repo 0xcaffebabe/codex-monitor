@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { ids } from '../fixture.js';
+import { openSessionAction, sessionActions } from './session-action-helpers';
 import { computerUseRecords, seedComputerUse } from '../computer-use-fixture.js';
 
 const root = process.env.MONITOR_TEST_ROOT || path.join(os.tmpdir(), 'codex-monitor-e2e-01a1d7fa');
@@ -70,10 +71,10 @@ test('Computer Use opens a lazy timeline, switches screenshots and zooms without
     if (request.url().includes('/computer-use')) loads.push(request.url());
   });
   await enter(page, request);
-  const trigger = page.getByTitle('Computer Use 时间线', { exact: true });
+  const trigger = sessionActions(page);
   await expect(trigger).toBeVisible();
   expect(loads).toHaveLength(0);
-  await trigger.click();
+  await openSessionAction(page, '操作回放');
   const dialog = page.getByRole('dialog', { name: 'Computer Use 时间线', exact: true });
   await expect(dialog.getByRole('heading', { name: '查看查询结果', exact: true })).toBeVisible();
   const first = dialog.getByRole('img', { name: '查看查询结果 · 截图 1', exact: true });
@@ -130,7 +131,7 @@ test('Computer Use updates live while preserving a historical selection and hand
   await page.route(route, (route) =>
     route.fulfill({ status: 503, json: { error: '操作记录暂时不可读' } }),
   );
-  await page.getByTitle('Computer Use 时间线', { exact: true }).click();
+  await openSessionAction(page, '操作回放');
   const dialog = page.getByRole('dialog', { name: 'Computer Use 时间线', exact: true });
   await expect(dialog.getByRole('alert')).toContainText('操作记录暂时不可读');
   await page.unroute(route);
@@ -155,7 +156,8 @@ test('Computer Use updates live while preserving a historical selection and hand
   await expect(dialog.getByRole('heading', { name: '打开业务页面', exact: true })).toBeVisible();
   await dialog.getByTitle('关闭操作时间线').click();
   await enter(page, request, ids.legacy);
-  await expect(page.getByTitle('Computer Use 时间线', { exact: true })).toHaveCount(0);
+  await sessionActions(page).click();
+  await expect(page.getByRole('button', { name: '操作回放', exact: true })).toHaveCount(0);
 });
 
 test('Computer Use loads older operations and keeps the full timeline available', async ({
@@ -163,7 +165,7 @@ test('Computer Use loads older operations and keeps the full timeline available'
   request,
 }) => {
   await enter(page, request);
-  await page.getByTitle('Computer Use 时间线', { exact: true }).click();
+  await openSessionAction(page, '操作回放');
   const dialog = page.getByRole('dialog', { name: 'Computer Use 时间线', exact: true });
   await expect(dialog.locator('.computer-use-step')).toHaveCount(100);
   await dialog.getByRole('button', { name: '加载更早操作', exact: true }).click();

@@ -12,15 +12,19 @@ import {
 } from 'lucide-react';
 import { cx } from '../../shared/format';
 import type { User } from '../../types';
+import type { ManagedWorkspace } from '../../workspaces';
 import { SessionRows } from './SessionRows';
+import { SessionScope } from './SessionScope';
 import type { WorkspaceModel } from './useWorkspace';
 
 export function SessionPanel({
   user,
   model,
+  workspaces,
   onSessionSelected,
 }: {
   user: User;
+  workspaces: ManagedWorkspace[];
   onSessionSelected?: () => void;
   model: Pick<
     WorkspaceModel,
@@ -36,7 +40,11 @@ export function SessionPanel({
     | 'q'
     | 'setQ'
     | 'tab'
+    | 'setTab'
     | 'changeTab'
+    | 'scope'
+    | 'setScope'
+    | 'project'
     | 'setProject'
     | 'error'
     | 'listWarning'
@@ -62,7 +70,11 @@ export function SessionPanel({
     q,
     setQ,
     tab,
+    setTab,
     changeTab,
+    scope,
+    setScope,
+    project,
     setProject,
     error,
     listWarning,
@@ -85,7 +97,6 @@ export function SessionPanel({
         <div className="list-heading">
           {hasDetail ? <h2>会话记录</h2> : <h1 className="history-heading">{title}</h1>}
           <span className="count">{total}</span>
-          {!hasDetail && <span className="muted list-hint">全部工作空间 · 最近活动优先</span>}
         </div>
         <div className="list-actions">
           {user.role === 'admin' && (
@@ -136,7 +147,7 @@ export function SessionPanel({
         <input
           ref={searchRef}
           aria-label="搜索会话"
-          placeholder="搜索所有工作空间的会话"
+          placeholder={scope ? '搜索此工作空间的会话' : '搜索会话'}
           maxLength={200}
           value={q}
           onChange={(e) => setQ(e.target.value)}
@@ -149,6 +160,21 @@ export function SessionPanel({
           <kbd>/</kbd>
         )}
       </div>
+      {workspaces.length > 1 && (
+        <div className="session-list-scope">
+          <SessionScope value={scope} onChange={setScope} workspaces={workspaces} label="筛选会话工作空间" />
+        </div>
+      )}
+      {hasDetail && (project || tab === 'running' || tab === 'archived') && (
+        <div className="compact-session-filters" aria-label="当前会话筛选">
+          {project && <button type="button" title={project} aria-label="清除项目筛选" onClick={() => setProject('')}>
+            <span>{title === '项目会话' ? project.split(/[\\/]/).filter(Boolean).at(-1) || title : title}</span><X size={12} />
+          </button>}
+          {(tab === 'running' || tab === 'archived') && <button type="button" aria-label="清除状态筛选" onClick={() => setTab('all')}>
+            <span>{tab === 'archived' ? '已归档' : '进行中'}</span><X size={12} />
+          </button>}
+        </div>
+      )}
       {!hasDetail && (
         <div className="filter-row">
           <div className="filter-tabs">

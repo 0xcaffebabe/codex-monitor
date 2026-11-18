@@ -46,14 +46,15 @@ export function useDesktopLayout(
     let frame = 0;
     const keydown = (event: KeyboardEvent) => {
       if (!desktop || !selected || event.isComposing) return;
-      if (event.key === 'Escape' && !document.querySelector('[role="dialog"]')) setFocused(false);
+      if (event.key === 'Escape' && !document.querySelector('dialog[open], [role="dialog"]'))
+        setFocused(false);
       const target = event.target as HTMLElement;
       if (
         event.key !== '/' ||
         event.ctrlKey ||
         event.metaKey ||
         event.altKey ||
-        target.closest('input, textarea, select, [contenteditable="true"], [role="dialog"]')
+        target.closest('input, textarea, select, [contenteditable="true"], dialog, [role="dialog"]')
       )
         return;
       event.preventDefault();

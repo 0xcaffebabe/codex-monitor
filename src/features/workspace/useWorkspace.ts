@@ -24,7 +24,7 @@ function tabFromParams(params: URLSearchParams) {
   const status = params.get('status');
   if (view === 'usage' || view === 'attention') return view;
   if (status === 'running' || status === 'archived') return status;
-  return ['view', 'session', 'q', 'project', 'subagents', 'group'].some((key) => params.has(key))
+  return ['view', 'session', 'q', 'project', 'scope', 'subagents', 'group'].some((key) => params.has(key))
     ? 'all'
     : 'attention';
 }
@@ -38,6 +38,7 @@ export function useWorkspace(workspaceId: string, workspaces: ManagedWorkspace[]
     [q, setQ] = useState(initialParams.get('q') || ''),
     [query, setQuery] = useState(initialParams.get('q') || ''),
     [project, setProject] = useState(initialParams.get('project') || ''),
+    [scope, setScope] = useState(initialParams.get('scope') || ''),
     [subagents, setSubagents] = useState(initialParams.get('subagents') === 'true'),
     [selected, setSelected] = useState<string | undefined>(
       () => new URLSearchParams(location.search).get('session') || undefined,
@@ -52,16 +53,16 @@ export function useWorkspace(workspaceId: string, workspaces: ManagedWorkspace[]
     [group, setGroup] = useState<SessionGroup>(
       initialParams.get('group') === 'project' ? 'project' : 'time',
     );
+  const workspaceScope = workspaces.some((workspace) => workspace.id === scope) ? scope : '';
   const { sessions, total, error, listWarning, listBusy, loadList } = useSessionList({
     query,
     project,
     tab,
     subagents,
-    workspaces,
-    enabled: tab !== 'attention' && tab !== 'usage',
+    workspaces: workspaceScope ? workspaces.filter((workspace) => workspace.id === workspaceScope) : workspaces,
+    enabled: !!selected || creating || (tab !== 'attention' && tab !== 'usage'),
   });
-  const { overview, recentSessions, recentLoaded, recentError, loadOverview, loadRecentSessions } =
-    useOverview(workspaceId);
+  const { overview, loadOverview } = useOverview(workspaceId);
   const {
     page,
     outlineData,
@@ -101,9 +102,6 @@ export function useWorkspace(workspaceId: string, workspaces: ManagedWorkspace[]
     return () => window.removeEventListener('keydown', listener);
   }, []);
   useEffect(() => {
-    if (menu) void loadRecentSessions();
-  }, [menu, loadRecentSessions]);
-  useEffect(() => {
     return subscribeNavigation(() => {
       const params = new URLSearchParams(location.search);
       setMenu(false);
@@ -116,6 +114,7 @@ export function useWorkspace(workspaceId: string, workspaces: ManagedWorkspace[]
       setQ(params.get('q') || '');
       setQuery(params.get('q') || '');
       setProject(params.get('project') || '');
+      setScope(params.get('scope') || '');
       setSubagents(params.get('subagents') === 'true');
       setGroup(params.get('group') === 'project' ? 'project' : 'time');
     });
@@ -136,6 +135,7 @@ export function useWorkspace(workspaceId: string, workspaces: ManagedWorkspace[]
     const filters = {
       q,
       project,
+      scope: workspaceScope,
       status: tab === 'running' || tab === 'archived' ? tab : '',
       subagents: subagents ? 'true' : '',
       group: group === 'project' ? 'project' : '',
@@ -145,7 +145,7 @@ export function useWorkspace(workspaceId: string, workspaces: ManagedWorkspace[]
       else params.delete(key);
     }
     history.replaceState(null, '', location.pathname + (params.size ? '?' + params : ''));
-  }, [workspaceId, selected, tab, q, project, subagents, group, creating, result.turn, attentionRequest]);
+  }, [workspaceId, selected, tab, q, project, workspaceScope, subagents, group, creating, result.turn, attentionRequest]);
   const reconcile = () => {
     void loadOverview();
   };
@@ -163,7 +163,11 @@ export function useWorkspace(workspaceId: string, workspaces: ManagedWorkspace[]
   };
   const selectSession = (session: WorkspaceSession) => {
     if (session.workspaceId === workspaceId) select(session.id);
-    else navigateWorkspace(session.workspaceId, session.id, new URLSearchParams(location.search));
+    else {
+      const params = new URLSearchParams(location.search);
+      for (const key of ['result', 'observed', 'request']) params.delete(key);
+      navigateWorkspace(session.workspaceId, session.id, params);
+    }
   };
   const startSession = () => {
     setTab('all');
@@ -185,6 +189,7 @@ export function useWorkspace(workspaceId: string, workspaces: ManagedWorkspace[]
     setTab(value);
     closeDetail();
     setProject('');
+    if (value === 'all') setScope('');
     setMenu(false);
   };
   const title =
@@ -204,9 +209,6 @@ export function useWorkspace(workspaceId: string, workspaces: ManagedWorkspace[]
   return {
     workspaceId,
     overview,
-    recentSessions,
-    recentLoaded,
-    recentError,
     sidebarView,
     setSidebarView,
     sessions,
@@ -218,6 +220,8 @@ export function useWorkspace(workspaceId: string, workspaces: ManagedWorkspace[]
     setQuery,
     project,
     setProject,
+    scope: workspaceScope,
+    setScope,
     subagents,
     setSubagents,
     selected,
@@ -248,7 +252,6 @@ export function useWorkspace(workspaceId: string, workspaces: ManagedWorkspace[]
     searchRef,
     notify,
     loadList,
-    loadRecentSessions,
     loadOverview,
     loadDetail,
     loadOutline,

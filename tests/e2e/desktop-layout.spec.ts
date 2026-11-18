@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { ids } from '../fixture.js';
 import { openComposerMenu } from './composer-helpers';
+import { openSessionAction, sessionActions } from './session-action-helpers';
 
 let token = '';
 async function enter(page: Page, request: APIRequestContext, width = 1440, height = 900) {
@@ -65,8 +66,9 @@ test.describe('PC layout', () => {
       const prose = page.locator('.timeline .markdown').first();
       await expect(prose).toHaveCSS('font-size', width >= 1800 ? '17px' : '16px');
       expect((await prose.boundingBox())!.width).toBeLessThanOrEqual(880);
-      await expect(page.getByLabel('搜索会话内容', { exact: true })).toBeVisible();
-      await expect(page.getByRole('button', { name: '会话信息', exact: true })).toHaveAttribute(
+      await expect(page.getByLabel('搜索会话内容', { exact: true })).toHaveCount(0);
+      expect((await page.locator('.detail-header').boundingBox())!.height).toBeLessThanOrEqual(76);
+      await expect(sessionActions(page)).toHaveAttribute(
         'aria-expanded',
         'false',
       );
@@ -176,9 +178,10 @@ test.describe('PC layout', () => {
     await page.setViewportSize({ width: 1920, height: 960 });
     await expect(page.locator('.timeline-reader > .outline')).toBeVisible();
     await expect(page.locator('.outline')).toHaveCSS('position', 'absolute');
-    await page.getByRole('button', { name: '会话信息', exact: true }).click();
+    await openSessionAction(page, '会话信息');
     await expect(page.getByRole('button', { name: /会话用量/ })).toBeVisible();
-    await page.getByRole('button', { name: '会话信息', exact: true }).click();
+    await page.getByTitle('关闭会话信息').click();
+    await expect(sessionActions(page)).toBeFocused();
     await page.getByRole('button', { name: '专注模式', exact: true }).click();
     await expect(page.locator('.outline')).toHaveCount(0);
     await page.getByTitle('退出专注模式（Esc）', { exact: true }).click();
@@ -226,15 +229,19 @@ test('keeps the iPhone Pro Max conversation readable with tools outside the read
   await enter(page, request, 440, 763);
   await expect(page.locator('.timeline .markdown').first()).toHaveCSS('font-size', '16px');
   const outline = page.getByRole('button', { name: '展开对话目录', exact: true });
-  const running = page.getByRole('button', { name: '返回任务动态', exact: true });
+  const home = page.getByRole('button', { name: '返回任务动态', exact: true });
+  const running = page.getByRole('button', { name: '查看运行中的会话', exact: true });
   await expect(running).toBeVisible();
   const reader = (await page.locator('.timeline-reader').boundingBox())!;
-  for (const button of [outline, running]) {
+  for (const button of [outline, sessionActions(page)]) {
     const bounds = (await button.boundingBox())!;
     expect(bounds.width).toBeGreaterThanOrEqual(44);
     expect(bounds.height).toBeGreaterThanOrEqual(44);
     expect(bounds.y + bounds.height).toBeLessThanOrEqual(reader.y);
   }
+  const runningBounds = (await running.boundingBox())!;
+  expect(runningBounds.x).toBeGreaterThan(220);
+  expect(runningBounds.y).toBeGreaterThan(reader.y + reader.height);
   const input = page.getByRole('textbox', { name: '发送给 Codex 的消息', exact: true });
   await expect(input).toHaveCSS('font-size', '16px');
   await input.fill('移动端草稿');
@@ -258,6 +265,6 @@ test('keeps the iPhone Pro Max conversation readable with tools outside the read
   await page.screenshot({ path: test.info().outputPath('iphone-17-pro-max.png') });
   await page.getByTitle('返回会话列表', { exact: true }).tap();
   await expect(page.getByTestId('session-row').first()).toBeInViewport({ ratio: 0.5 });
-  await running.tap();
+  await home.tap();
   await expect(page.getByRole('heading', { name: '任务动态', exact: true })).toBeVisible();
 });

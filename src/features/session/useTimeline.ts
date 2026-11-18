@@ -26,59 +26,40 @@ export function useTimeline({
   onOlder,
   notify,
 }: DetailProps) {
-  const [searchText, setFind] = useState(''),
-    [activeEntry, setActiveEntry] = useState(''),
+  const [activeEntry, setActiveEntry] = useState(''),
     [jumpingEntry, setJumpingEntry] = useState(''),
     [jumpTarget, setJumpTarget] = useState(''),
     [follow, setFollow] = useState(true),
     [olderBusy, setOlderBusy] = useState(false),
-    [olderFailed, setOlderFailed] = useState(false),
-    [infoExpanded, setInfoExpanded] = useState(false);
+    [olderFailed, setOlderFailed] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null),
     bottomRef = useRef<HTMLDivElement>(null),
     lastId = useRef('');
   const scrollLock = useRef(false);
-  const searchScroll = useRef<number | null>(null);
   const previousScrollTop = useRef(0);
   const touchY = useRef<number | null>(null);
   const olderRequest = useRef<object | null>(null);
   const olderScroll = useRef<{
     sessionId: string;
     before: number;
-    find: string;
     anchor?: HTMLElement;
     offset: number;
     height: number;
     top: number;
   } | null>(null);
   const session = page?.session;
-  const find = searchText.trim().toLowerCase();
   useEffect(() => {
-    setFind('');
     setFollow(true);
     setActiveEntry('');
     setJumpTarget('');
-    setInfoExpanded(false);
     setOlderBusy(false);
     setOlderFailed(false);
     olderRequest.current = null;
     olderScroll.current = null;
     scrollLock.current = false;
-    searchScroll.current = null;
     previousScrollTop.current = 0;
     touchY.current = null;
   }, [session?.id]);
-  useLayoutEffect(() => {
-    const reader = scrollRef.current;
-    if (!reader) return;
-    if (find) {
-      searchScroll.current ??= previousScrollTop.current;
-      reader.scrollTop = 0;
-    } else if (searchScroll.current !== null) {
-      reader.scrollTop = searchScroll.current;
-      searchScroll.current = null;
-    }
-  }, [find]);
   function rememberOlderPosition() {
     const el = scrollRef.current,
       position = olderScroll.current;
@@ -98,13 +79,12 @@ export function useTimeline({
     olderScroll.current = {
       sessionId: session.id,
       before: page.before,
-      find,
       offset: 0,
       height: 0,
       top: 0,
     };
     rememberOlderPosition();
-    if (!find) setFollow(false);
+    setFollow(false);
     setOlderFailed(false);
     setOlderBusy(true);
     try {
@@ -120,7 +100,7 @@ export function useTimeline({
   }
   function readOlderFromInput(target: EventTarget | null) {
     const el = scrollRef.current;
-    if (!el || find || lastId.current !== session?.id || scrollLock.current) return;
+    if (!el || lastId.current !== session?.id || scrollLock.current) return;
     // Let a nested tool/code panel consume its own upward scroll first.
     for (
       let node = target instanceof Element ? target : null;
@@ -135,7 +115,7 @@ export function useTimeline({
     const el = scrollRef.current,
       position = olderScroll.current;
     if (!el || !position) return;
-    if (position.sessionId !== session?.id || position.find !== find || scrollLock.current) {
+    if (position.sessionId !== session?.id || scrollLock.current) {
       olderScroll.current = null;
       return;
     }
@@ -152,7 +132,7 @@ export function useTimeline({
       olderScroll.current = null;
       setOlderFailed(true);
     }
-  }, [page, olderBusy, session?.id, find]);
+  }, [page, olderBusy, session?.id]);
   useEffect(() => {
     if (outlineData)
       setActiveEntry((previous) =>
@@ -162,7 +142,6 @@ export function useTimeline({
       );
   }, [outlineData]);
   async function jumpToEntry(entry: OutlineEntry) {
-    setFind('');
     setFollow(false);
     scrollLock.current = true;
     setJumpingEntry(entry.id);
@@ -187,9 +166,9 @@ export function useTimeline({
     requestAnimationFrame(() => {
       scrollLock.current = false;
     });
-  }, [jumpTarget, page, find]);
+  }, [jumpTarget, page]);
   useEffect(() => {
-    if (follow && page && !find) {
+    if (follow && page) {
       const frame = requestAnimationFrame(() => {
         if (scrollLock.current) return;
         scrollRef.current?.scrollTo({
@@ -200,9 +179,9 @@ export function useTimeline({
       });
       return () => cancelAnimationFrame(frame);
     }
-  }, [page, follow, session?.id, find]);
+  }, [page, follow, session?.id]);
   useEffect(() => {
-    if (!session || page?.before == null || olderBusy || olderFailed || error || find) return;
+    if (!session || page?.before == null || olderBusy || olderFailed || error) return;
     const frame = requestAnimationFrame(() => {
       const el = scrollRef.current;
       if (
@@ -214,12 +193,8 @@ export function useTimeline({
         void loadOlder();
     });
     return () => cancelAnimationFrame(frame);
-  }, [page, olderBusy, olderFailed, error, follow, find, session?.id]);
-  const events =
-    page?.events.filter(
-      (e) => !find || `${e.text} ${e.name || ''} ${e.title || ''}`.toLowerCase().includes(find),
-    ) ?? [];
-  const toolCount = page?.events.filter((e) => e.kind === 'tool').length ?? 0;
+  }, [page, olderBusy, olderFailed, error, follow, session?.id]);
+  const events = page?.events ?? [];
   const outlineEntries = useMemo(
     () =>
       outlineData?.entries ??
@@ -235,7 +210,7 @@ export function useTimeline({
     [outlineData, page?.events, session?.status],
   );
   useEffect(() => {
-    if (!scrollRef.current || find) return;
+    if (!scrollRef.current) return;
     const el = scrollRef.current;
     const anchors = outlineEntries.flatMap((entry) => {
       const node = document.getElementById('event-' + entry.id);
@@ -266,7 +241,7 @@ export function useTimeline({
       el.removeEventListener('scroll', schedule);
       observer.disconnect();
     };
-  }, [outlineEntries, page, find]);
+  }, [outlineEntries, page]);
 
   const scrollHandlers: HTMLAttributes<HTMLDivElement> = {
     onWheel(event) {
@@ -299,12 +274,11 @@ export function useTimeline({
         const nearTop = page?.before != null && el.scrollTop <= 80;
         const readingOlder = !!olderRequest.current || (!follow && (!downward || nearTop));
         const bottomGap = el.scrollHeight - el.scrollTop - el.clientHeight;
-        if (!find) setFollow(!readingOlder && bottomGap < 140);
+        setFollow(!readingOlder && bottomGap < 140);
         if (
           lastId.current === session?.id &&
           nearTop &&
           (!follow || bottomGap >= 140) &&
-          !find &&
           !olderFailed &&
           !error
         )
@@ -317,17 +291,12 @@ export function useTimeline({
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
   }
   return {
-    find,
-    searchText,
-    setFind,
     activeEntry,
     jumpingEntry,
     follow,
     setFollow,
     olderBusy,
     olderFailed,
-    infoExpanded,
-    setInfoExpanded,
     scrollRef,
     bottomRef,
     session,
@@ -337,7 +306,6 @@ export function useTimeline({
     blocks: groupTimelineEvents(events),
     scrollHandlers,
     jumpToLatest,
-    toolCount,
     outlineEntries,
   };
 }

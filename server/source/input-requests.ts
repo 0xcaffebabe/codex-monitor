@@ -5,7 +5,7 @@ import type { InternalSession } from './session.js';
 import type { Session } from '../../src/types.js';
 import { delegatedInputSql } from './sql.js';
 
-export type InputQuestion = { title: string; options: string[] };
+export type InputQuestion = { title: string; options: string[]; body?: string };
 export type SessionInputRequest = {
   key: string;
   session: Session;
@@ -34,7 +34,7 @@ function questionsFrom(value: unknown): InputQuestion[] {
             })
             .slice(0, 5)
         : [];
-      return [{ title: title.slice(0, 600), options }];
+      return [{ title: title.slice(0, 600), options, ...(title.length > 600 ? { body: title.slice(0, 12000) } : {}) }];
     })
     .slice(0, 3);
 }

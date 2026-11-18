@@ -11,8 +11,10 @@ import {
   X,
 } from 'lucide-react';
 import { Children, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
-import type { AttentionReceipt, AttentionSession } from '../../attention-types';
+import type { AttentionReceipt, AttentionRequest, AttentionSession } from '../../attention-types';
 import { relative, time } from '../../shared/format';
+import { Markdown } from '../../shared/ui/Markdown';
+import { markdownExcerpt } from '../../shared/ui/markdown-excerpt';
 import type { User } from '../../types';
 import { navigateWorkspace } from '../../workspace-scope';
 import { ApprovalPanel } from '../control/ApprovalPanel';
@@ -32,7 +34,7 @@ type Item = Task & {
   at: number;
   action?: string;
   approval?: string;
-  question?: boolean;
+  question?: AttentionRequest;
   result?: boolean;
   watched: boolean;
 };
@@ -93,7 +95,7 @@ function TaskRow({ item, onOpen }: { item: Item; onOpen: () => void }) {
       <div className="attention-task">
         <small className="attention-kind">{item.label}</small>
         <strong>{item.session.title || '未命名会话'}</strong>
-        {item.detail && <p>{item.detail}</p>}
+        {item.detail && <p className={item.question ? 'attention-excerpt' : undefined}>{item.detail}</p>}
         <small className="attention-meta">
           <Monitor size={13} />
           {item.workspaceName} · {item.session.project} · {relative(item.at)}
@@ -173,8 +175,15 @@ function TaskDialog({
         />
       ) : (
         <div className="attention-question">
-          <strong>{item.detail}</strong>
-          <p>请在 {item.workspaceName} 的 Codex 客户端答复。</p>
+          {(item.question?.questions || [{ text: item.question?.title || '', options: [] }]).map(({ text, options }, index) => (
+            <section className="attention-question-block" key={index}>
+              <Markdown text={text} />
+              {!!options.length && <ul className="attention-question-options">
+                {options.map((option, optionIndex) => <li key={optionIndex}>{option}</li>)}
+              </ul>}
+            </section>
+          ))}
+          <p className="attention-question-location">请在 {item.workspaceName} 的 Codex 客户端答复。</p>
           <button
             className="secondary attention-action"
             onClick={() => {
@@ -278,14 +287,12 @@ function ReceiptRow({
 export function AttentionBoard({
   groups,
   user,
-  compact,
   refresh,
   startSession,
   watches,
 }: {
   groups: AttentionWorkspace[];
   user: User;
-  compact?: boolean;
   refresh: () => void;
   startSession: () => void;
   watches: { workspaceId: string; sessionId: string }[];
@@ -343,9 +350,9 @@ export function AttentionBoard({
       attention.push({
         ...row(request.session, '待答复', '查看问题'),
         key: `${workspace.id}:input:${request.id}`,
-        detail: request.title,
+        detail: markdownExcerpt(request.questions?.[0]?.text ?? request.title) || '展开查看问题内容',
         at: request.createdAt,
-        question: true,
+        question: request,
       });
     }
     for (const session of snapshot.waiting)
@@ -418,10 +425,7 @@ export function AttentionBoard({
       />
     ));
   return (
-    <div
-      id={compact ? 'workspace-sessions' : undefined}
-      className={`attention-board${compact ? ' session-panel compact' : ''}`}
-    >
+    <div className="attention-board">
       <div className="attention-inner">
         <header className="attention-heading">
           <div>
@@ -430,7 +434,7 @@ export function AttentionBoard({
               {groups.length - unavailable.length}/{groups.length} 个工作空间已同步
             </p>
           </div>
-          {!compact && user.role === 'admin' && (
+          {user.role === 'admin' && (
             <button className="secondary attention-action" onClick={startSession}>
               <Plus size={16} />
               新建会话

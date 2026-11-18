@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { openSessionAction } from './session-action-helpers';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -38,7 +39,7 @@ test('usage totals, filters, heatmap and session metrics work on desktop and mob
   expect(auth.ok()).toBeTruthy();
   const { token } = await auth.json();
   await page.addInitScript((token) => localStorage.setItem('codex-monitor.auth.v1', token), token);
-  await page.goto('/');
+  await page.goto('/?view=all');
   await expect(page.getByRole('heading', { name: '全部会话', exact: true })).toBeVisible();
   if (test.info().project.name === 'mobile') await page.getByTitle('打开菜单').click();
   await page.getByRole('button', { name: '用量统计', exact: true }).click();
@@ -71,7 +72,7 @@ test('usage totals, filters, heatmap and session metrics work on desktop and mob
   });
   await page.locator('.usage-session-link').first().click();
   await expect(page.locator('.detail-heading')).toContainText('开发 codex-monitor');
-  await page.getByRole('button', { name: '会话信息', exact: true }).click();
+  await openSessionAction(page, '会话信息');
   await page.getByRole('button', { name: /会话用量/ }).click();
   await expect(page.getByRole('region', { name: '会话用量' })).toContainText('≈5.0s');
 });

@@ -46,7 +46,7 @@ async function enter(page: Page, request: APIRequestContext, session?: string) {
     (token) => localStorage.setItem('codex-monitor.auth.v1', token),
     cachedToken,
   );
-  await page.goto(session ? `/?session=${session}` : '/');
+  await page.goto(session ? `/?session=${session}` : '/?view=all');
   await expect(
     session
       ? page.getByRole('region', { name: '会话详情' })
@@ -102,7 +102,7 @@ const state = (page: Page) =>
     held: window.testWakeLock.locks.filter((lock) => !lock.released).length,
     pending: window.testWakeLock.pending.length,
   }));
-const indicator = (page: Page) => page.locator('.screen-wake-lock');
+const hint = (page: Page) => page.getByText(/屏幕常亮|重试常亮|常亮需 HTTPS|常亮不可用/);
 async function visibility(page: Page, value: DocumentVisibilityState) {
   await page.evaluate((value) => {
     window.testWakeLock.visibility = value;
@@ -121,16 +121,15 @@ test('iOS details keep the screen awake through refresh and rotation, and releas
   await page.getByTestId('session-row').filter({ hasText: '开发 codex-monitor' }).click();
   if (!isMobile) {
     await expect(page.locator('.timeline .user-message').last()).toBeVisible();
-    await expect(indicator(page)).toHaveCount(0);
+    await expect(hint(page)).toHaveCount(0);
     expect(await state(page)).toEqual({ requests: 0, held: 0, pending: 0 });
     return;
   }
-  await expect(indicator(page)).toHaveText('屏幕常亮');
-  expect(await state(page)).toEqual({ requests: 1, held: 1, pending: 0 });
+  await expect.poll(() => state(page)).toEqual({ requests: 1, held: 1, pending: 0 });
+  await expect(hint(page)).toHaveCount(0);
   expect(await page.evaluate(() => window.testWakeLock.requests)).toEqual(['screen']);
   await page.getByTitle('刷新数据').click();
   await page.setViewportSize({ width: 844, height: 390 });
-  await expect(indicator(page)).toHaveText('屏幕常亮');
   expect(await state(page)).toEqual({ requests: 1, held: 1, pending: 0 });
   await page.setViewportSize({ width: 320, height: 700 });
   expect(
@@ -144,8 +143,7 @@ test('iOS details keep the screen awake through refresh and rotation, and releas
     .filter({ hasText: '检查旧版本会话解析' })
     .filter({ hasText: '本机工作空间' })
     .click();
-  await expect(indicator(page)).toHaveText('屏幕常亮');
-  expect(await state(page)).toEqual({ requests: 2, held: 1, pending: 0 });
+  await expect.poll(() => state(page)).toEqual({ requests: 2, held: 1, pending: 0 });
   await page.getByTitle('打开菜单').click();
   await page.getByTitle('退出登录').click();
   await expect(page.getByRole('button', { name: '进入工作空间' })).toBeVisible();
@@ -163,13 +161,12 @@ test('iOS details release in the background and reacquire after visibility and p
   test.skip(!isMobile, 'iOS lifecycle');
   await mockWakeLock(page);
   await enter(page, request, ids.legacy);
-  await expect(indicator(page)).toHaveText('屏幕常亮');
+  await expect.poll(() => state(page)).toEqual({ requests: 1, held: 1, pending: 0 });
   await visibility(page, 'hidden');
   await expect.poll(() => state(page)).toEqual({ requests: 1, held: 0, pending: 0 });
   await page.evaluate(() => document.dispatchEvent(new Event('pointerdown')));
   expect(await state(page)).toEqual({ requests: 1, held: 0, pending: 0 });
   await visibility(page, 'visible');
-  await expect(indicator(page)).toHaveText('屏幕常亮');
   await expect.poll(() => state(page)).toEqual({ requests: 2, held: 1, pending: 0 });
   await page.evaluate(() =>
     window.dispatchEvent(new PageTransitionEvent('pagehide', { persisted: true })),
@@ -178,11 +175,10 @@ test('iOS details release in the background and reacquire after visibility and p
   await page.evaluate(() =>
     window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true })),
   );
-  await expect(indicator(page)).toHaveText('屏幕常亮');
   await expect.poll(() => state(page)).toEqual({ requests: 3, held: 1, pending: 0 });
 });
 
-test('iOS details show system refusals and releases and allow a gesture to retry', async ({
+test('iOS details retry system refusals and releases on interaction without a prompt', async ({
   page,
   request,
   isMobile,
@@ -192,20 +188,18 @@ test('iOS details show system refusals and releases and allow a gesture to retry
   page.on('pageerror', (error) => errors.push(error));
   await mockWakeLock(page, { reject: true });
   await enter(page, request, ids.modern);
-  await expect(indicator(page)).toHaveText('重试常亮');
-  expect(await state(page)).toEqual({ requests: 1, held: 0, pending: 0 });
+  await expect.poll(() => state(page)).toEqual({ requests: 1, held: 0, pending: 0 });
+  await expect(hint(page)).toHaveCount(0);
   await page.evaluate(() => {
     window.testWakeLock.reject = false;
   });
-  await indicator(page).getByRole('button').click();
-  await expect(indicator(page)).toHaveText('屏幕常亮');
-  expect(await state(page)).toEqual({ requests: 2, held: 1, pending: 0 });
+  await page.getByLabel('发送给 Codex 的消息').click();
+  await expect.poll(() => state(page)).toEqual({ requests: 2, held: 1, pending: 0 });
   await page.evaluate(() => window.testWakeLock.locks.at(-1)!.release());
-  await expect(indicator(page)).toHaveText('重试常亮');
+  await expect(hint(page)).toHaveCount(0);
   expect(await state(page)).toEqual({ requests: 2, held: 0, pending: 0 });
   await page.getByLabel('发送给 Codex 的消息').click();
-  await expect(indicator(page)).toHaveText('屏幕常亮');
-  expect(await state(page)).toEqual({ requests: 3, held: 1, pending: 0 });
+  await expect.poll(() => state(page)).toEqual({ requests: 3, held: 1, pending: 0 });
   expect(errors).toEqual([]);
 });
 
@@ -224,8 +218,7 @@ test('late iOS wake lock requests cannot outlive hidden or closed session detail
   await page.evaluate(() => window.testWakeLock.pending.shift()!());
   await expect.poll(() => state(page)).toEqual({ requests: 2, held: 0, pending: 1 });
   await page.evaluate(() => window.testWakeLock.pending.shift()!());
-  await expect(indicator(page)).toHaveText('屏幕常亮');
-  expect(await state(page)).toEqual({ requests: 2, held: 1, pending: 0 });
+  await expect.poll(() => state(page)).toEqual({ requests: 2, held: 1, pending: 0 });
   await page.getByTitle('返回会话列表').click();
   await expect.poll(() => state(page)).toEqual({ requests: 2, held: 0, pending: 0 });
   await page.getByTestId('session-row').filter({ hasText: '开发 codex-monitor' }).click();
@@ -236,10 +229,10 @@ test('late iOS wake lock requests cannot outlive hidden or closed session detail
 });
 
 for (const scenario of [
-  { name: 'HTTP access', options: { secure: false }, label: '常亮需 HTTPS' },
-  { name: 'an unsupported browser', options: { supported: false }, label: '常亮不可用' },
+  { name: 'HTTP access', options: { secure: false } },
+  { name: 'an unsupported browser', options: { supported: false } },
 ]) {
-  test(`iOS details explain ${scenario.name} without interrupting the conversation`, async ({
+  test(`iOS details stay quiet during ${scenario.name} without interrupting the conversation`, async ({
     page,
     request,
     isMobile,
@@ -247,7 +240,7 @@ for (const scenario of [
     test.skip(!isMobile, 'iOS capability hints');
     await mockWakeLock(page, scenario.options);
     await enter(page, request, ids.modern);
-    await expect(indicator(page)).toHaveText(scenario.label);
+    await expect(hint(page)).toHaveCount(0);
     await expect(page.locator('.timeline .user-message').last()).toBeVisible();
     await page.getByLabel('发送给 Codex 的消息').fill('仍可阅读和输入');
     expect(await state(page)).toEqual({ requests: 0, held: 0, pending: 0 });
@@ -269,8 +262,7 @@ test('iPadOS desktop mode can keep session details awake', async ({ page, reques
     Object.defineProperty(navigator, 'maxTouchPoints', { value: 5 });
   });
   await enter(page, request, ids.legacy);
-  await expect(indicator(page)).toHaveText('屏幕常亮');
-  expect(await state(page)).toEqual({ requests: 1, held: 1, pending: 0 });
+  await expect.poll(() => state(page)).toEqual({ requests: 1, held: 1, pending: 0 });
   await page.getByTitle('返回会话列表').click();
   await expect.poll(() => state(page)).toEqual({ requests: 1, held: 0, pending: 0 });
 });

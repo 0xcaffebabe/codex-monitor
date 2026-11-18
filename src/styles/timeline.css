@@ -71,13 +71,6 @@
   min-height: 0;
   overflow: hidden;
 }
-.timeline-search-status {
-  margin: 0 0 12px;
-  padding: 8px 0;
-  border-bottom: 1px solid var(--line);
-  color: var(--muted);
-  font-size: var(--font-ui);
-}
 .timeline-column .jump-latest {
   bottom: 18px;
 }

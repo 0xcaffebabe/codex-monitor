@@ -9,6 +9,7 @@ export function Popover({
   disabled = false,
   active = false,
   className = '',
+  placement = 'above',
   onOpen,
 }: {
   label: string;
@@ -18,6 +19,7 @@ export function Popover({
   disabled?: boolean;
   active?: boolean;
   className?: string;
+  placement?: 'above' | 'below';
   onOpen?: () => void;
 }) {
   const id = useId();
@@ -25,7 +27,10 @@ export function Popover({
   const panel = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
   const close = () => {
-    if (panel.current?.matches(':popover-open')) panel.current.hidePopover();
+    if (panel.current?.matches(':popover-open')) {
+      panel.current.hidePopover();
+      if (placement === 'below') trigger.current?.focus({ preventScroll: true });
+    }
   };
   useLayoutEffect(() => {
     if (!open || !panel.current || !trigger.current) return;
@@ -33,16 +38,19 @@ export function Popover({
     const position = () => {
       const anchor = trigger.current?.getBoundingClientRect();
       if (!anchor) return;
-      element.style.left = `${Math.max(12, Math.min(anchor.left, innerWidth - element.offsetWidth - 12))}px`;
-      element.style.top = `${Math.max(12, anchor.top - element.offsetHeight - 8)}px`;
       const viewport = window.visualViewport;
+      const viewportBottom = (viewport?.offsetTop ?? 0) + (viewport?.height ?? innerHeight);
+      const below = placement === 'below';
+      const left = below ? anchor.right - element.offsetWidth : anchor.left;
+      element.style.left = `${Math.max(12, Math.min(left, innerWidth - element.offsetWidth - 12))}px`;
+      element.style.top = `${below ? anchor.bottom + 6 : Math.max(12, anchor.top - element.offsetHeight - 8)}px`;
       element.style.setProperty(
         '--popover-bottom',
         `${Math.max(12, innerHeight - (viewport?.height ?? innerHeight) - (viewport?.offsetTop ?? 0) + 12)}px`,
       );
       element.style.setProperty(
         '--popover-height',
-        `${Math.min(560, (viewport?.height ?? innerHeight) - 24)}px`,
+        `${Math.min(560, below ? Math.max(0, viewportBottom - anchor.bottom - 18) : (viewport?.height ?? innerHeight) - 24)}px`,
       );
     };
     position();
@@ -62,7 +70,7 @@ export function Popover({
       window.removeEventListener('scroll', position, true);
       window.visualViewport?.removeEventListener('resize', position);
     };
-  }, [open]);
+  }, [open, placement]);
   return (
     <>
       <button

@@ -1,6 +1,7 @@
 import { MessageSquare, Shield, TriangleAlert } from 'lucide-react';
 import { lazy, Suspense, useEffect, useState } from 'react';
 import { cx } from '../../shared/format';
+import { markdownExcerpt } from '../../shared/ui/markdown-excerpt';
 import { useMediaQuery } from '../../shared/useMediaQuery';
 import { MessageComposer } from '../control/MessageComposer';
 import { NewSessionComposer } from '../control/NewSessionComposer';
@@ -15,6 +16,7 @@ import { ComputerUseTimeline } from './ComputerUseTimeline';
 import { ProjectBranchDialog } from '../git/GitBranchSelector';
 import type { AttentionRequest, AttentionSession } from '../../attention-types';
 import { TurnResult } from './TurnResult';
+import { useScreenWakeLock } from './useScreenWakeLock';
 const ProjectTerminal = lazy(() => import('../terminal/ProjectTerminal'));
 const GitDiff = lazy(() => import('../git/GitDiff'));
 
@@ -46,6 +48,7 @@ export function Detail(
     newSession,
   } = props;
   const model = useTimeline(props);
+  useScreenWakeLock(!newSession);
   const mobile = useMediaQuery('(max-width: 760px)');
   const { setFollow, session } = model;
   const actions = useSessionActions(notify);
@@ -64,10 +67,12 @@ export function Detail(
       aria-label={newSession ? '新建会话' : '会话详情'}
     >
       <DetailHeader
+        key={session?.id ?? 'empty'}
         creating={!!newSession}
         page={page}
         onBack={onBack}
-        model={model}
+        workspaceName={props.workspaceName}
+        session={session}
         mobileOutline={mobile && !focusMode && !newSession && session && (
           <MobileOutline
             key={session.id}
@@ -145,7 +150,7 @@ export function Detail(
       {page && props.result?.turn && <TurnResult turn={props.result.turn} observed={props.result.observed} page={page} outline={outlineData} error={outlineError} model={model} />}
       {props.linkedQuestion && <section className="turn-result" aria-label="待答复问题">
         <div><h2>待答复问题</h2><p>{props.linkedQuestion.current
-          ? `${props.linkedQuestion.current.title} · 请在 ${props.linkedQuestion.workspaceName} 的 Codex 答复。`
+          ? [markdownExcerpt(props.linkedQuestion.current.title), `请在 ${props.linkedQuestion.workspaceName} 的 Codex 答复。`].filter(Boolean).join(' · ')
           : props.linkedQuestion.observed ? '该问题不在当前待答复列表中。' : '暂无法确认此问题是否仍需答复。'}</p></div>
       </section>}
       <div className="detail-layout">

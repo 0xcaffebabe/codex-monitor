@@ -6,15 +6,23 @@ import {
   LogOut,
   Moon,
   ListTodo,
+  Monitor,
   Settings2,
   Shield,
   Sun,
   Wifi,
   X,
 } from 'lucide-react';
+import { useState } from 'react';
 import { cx, relative } from '../../shared/format';
+import { useMediaQuery } from '../../shared/useMediaQuery';
 import { Brand } from '../../shared/ui/Brand';
 import { Status } from '../../shared/ui/Status';
+import { navigateWorkspace } from '../../workspace-scope';
+import type { ManagedWorkspace } from '../../workspaces';
+import { SessionScope } from './SessionScope';
+import { workspaceSessionKey } from './session-list-model';
+import { useSessionList } from './useSessionList';
 import type { WorkspaceModel } from './useWorkspace';
 import { WorkspaceProps } from './useWorkspace';
 
@@ -25,7 +33,9 @@ export function Sidebar({
   setDark,
   model,
   workspaceName,
+  workspaces,
 }: WorkspaceProps & {
+  workspaces: ManagedWorkspace[];
   model: Pick<
     WorkspaceModel,
     | 'overview'
@@ -36,16 +46,11 @@ export function Sidebar({
     | 'changeTab'
     | 'sidebarView'
     | 'setSidebarView'
-    | 'recentError'
-    | 'recentLoaded'
-    | 'recentSessions'
-    | 'loadRecentSessions'
+    | 'workspaceId'
     | 'selected'
     | 'setProject'
-    | 'setQ'
-    | 'setQuery'
+    | 'setScope'
     | 'setTab'
-    | 'select'
     | 'closeDetail'
     | 'setSettings'
   >;
@@ -59,19 +64,28 @@ export function Sidebar({
     changeTab,
     sidebarView,
     setSidebarView,
-    recentError,
-    recentLoaded,
-    recentSessions,
-    loadRecentSessions,
+    workspaceId,
     selected,
     setProject,
-    setQ,
-    setQuery,
+    setScope,
     setTab,
-    select,
     closeDetail,
     setSettings,
   } = model;
+  const mobile = useMediaQuery('(max-width: 760px)');
+  const [recentScope, setRecentScope] = useState('');
+  const scope = workspaces.some((workspace) => workspace.id === recentScope) ? recentScope : '';
+  const recent = useSessionList({
+    query: '',
+    project: '',
+    tab: 'all',
+    archived: 'all',
+    subagents: false,
+    sort: 'recent',
+    pageSize: 40,
+    workspaces: scope ? workspaces.filter((workspace) => workspace.id === scope) : workspaces,
+    enabled: mobile && menu && sidebarView === 'recent',
+  });
   return (
     <aside
       id="workspace-navigation"
@@ -107,7 +121,6 @@ export function Sidebar({
         >
           <Layers3 size={17} />
           <span className="nav-item-label">全部会话</span>
-          <span>{overview?.total ?? '—'}</span>
         </button>
         <button
           className={cx('nav-item', tab === 'usage' && 'active')}
@@ -136,44 +149,45 @@ export function Sidebar({
             项目
           </button>
         </div>
+        {sidebarView === 'recent' && workspaces.length > 1 && (
+          <div className="recent-workspace-scope">
+            <SessionScope value={scope} onChange={setRecentScope} workspaces={workspaces} label="筛选最近会话工作空间" />
+          </div>
+        )}
         <nav className="recent-sessions-nav" id="sidebar-recent-sessions" aria-label="最近会话">
           <p className="recent-sessions-hint">按最后活动时间 · 最近 40 条</p>
-          {recentError && (
-            <div className="recent-sessions-message" role="alert">
-              {recentError}
-              <button className="secondary" onClick={() => void loadRecentSessions()}>
-                重试
-              </button>
-            </div>
-          )}
-          {!recentLoaded && (
+          {recent.listWarning && <p className="recent-sessions-message" role="status">{recent.listWarning}</p>}
+          {recent.listBusy && !recent.sessions.length && (
             <p className="recent-sessions-message">
               <LoaderCircle size={14} className="spin" /> 正在读取最近会话…
             </p>
           )}
-          {recentLoaded && !recentError && !recentSessions.length && (
+          {!recent.listBusy && !recent.listWarning && !recent.sessions.length && (
             <p className="recent-sessions-message">暂无最近会话</p>
           )}
-          {recentSessions.map((session) => (
-            <button
-              key={session.id}
-              className={cx('sidebar-session', selected === session.id && 'active')}
+          {recent.sessions.map((session) => {
+            const current = workspaceId === session.workspaceId && selected === session.id;
+            return <button
+              key={workspaceSessionKey(session)}
+              className={cx('sidebar-session', current && 'active')}
               aria-label={`打开会话：${session.title}`}
-              aria-current={selected === session.id ? 'page' : undefined}
-              title={session.title}
+              aria-description={`${session.workspaceName} · ${session.project}`}
+              aria-current={current ? 'page' : undefined}
+              title={`${session.title} · ${session.workspaceName}`}
               onClick={() => {
-                setProject('');
-                setQ('');
-                setQuery('');
-                setTab(session.archived ? 'archived' : 'all');
-                select(session.id);
+                const params = new URLSearchParams({ view: 'all' });
+                if (session.archived) params.set('status', 'archived');
+                navigateWorkspace(session.workspaceId, session.id, params);
+                setMenu(false);
               }}
             >
               <span className="sidebar-session-title">{session.title}</span>
               <Status status={session.status} />
-              <span className="sidebar-session-project">
-                {session.project}
+              <span className="sidebar-session-project" title={`${session.workspaceName} · ${session.project}`}>
+                <Monitor size={12} aria-hidden="true" />
+                <span>{session.workspaceName} · {session.project}
                 {session.archived ? ' · 已归档' : ''}
+                </span>
               </span>
               <time
                 dateTime={new Date(session.updatedAt).toISOString()}
@@ -181,8 +195,8 @@ export function Sidebar({
               >
                 {relative(session.updatedAt)}
               </time>
-            </button>
-          ))}
+            </button>;
+          })}
         </nav>
         <div className="nav-label projects-label">
           项目<span>{overview?.projects.length ?? 0}</span>
@@ -196,6 +210,7 @@ export function Sidebar({
               className={cx('project-nav', project === p.path && 'active')}
               onClick={() => {
                 setProject(p.path);
+                setScope(workspaceId);
                 setTab('all');
                 closeDetail();
                 setMenu(false);

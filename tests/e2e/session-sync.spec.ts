@@ -5,6 +5,7 @@ import os from 'node:os';
 import { DatabaseSync } from 'node:sqlite';
 import { setTimeout as delay } from 'node:timers/promises';
 import { ids } from '../fixture.js';
+import { openSessionAction } from './session-action-helpers';
 import type { SessionPage, SessionTurnTiming } from '../../src/types.js';
 
 const root = process.env.MONITOR_TEST_ROOT || path.join(os.tmpdir(), 'codex-monitor-e2e-01a1d7fa');
@@ -35,7 +36,7 @@ async function enter(page: Page, request: APIRequestContext) {
   expect(response.ok()).toBeTruthy();
   const { token } = await response.json();
   await page.addInitScript((token) => localStorage.setItem('codex-monitor.auth.v1', token), token);
-  await page.goto('/');
+  await page.goto('/?view=all');
   await expect(page.getByRole('heading', { name: '全部会话', exact: true })).toBeVisible();
 }
 
@@ -234,6 +235,8 @@ test('the latest-turn timer survives refresh, resets on a new prompt and stops w
 
   timing = { ...timing, finishedAt: now.getTime() + 4000 };
   await page.getByTitle('刷新数据').click();
+  await expect(page.locator('.detail-heading-meta .session-turn-timer')).toHaveCount(0);
+  await openSessionAction(page, '会话信息');
   await expect(page.locator('.session-turn-timer')).toHaveAttribute('data-running', 'false');
   await expect(timer).toHaveText('00:00:03');
   await page.clock.fastForward(5000);
@@ -242,8 +245,14 @@ test('the latest-turn timer survives refresh, resets on a new prompt and stops w
     path: test.info().outputPath('turn-timer-finished.png'),
     fullPage: true,
   });
+  await page.getByTitle('关闭会话信息').click();
 
   timing = undefined;
+  const refreshed = page.waitForResponse((response) =>
+    response.url().endsWith(`/api/workspaces/local/sessions/${ids.modern}`),
+  );
   await page.getByTitle('刷新数据').click();
+  await refreshed;
+  await openSessionAction(page, '会话信息');
   await expect(timer).toHaveCount(0);
 });

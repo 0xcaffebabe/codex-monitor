@@ -47,6 +47,7 @@ export function installAttentionRoute(
           id: request.requestId,
           session: sessionInfo(request.session),
           title: request.questions[0].title,
+          questions: request.questions.map(({ title, body, options }) => ({ text: body ?? title, options })),
           createdAt: request.createdAt,
         })) ?? null,
       receipts: administrator ? receipts(req.identity!.user.id, now - 86400000) : [],

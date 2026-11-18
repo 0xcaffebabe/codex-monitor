@@ -1,0 +1,203 @@
+.detail-header {
+  padding: 8px 18px;
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--line);
+}
+.detail-heading-row,
+.detail-heading-meta,
+.detail-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.detail-heading {
+  flex: 1;
+  min-width: 0;
+}
+.detail-heading h1 {
+  margin: 0;
+  color: var(--ink);
+  font-size: 1.1875rem;
+  font-weight: 600;
+  line-height: 1.35;
+}
+.detail-heading h1,
+.detail-summary-project {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.detail-heading-meta {
+  min-width: 0;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: var(--font-meta);
+}
+.detail-heading-meta .status {
+  flex: 0 0 auto;
+}
+.detail-summary-project {
+  min-width: 0;
+}
+.detail-actions {
+  flex: 0 0 auto;
+  gap: 4px;
+}
+.detail-actions .session-actions-trigger {
+  width: 36px;
+  height: 36px;
+  padding: 0;
+}
+.session-actions-trigger .composer-tool-label,
+.detail-heading-meta .session-turn-timer-caption {
+  display: none;
+}
+.session-turn-timer,
+.session-turn-timer-label {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  gap: 4px;
+  color: var(--muted);
+  font-size: var(--font-meta);
+  white-space: nowrap;
+}
+.session-turn-timer time {
+  font-variant-numeric: tabular-nums;
+}
+.detail-heading-meta .session-turn-timer {
+  margin-left: auto;
+}
+.session-actions-trigger + .composer-popover {
+  width: min(252px, calc(100vw - 24px));
+  border-radius: 8px;
+}
+.session-action-options {
+  display: flex;
+  flex-direction: column;
+  padding: 0 6px 6px;
+}
+.session-action-options button {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  min-height: 36px;
+  padding: 6px 9px;
+  border-radius: 5px;
+  text-align: left;
+  font-size: var(--font-ui);
+}
+.session-action-options button[aria-pressed='true'] {
+  background: var(--accent-bg);
+}
+.session-project-actions {
+  border-top: 1px solid var(--line);
+  margin-top: 4px;
+  padding-top: 4px;
+}
+.session-information {
+  width: min(480px, calc(100% - 24px));
+  max-height: calc(100dvh - 32px);
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--ink);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+.session-information::backdrop {
+  background: #0005;
+}
+.session-information > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 14px 8px 18px;
+  border-bottom: 1px solid var(--line);
+}
+.session-information h2 {
+  margin: 0;
+  font-size: 1rem;
+}
+.detail-full-title {
+  margin: 14px 18px 12px;
+  font-size: var(--font-ui);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.detail-meta {
+  display: grid;
+  gap: 8px;
+  margin: 0 18px 14px;
+  font-size: var(--font-meta);
+}
+.detail-meta > div {
+  display: grid;
+  grid-template-columns: 5.25em minmax(0, 1fr);
+  gap: 8px;
+  align-items: baseline;
+}
+.detail-meta dt {
+  color: var(--muted);
+}
+.detail-meta dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.session-information-path {
+  font-family: var(--font-mono);
+}
+.session-information .session-turn-timer {
+  margin: 0 18px 12px;
+  gap: 8px;
+}
+.session-information .context-meter {
+  margin: 0 18px 12px;
+  flex-wrap: wrap;
+}
+.session-information .session-usage {
+  border-top: 1px solid var(--line);
+  border-bottom: 0;
+}
+@media (max-width: 760px) {
+  .detail-header {
+    padding: 7px var(--mobile-gutter);
+  }
+  .detail-heading-row {
+    gap: 4px;
+  }
+  .detail-heading h1 {
+    font-size: 1.0625rem;
+  }
+  .detail-heading-meta {
+    gap: 5px;
+  }
+  .detail-heading-row > .back-button {
+    margin-left: -8px;
+  }
+  .detail-actions .session-actions-trigger,
+  .detail-heading-row > .back-button,
+  .session-information > header .icon-button,
+  .session-actions-trigger + .composer-popover .composer-popover-heading .icon-button {
+    flex-shrink: 0;
+    width: 44px;
+    height: 44px;
+  }
+  .session-actions-trigger + .composer-popover {
+    width: calc(100% - 24px);
+    border-radius: 12px;
+  }
+  .session-action-options button {
+    min-height: 44px;
+  }
+  .session-information .context-track {
+    flex: 1 1 18px;
+  }
+  .session-information .session-usage-toggle {
+    min-height: 44px;
+  }
+}

@@ -67,28 +67,4 @@
   .timeline {
     padding: 20px 24px 40px;
   }
-  .detail-meta {
-    gap: 8px;
-  }
-  .path-chip {
-    max-width: 210px;
-  }
-  .detail-id {
-    display: none;
-  }
-  .detail-header {
-    gap: 5px;
-    padding-left: 15px;
-    padding-right: 13px;
-  }
-  .detail-header > .back-button {
-    width: 28px;
-  }
-  .conversation-toolbar {
-    padding: 0 20px;
-    gap: 10px;
-  }
-  .detail-search input {
-    width: 75px;
-  }
 }

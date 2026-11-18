@@ -6,6 +6,7 @@ import { DatabaseSync } from 'node:sqlite';
 import path from 'node:path';
 import os from 'node:os';
 import { ids } from '../fixture.js';
+import { openSessionAction, sessionActions } from './session-action-helpers';
 
 const root = process.env.MONITOR_TEST_ROOT || path.join(os.tmpdir(), 'codex-monitor-e2e-01a1d7fa');
 const second = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
@@ -109,7 +110,7 @@ async function visitSession(page: Page, request: APIRequestContext, workspace = 
 
 async function enter(page: Page, request: APIRequestContext, workspace = 'local') {
   await visitSession(page, request, workspace);
-  await page.getByRole('button', { name: '查看工作区变更', exact: true }).click();
+  await openSessionAction(page, '查看工作区变更');
   const dialog = page.getByRole('dialog', { name: '工作区变更', exact: true });
   await expect(
     dialog.getByRole('button', { name: '查看变更：src/review.ts', exact: true }),
@@ -164,7 +165,7 @@ test('session diff shows real file changes, line numbers, scopes, binary files a
   expect(bounds!.width).toBeLessThanOrEqual(page.viewportSize()!.width);
   await page.keyboard.press('Escape');
   await expect(dialog).toHaveCount(0);
-  await expect(page.getByRole('button', { name: '查看工作区变更', exact: true })).toBeFocused();
+  await expect(sessionActions(page)).toBeFocused();
 });
 
 test('ignored files stay hidden in every scope and refresh applies updated ignore rules', async ({
@@ -289,7 +290,7 @@ test('project branch switching preserves conflicting edits and identifies the wo
   git(repo, 'switch', 'review-test');
   write(repo, 'src/review.ts', 'export const value = "unsaved-work";\n');
   await visitSession(page, request);
-  const tools = page.getByRole('button', { name: '项目工具', exact: true });
+  const tools = sessionActions(page);
   await tools.click();
   await page.getByRole('button', { name: '选择 Git 分支', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: '切换 Git 分支', exact: true });
@@ -319,7 +320,7 @@ test('project branch switching preserves conflicting edits and identifies the wo
     fullPage: true,
   });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-  await page.getByRole('button', { name: '查看工作区变更', exact: true }).click();
+  await openSessionAction(page, '查看工作区变更');
   await expect(page.locator('.git-diff-branch')).toHaveText(target);
 });
 
@@ -330,7 +331,7 @@ test('branch changes follow the selected workspace and refresh after external Gi
   const { repo } = projects[1];
   git(repo, 'branch', 'feature/second-client');
   await visitSession(page, request, second);
-  const tools = page.getByRole('button', { name: '项目工具', exact: true });
+  const tools = sessionActions(page);
   await tools.click();
   await page.getByRole('button', { name: '选择 Git 分支', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: '切换 Git 分支', exact: true });
@@ -365,7 +366,7 @@ test('branch discovery explains non-Git directories and recovers after refreshin
   mkdirSync(repo);
   db.prepare('UPDATE threads SET cwd=? WHERE id=?').run(repo, ids.modern);
   await visitSession(page, request);
-  await page.getByRole('button', { name: '项目工具', exact: true }).click();
+  await sessionActions(page).click();
   await page.getByRole('button', { name: '选择 Git 分支', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: '切换 Git 分支', exact: true });
   await expect(dialog.getByRole('alert')).toContainText('不是可读取的 Git 仓库');

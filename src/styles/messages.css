@@ -130,6 +130,8 @@
   border-radius: 7px;
   border: 1px solid var(--line);
   overflow-x: auto;
+  overscroll-behavior-inline: contain;
+  white-space: pre;
   max-width: 100%;
   line-height: 1.8;
 }
@@ -140,13 +142,18 @@
   font-size: inherit;
   overflow-wrap: normal;
 }
-.markdown table {
-  display: block;
+.markdown-table-scroll {
   max-width: 100%;
-  overflow: auto;
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
+  margin: 13px 0;
+}
+.markdown table {
   border-collapse: collapse;
   font-size: var(--font-ui);
-  margin: 13px 0;
+}
+.markdown th {
+  background: var(--surface2);
 }
 .markdown th,
 .markdown td {
