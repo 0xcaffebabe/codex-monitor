@@ -128,9 +128,8 @@ test('review remote approval from home and recover the original receipt after a 
   await expect(pending).toContainText('结果待确认，请查询原回执');
   await page.unroute(receiptRoute);
   await pending.getByRole('button', { name: '查询原回执' }).click();
-  await expect(page.getByRole('region', { name: '最近回执' })).toContainText(
-    '答复已确认：允许本次',
-  );
+  await expect(pending.getByRole('button', { name: '查询原回执' })).toHaveCount(0);
+  await expect(page.getByRole('region', { name: '最近回执' })).toHaveCount(0);
   expect(submissions).toBe(1);
   const result = page
     .getByRole('region', { name: '最近结束' })

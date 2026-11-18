@@ -1,7 +1,6 @@
 import {
   ArrowUpRight,
   CircleAlert,
-  CircleCheck,
   Clock3,
   ListTodo,
   Monitor,
@@ -381,12 +380,8 @@ export function AttentionBoard({
       if (!takingAction.has(session.id)) running.push(row(session, '运行中', '查看进展'));
   }
   const pending = receipts.filter((receipt) => ['unknown', 'pending'].includes(receipt.status));
-  const confirmed = receipts.filter((receipt) => !pending.includes(receipt)).slice(0, 8);
   control.sort((left, right) => right.at - left.at);
   const pendingControl = control.filter((receipt) => receipt.state === 'unknown' || receipt.detail);
-  const confirmedControl = control
-    .filter((receipt) => !pendingControl.includes(receipt))
-    .slice(0, 5);
   const unavailable = groups.filter(({ fresh }) => !fresh);
   const limited =
     user.role === 'admin' &&
@@ -476,17 +471,6 @@ export function AttentionBoard({
               {receiptRows(pending)}
               {pendingControl.map(controlReceiptRow)}
             </Group>
-            {!!(confirmed.length + confirmedControl.length) && (
-              <Group
-                title="最近回执"
-                icon={<CircleCheck size={18} />}
-                count={confirmed.length + confirmedControl.length}
-                empty=""
-              >
-                {receiptRows(confirmed)}
-                {confirmedControl.map(controlReceiptRow)}
-              </Group>
-            )}
           </div>
           <div>
             <Group
