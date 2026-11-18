@@ -21,10 +21,12 @@ export function SessionPanel({
   user,
   model,
   workspaces,
+  mobile,
   onSessionSelected,
 }: {
   user: User;
   workspaces: ManagedWorkspace[];
+  mobile: boolean;
   onSessionSelected?: () => void;
   model: Pick<
     WorkspaceModel,
@@ -263,6 +265,7 @@ export function SessionPanel({
             selected={selected}
             workspaceId={workspaceId}
             compact={hasDetail}
+            statusDot={hasDetail && !mobile}
             selectSession={(session) => {
               selectSession(session);
               onSessionSelected?.();

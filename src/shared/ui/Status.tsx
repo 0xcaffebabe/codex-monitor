@@ -9,11 +9,17 @@ const statusLabel: Record<SessionStatus, string> = {
   idle: '待续',
   stale: '状态待确认',
 };
-export function Status({ status }: { status: SessionStatus }) {
+export function Status({ status, dot = false }: { status: SessionStatus; dot?: boolean }) {
+  const label = statusLabel[status];
   return (
-    <span className={`status ${status}`}>
+    <span
+      className={`status ${status}${dot ? ' status-dot' : ''}`}
+      role={dot ? 'img' : undefined}
+      aria-label={dot ? label : undefined}
+      title={dot ? label : undefined}
+    >
       <span />
-      {statusLabel[status]}
+      {!dot && label}
     </span>
   );
 }

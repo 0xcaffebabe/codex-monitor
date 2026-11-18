@@ -173,19 +173,47 @@
     inset-block: 7px;
   }
 
+  .compact .session-row > .status-dot {
+    flex: none;
+    height: calc(var(--font-ui) * 1.5);
+    padding: 0;
+    background: none;
+  }
+
+  .compact .session-row > .status-dot > span {
+    width: 8px;
+    height: 8px;
+  }
+
   .compact .session-info > strong {
     font-size: var(--font-ui);
     line-height: 1.5;
   }
 
-  .compact .session-info > div:not(.compact-meta),
-  .compact .compact-meta {
+  .compact .session-info > div:not(.compact-meta) {
+    flex-wrap: nowrap;
     margin-top: 3px;
   }
 
-  .compact .session-workspace-tag,
-  .compact .compact-meta .status {
+  .compact .session-workspace-tag {
     line-height: 1.4;
+  }
+
+  .compact .project-tag {
+    min-width: 0;
+  }
+
+  .compact .project-tag > span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .compact-session-time {
+    flex: none;
+    margin-inline-start: auto;
+    color: var(--muted);
+    font-size: var(--font-meta);
+    white-space: nowrap;
   }
 
   .compact .group-label {

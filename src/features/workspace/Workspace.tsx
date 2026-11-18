@@ -208,7 +208,13 @@ export function Workspace(
               {tab === 'attention' && !hasDetail ? (
                 <AttentionBoard {...props.attention} watches={props.taskWatches.watches} user={user} startSession={startSession} />
               ) : (
-                <SessionPanel user={user} workspaces={props.workspaces} model={model} onSessionSelected={layout.closeSessionDrawer} />
+                <SessionPanel
+                  user={user}
+                  workspaces={props.workspaces}
+                  model={model}
+                  mobile={mobile}
+                  onSessionSelected={layout.closeSessionDrawer}
+                />
               )}
               {hasDetail && (
                 <Detail

@@ -11,13 +11,16 @@ export function SessionRows({
   workspaceId,
   selectSession,
   compact = !!selected,
+  statusDot = false,
 }: Pick<WorkspaceModel, 'rows' | 'selected' | 'workspaceId' | 'selectSession'> & {
   compact?: boolean;
+  statusDot?: boolean;
 }) {
   return (
     <>
       {rows.map(({ session: s, heading }) => {
         const current = s.workspaceId === workspaceId && selected === s.id;
+        const relativeTime = relative(s.updatedAt);
         return (
           <React.Fragment key={workspaceSessionKey(s)}>
             {!!heading && (
@@ -33,9 +36,13 @@ export function SessionRows({
               data-testid="session-row"
               data-workspace-id={s.workspaceId}
             >
-              <span className={cx('session-glyph', s.status === 'running' && 'live')}>
-                {s.status === 'running' ? <Activity size={18} /> : <MessageSquare size={17} />}
-              </span>
+              {statusDot ? (
+                <Status status={s.status} dot />
+              ) : (
+                <span className={cx('session-glyph', s.status === 'running' && 'live')}>
+                  {s.status === 'running' ? <Activity size={18} /> : <MessageSquare size={17} />}
+                </span>
+              )}
               <div className="session-info">
                 <strong>{s.title}</strong>
                 <div>
@@ -43,18 +50,19 @@ export function SessionRows({
                     <Monitor size={11} />
                     <span>{s.workspaceName}</span>
                   </span>
-                  <span className="project-tag">
+                  <span className="project-tag" title={statusDot ? s.project : undefined}>
                     <Folder size={12} />
-                    {s.project}
+                    <span>{s.project}</span>
                   </span>
                   <span className="session-preview">
                     {s.preview || s.model || s.id.slice(0, 8)}
                   </span>
+                  {statusDot && <span className="compact-session-time">{relativeTime}</span>}
                 </div>
-                {compact && (
+                {compact && !statusDot && (
                   <div className="compact-meta">
                     <Status status={s.status} />
-                    <span>{relative(s.updatedAt)}</span>
+                    <span>{relativeTime}</span>
                   </div>
                 )}
               </div>
@@ -66,7 +74,7 @@ export function SessionRows({
                     <small>tokens</small>
                   </span>
                   <span className="session-time">
-                    {relative(s.updatedAt)}
+                    {relativeTime}
                     <small>{time(s.updatedAt)}</small>
                   </span>
                   <ChevronRight size={16} className="row-arrow" />

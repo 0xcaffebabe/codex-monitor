@@ -2,6 +2,7 @@ import { test, expect, type Page, type APIRequestContext } from '@playwright/tes
 import { readFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import type { Session } from '../../src/types';
 import { ids } from '../fixture.js';
 import { openComposerMenu } from './composer-helpers';
 import { openSessionAction, sessionActions } from './session-action-helpers';
@@ -82,6 +83,53 @@ test.describe('PC layout', () => {
       await page.screenshot({ path: test.info().outputPath(`pc-${width}x${height}.png`) });
     });
   }
+
+  test('shows accessible status dots next to sidebar titles without a separate status row', async ({
+    page,
+    request,
+  }) => {
+    await page.route(/\/api\/workspaces\/local\/sessions\?/, async (route) => {
+      const response = await route.fetch();
+      const data = (await response.json()) as { sessions: Session[]; total: number };
+      const completed = data.sessions.find((session) => session.id === ids.legacy);
+      if (completed) completed.status = 'completed';
+      await route.fulfill({ response, json: data });
+    });
+    await enter(page, request);
+    const row = page
+      .getByTestId('session-row')
+      .filter({ hasText: '检查旧版本会话解析' })
+      .filter({ hasText: '本机工作空间' });
+    const dot = row.getByRole('img', { name: '已完成' });
+    const title = row.getByText('检查旧版本会话解析', { exact: true });
+    const project = row.getByTitle('sample-project', { exact: true });
+    const time = row.locator('.compact-session-time');
+
+    await expect(dot).toHaveAttribute('title', '已完成');
+    await expect(row).toHaveAccessibleName(/已完成.*检查旧版本会话解析/);
+    await expect(row.getByText('已完成', { exact: true })).toHaveCount(0);
+    await expect(row.locator('.compact-meta')).toHaveCount(0);
+    await expect(time).toBeVisible();
+    const runningDot = page
+      .getByTestId('session-row')
+      .filter({ hasText: '开发 codex-monitor' })
+      .getByRole('img', { name: '进行中' });
+    await expect(runningDot).toBeVisible();
+    expect(await runningDot.evaluate((element) => getComputedStyle(element).color)).not.toBe(
+      await dot.evaluate((element) => getComputedStyle(element).color),
+    );
+    const dotBounds = (await dot.boundingBox())!;
+    const titleBounds = (await title.boundingBox())!;
+    const projectBounds = (await project.boundingBox())!;
+    const timeBounds = (await time.boundingBox())!;
+    expect(dotBounds.x + dotBounds.width).toBeLessThan(titleBounds.x);
+    expect(Math.abs(timeBounds.y - projectBounds.y)).toBeLessThan(2);
+    expect((await row.boundingBox())!.height).toBeLessThan(70);
+
+    await page.getByRole('button', { name: '返回会话列表', exact: true }).click();
+    await expect(row.getByText('已完成', { exact: true })).toBeVisible();
+    await expect(dot).toHaveCount(0);
+  });
 
   test('restores panel preferences and preserves drafts after panel toggles', async ({
     page,
