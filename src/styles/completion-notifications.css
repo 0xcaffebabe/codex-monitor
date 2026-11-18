@@ -1,11 +1,13 @@
 .completion-notifications {
+  --completion-notification-bottom: max(24px, env(safe-area-inset-bottom));
   position: fixed;
   right: 24px;
-  bottom: max(24px, env(safe-area-inset-bottom));
+  bottom: var(--completion-notification-bottom);
   z-index: 18;
   width: min(370px, calc(100vw - 32px));
-  max-height: calc(100dvh - 48px);
+  max-height: calc(100dvh - 24px - var(--completion-notification-bottom));
   overflow: auto;
+  overscroll-behavior: contain;
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -106,11 +108,16 @@
   background: var(--surface2);
   color: var(--ink);
 }
+@media (max-width: 760px) {
+  .app-shell:has(.mobile-task-dock) ~ .completion-notifications {
+    --completion-notification-bottom: calc(60px + env(safe-area-inset-bottom));
+  }
+}
 @media (max-width: 600px) {
   .completion-notifications {
+    --completion-notification-bottom: calc(14px + env(safe-area-inset-bottom));
     right: 14px;
-    bottom: calc(14px + env(safe-area-inset-bottom));
-    max-height: calc(100dvh - 28px - env(safe-area-inset-bottom));
+    max-height: calc(100dvh - 14px - var(--completion-notification-bottom));
     width: calc(100vw - 28px);
   }
 }

@@ -8,6 +8,7 @@ import { useState } from 'react';
 import { Settings } from '../settings/Settings';
 import { useAttention } from '../attention/useAttention';
 import { useTaskWatches } from '../attention/useTaskWatches';
+import { CompletionNotifications } from '../notifications/CompletionNotifications';
 
 export function WorkspaceHost(props: WorkspaceProps) {
   const model = useWorkspaces(props.user.id);
@@ -83,6 +84,7 @@ export function WorkspaceHost(props: WorkspaceProps) {
           <button onClick={props.onLogout}>退出登录</button>
         </div>
       )}
+      <CompletionNotifications key={props.user.id} />
       {model.managing && <ClientManager model={model} />}
       {accessOpen && (
         <Settings
