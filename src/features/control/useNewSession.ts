@@ -3,7 +3,7 @@ import { api } from '../../api';
 import type { User } from '../../types';
 import type { Project } from './types';
 import { useModelSettings } from './useModelSettings';
-import type { SessionPermissionMode } from '../../approval-types';
+import { sessionPermissionModes, type SessionPermissionMode } from '../../approval-types';
 import type { ManagedWorkspace } from '../../workspaces';
 
 export type NewSessionProps = {
@@ -14,14 +14,32 @@ export type NewSessionProps = {
   initialPath?: string;
   onCreated: (id: string) => void;
 };
-export function useNewSession({ initialPath }: Pick<NewSessionProps, 'initialPath'>) {
+export function useNewSession({
+  initialPath,
+  user,
+  workspaceId,
+}: Pick<NewSessionProps, 'initialPath' | 'user' | 'workspaceId'>) {
   const [projects, setProjects] = useState<Project[]>([]),
     [selected, setSelected] = useState(''),
     [error, setError] = useState(''),
     [loading, setLoading] = useState(true),
     [refresh, setRefresh] = useState(0);
   const [creationPermissions, setCreationPermissions] = useState(false);
-  const [permissionMode, setPermissionMode] = useState<SessionPermissionMode>('inherit');
+  const permissionKey = `codex-monitor.new-session-permission.${user.id}.${workspaceId}`;
+  const [permissionMode, setPermission] = useState<SessionPermissionMode>(() => {
+    try {
+      const saved = localStorage.getItem(permissionKey);
+      return sessionPermissionModes.find((mode) => mode === saved) ?? 'inherit';
+    } catch {
+      return 'inherit';
+    }
+  });
+  function setPermissionMode(mode: SessionPermissionMode) {
+    setPermission(mode);
+    try {
+      localStorage.setItem(permissionKey, mode);
+    } catch {}
+  }
   const modelSettings = useModelSettings(true, 'new', refresh);
   useEffect(() => {
     let stopped = false;
@@ -37,7 +55,6 @@ export function useNewSession({ initialPath }: Pick<NewSessionProps, 'initialPat
         if (stopped) return;
         setProjects(result.projects);
         setCreationPermissions(!!result.creationPermissions);
-        if (!result.creationPermissions) setPermissionMode('inherit');
         setSelected(
           result.projects.find((p) => p.path === initialPath)?.id || result.projects[0]?.id || '',
         );

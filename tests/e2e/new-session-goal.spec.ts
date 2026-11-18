@@ -8,6 +8,7 @@ import { ids } from '../fixture.js';
 
 const root = process.env.MONITOR_TEST_ROOT || path.join(os.tmpdir(), 'codex-monitor-e2e-01a1d7fa');
 let previousIds: unknown[] = [];
+let authToken: string | undefined;
 const mutations = new Set<Request>();
 
 test.beforeEach(async ({ page }) => {
@@ -43,7 +44,7 @@ test.afterEach(async () => {
   history.close();
 });
 
-async function enter(page: Page, request: APIRequestContext) {
+async function signIn(request: APIRequestContext): Promise<string> {
   const status = await (await request.get('/api/auth/status')).json();
   const credentials = { username: 'owner', password: 'monitor-e2e-password!' };
   const response = await request.post(status.configured ? '/api/auth/login' : '/api/auth/setup', {
@@ -56,8 +57,13 @@ async function enter(page: Page, request: APIRequestContext) {
   });
   expect(response.ok()).toBeTruthy();
   const { token } = await response.json();
+  return token;
+}
+
+async function enter(page: Page, request: APIRequestContext) {
+  const token = (authToken ??= await signIn(request));
   await page.addInitScript((value) => localStorage.setItem('codex-monitor.auth.v1', value), token);
-  await page.goto('/');
+  await page.goto('/?view=all');
   await expect(page.getByRole('heading', { name: '全部会话', exact: true })).toBeVisible();
   await page.getByRole('button', { name: '新建会话', exact: true }).click();
   return page.getByRole('region', { name: '新建会话', exact: true });
@@ -123,9 +129,10 @@ test('new sessions use the detail page and preserve separate drafts while naviga
   expect(creates).toBe(0);
 });
 
-test('new sessions discard legacy desktop selections and preserve explicit permissions', async ({
+test('new sessions discard legacy desktop selections and remember explicit permissions', async ({
   page,
   request,
+  isMobile,
 }) => {
   await page.route('**/api/workspaces/local/control', async (route) => {
     const response = await route.fetch();
@@ -142,17 +149,18 @@ test('new sessions discard legacy desktop selections and preserve explicit permi
   const newSession = await enter(page, request);
   const desktop = newSession.getByRole('checkbox', { name: '桌面通道', exact: true, includeHidden: true });
   const input = newSession.getByLabel('发送给 Codex 的消息');
+  const permission = newSession.getByLabel('新会话权限');
   await expect(desktop).toHaveCount(0);
-  await expect(newSession.getByLabel('新会话权限')).toHaveValue('danger-full-access');
+  await expect(permission).toHaveValue('inherit');
+  await permission.selectOption('read-only');
   await input.fill('native first message ' + test.info().project.name);
   await restoreLegacyDesktopSelection(page);
   await page.reload();
   await expect(desktop).toHaveCount(0);
   await expect(input).toHaveValue('native first message ' + test.info().project.name);
-  await expect(newSession.getByLabel('新会话权限')).toHaveValue('danger-full-access');
+  await expect(permission).toHaveValue('read-only');
   await expect(newSession.getByRole('alert')).toHaveCount(0);
   await expect(newSession).not.toContainText('审批在桌面端处理');
-  await newSession.getByLabel('新会话权限').selectOption('read-only');
   await openComposerMenu(page, '发送设置');
   await newSession.getByLabel('新会话模型').selectOption('gpt-6.1-sol');
   await newSession.getByLabel('新会话思考级别').selectOption('high');
@@ -180,13 +188,47 @@ test('new sessions discard legacy desktop selections and preserve explicit permi
   expect(payload).not.toHaveProperty('desktopChannel');
   await expect(page.locator('.timeline')).toContainText('测试回复：native first message');
   await expect(page.getByRole('checkbox', { name: '桌面通道', exact: true, includeHidden: true })).not.toBeChecked();
+  if (isMobile) await page.getByTitle('返回会话列表').click();
+  await page.getByRole('button', { name: '新建会话', exact: true }).click();
+  await expect(permission).toHaveValue('read-only');
+  await expect(input).toBeEmpty();
 });
 
-test('ordinary creation stays compatible with a client that rejects goal fields', async ({
+test('new session permissions are remembered separately for each workspace', async ({
+  page,
+  request,
+}) => {
+  await page.route('**/api/workspaces/*/control', async (route) => {
+    const response = await route.fetch();
+    await route.fulfill({ json: { ...(await response.json()), creationPermissions: true } });
+  });
+  const newSession = await enter(page, request);
+  const workspace = newSession.getByLabel('新会话工作空间');
+  const permission = newSession.getByLabel('新会话权限');
+  const secondWorkspace = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+  await permission.selectOption('danger-full-access');
+  await workspace.selectOption(secondWorkspace);
+  await expect(permission).toHaveValue('inherit');
+  await permission.selectOption('workspace-write');
+  await workspace.selectOption('local');
+  await expect(permission).toHaveValue('danger-full-access');
+  await permission.selectOption('inherit');
+  await page.reload();
+  await expect(permission).toHaveValue('inherit');
+  await workspace.selectOption(secondWorkspace);
+  await expect(permission).toHaveValue('workspace-write');
+});
+
+test('ordinary creation omits unsupported fields even with a saved permission', async ({
   page,
   request,
 }) => {
   let creates = 0;
+  let creationPermissions = true;
+  await page.route('**/api/workspaces/local/control', async (route) => {
+    const response = await route.fetch();
+    await route.fulfill({ json: { ...(await response.json()), creationPermissions } });
+  });
   await page.route('**/api/workspaces/local/sessions', async (route) => {
     if (route.request().method() !== 'POST') return route.continue();
     creates++;
@@ -201,7 +243,12 @@ test('ordinary creation stays compatible with a client that rejects goal fields'
     return route.continue();
   });
   const newSession = await enter(page, request);
+  const permission = newSession.getByLabel('新会话权限');
+  await permission.selectOption('read-only');
+  creationPermissions = false;
+  await page.reload();
   await expect(newSession.getByLabel('新会话项目')).not.toHaveValue('');
+  await expect(permission).toHaveCount(0);
   await expect(newSession.getByRole('checkbox', { name: '将首条消息设为目标' })).not.toBeChecked();
   const prompt = '现在任务推送webhook的流程什么样的 ' + test.info().project.name;
   await newSession.getByLabel('发送给 Codex 的消息').fill(prompt);
