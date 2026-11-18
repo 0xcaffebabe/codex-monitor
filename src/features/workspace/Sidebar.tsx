@@ -1,12 +1,11 @@
 import {
   Activity,
-  Archive,
   ArrowUpRight,
   Layers3,
   LoaderCircle,
   LogOut,
   Moon,
-  Radio,
+  ListTodo,
   Settings2,
   Shield,
   Sun,
@@ -95,6 +94,11 @@ export function Sidebar({
       </div>
       <div className="nav-label">工作空间</div>
       <nav className="workspace-nav">
+        <button className={cx('nav-item', tab === 'attention' && 'active')}
+          aria-label="任务动态" title="任务动态" onClick={() => changeTab('attention')}>
+          <ListTodo size={17} />
+          <span className="nav-item-label">任务动态</span>
+        </button>
         <button
           className={cx('nav-item', tab === 'all' && !project && 'active')}
           aria-label="全部会话"
@@ -104,25 +108,6 @@ export function Sidebar({
           <Layers3 size={17} />
           <span className="nav-item-label">全部会话</span>
           <span>{overview?.total ?? '—'}</span>
-        </button>
-        <button
-          className={cx('nav-item', tab === 'running' && 'active')}
-          aria-label="正在进行"
-          title="正在进行"
-          onClick={() => changeTab('running')}
-        >
-          <Radio size={17} />
-          <span className="nav-item-label">正在进行</span>
-          <span className={cx(!!overview?.running && 'live-count')}>{overview?.running ?? 0}</span>
-        </button>
-        <button
-          className={cx('nav-item', tab === 'archived' && 'active')}
-          aria-label="已归档"
-          title="已归档"
-          onClick={() => changeTab('archived')}
-        >
-          <Archive size={17} />
-          <span className="nav-item-label">已归档</span>
         </button>
         <button
           className={cx('nav-item', tab === 'usage' && 'active')}

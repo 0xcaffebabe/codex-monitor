@@ -18,8 +18,7 @@ export function Notifications({ notify }: { notify: (message: string) => void })
         Webhook 通知<span>飞书 / Lark</span>
       </h3>
       <p className="help">
-        所有工作空间共用此配置，由服务端统一推送。主会话每轮成功完成，或需要你选择、回答时通知。关闭网页后仍会推送；Server
-        和 Client 需保持运行。启用时不补发历史通知，子代理不推送。
+        所有工作空间共用此配置。需要选择或回答时会发送通知；成功结束的轮次按下方范围发送。启用时不补发历史通知。
       </p>
       {form.error && (
         <div className="alert error" role="alert">
@@ -50,6 +49,13 @@ export function Notifications({ notify }: { notify: (message: string) => void })
               onChange={(event) => form.setEnabled(event.target.checked)}
             />
             启用 Webhook 通知
+          </label>
+          <label>
+            成功轮次通知
+            <select value={form.completionMode} onChange={(event) => form.setCompletionMode(event.target.value === 'all' ? 'all' : 'watched')}>
+              <option value="watched">仅关注的会话</option>
+              <option value="all">所有会话</option>
+            </select>
           </label>
           <label>
             飞书 / Lark Webhook

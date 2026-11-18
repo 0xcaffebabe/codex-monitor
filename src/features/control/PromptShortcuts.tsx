@@ -81,6 +81,7 @@ export function PromptShortcuts({
                   event.preventDefault();
                   if (
                     !disabled &&
+                    !matchingActions.length &&
                     filtered.length === 1 &&
                     (canSubmit || filtered[0].channel === 'desktop')
                   ) {
@@ -92,6 +93,23 @@ export function PromptShortcuts({
             />
           </label>
           <div className="shortcut-results" ref={results}>
+            <section
+              className="shortcut-group shortcut-native-actions"
+              aria-label="会话管理"
+              hidden={!matchingActions.length}
+            >
+              <h3>会话管理</h3>
+              {actions.map((action) => (
+                <div
+                  className="shortcut-native-action"
+                  key={action.id}
+                  hidden={!matchingActions.includes(action)}
+                >
+                  {action.render(close)}
+                  <small>{action.description}</small>
+                </div>
+              ))}
+            </section>
             {groups.map((group) => (
               <section key={group} className="shortcut-group" aria-label={group}>
                 <h3>{group}</h3>
@@ -134,23 +152,6 @@ export function PromptShortcuts({
                   ))}
               </section>
             ))}
-            <section
-              className="shortcut-group shortcut-native-actions"
-              aria-label="会话管理"
-              hidden={!matchingActions.length}
-            >
-              <h3>会话管理</h3>
-              {actions.map((action) => (
-                <div
-                  className="shortcut-native-action"
-                  key={action.id}
-                  hidden={!matchingActions.includes(action)}
-                >
-                  {action.render(close)}
-                  <small>{action.description}</small>
-                </div>
-              ))}
-            </section>
             {!filtered.length && !matchingActions.length && (
               <p className="shortcut-empty">没有匹配的操作，试试其他关键词。</p>
             )}

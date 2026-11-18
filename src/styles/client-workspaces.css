@@ -86,12 +86,12 @@
   flex: 1;
 }
 .client-online {
-  color: var(--green, #16a34a);
-  font-size: 12px;
+  color: var(--success);
+  font-size: var(--font-meta);
 }
 .client-id {
   display: block;
-  font-size: 12px;
+  font-size: var(--font-meta);
   overflow-wrap: anywhere;
   margin: 8px 0 12px;
   color: var(--muted);
@@ -101,7 +101,7 @@
   align-items: center;
   flex-wrap: wrap;
   gap: 8px;
-  font-size: 12px;
+  font-size: var(--font-meta);
   line-height: 1.4;
   font-variant-numeric: tabular-nums;
 }
@@ -133,13 +133,13 @@
 .host-resources small {
   margin-left: 3px;
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--font-meta);
 }
 .host-resources.compact {
   min-height: 30px;
   gap: 6px;
   flex-wrap: nowrap;
-  font-size: 11px;
+  font-size: var(--font-meta);
 }
 .host-resources.compact .host-resource-metric {
   min-height: 30px;
@@ -161,7 +161,7 @@
   border: 1px dashed var(--line);
   border-radius: 7px;
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--font-meta);
   white-space: nowrap;
 }
 .host-resource-state-dot {
@@ -189,7 +189,7 @@
   width: 100%;
   resize: vertical;
   font-family: Consolas, monospace;
-  font-size: 12px;
+  font-size: var(--font-meta);
   margin: 10px 0;
 }
 @media (max-width: 1100px) {
@@ -208,24 +208,30 @@
   }
 }
 @media (max-width: 760px) {
-  .workspace-selector {
+  .topbar .workspace-selector {
     gap: 5px;
+    width: 100%;
   }
-  .workspace-selector select {
-    width: 148px;
+  .topbar .workspace-selector-actions {
+    width: 100%;
+    max-width: 236px;
+  }
+  .topbar .workspace-selector select {
+    width: 100%;
+    flex: 1;
     min-width: 0;
-    max-width: 148px;
   }
   .host-resources.compact {
     min-height: 24px;
     gap: 4px;
-    font-size: 10px;
+    font-size: var(--font-meta);
   }
   .host-resources.compact .host-resource-metric {
     min-height: 24px;
     gap: 4px;
     padding: 2px 6px;
     border-radius: 6px;
+    font-variant-numeric: tabular-nums;
   }
   .host-resources.compact .host-resource-icon {
     display: none;
@@ -236,7 +242,7 @@
   }
   .workspace-notice {
     margin: 8px 10px 0;
-    font-size: 12px;
+    font-size: var(--font-meta);
   }
 }
 @media (max-width: 380px) {
@@ -244,10 +250,6 @@
     padding-left: 10px;
     padding-right: 10px;
     gap: 7px;
-  }
-  .workspace-selector select {
-    width: 132px;
-    max-width: 132px;
   }
   .workspace-selector-actions > .icon-button {
     width: 28px;
@@ -261,8 +263,8 @@
   .topbar:has(.workspace-selector) {
     gap: 4px;
   }
-  .workspace-selector select {
-    width: 106px;
-    max-width: 106px;
+  .topbar .host-resources.compact {
+    gap: 2px;
+    letter-spacing: 0;
   }
 }

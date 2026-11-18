@@ -66,7 +66,11 @@ const secondClient = await MonitorClient.start({
   serverUrl: `http://127.0.0.1:${f.config.port}`,
   workspaceId: second.workspace.id,
   key: second.key,
-  services: { control: new FixtureDesktop(secondFixture) },
+  services: {
+    control: process.env.MONITOR_TEST_APPROVALS === '1'
+      ? new ApprovalFixtureDesktop(secondFixture, 5000)
+      : new FixtureDesktop(secondFixture),
+  },
 });
 async function stop() {
   await client.close();

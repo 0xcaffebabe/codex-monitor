@@ -3,6 +3,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import type { NotificationDelivery, NotificationSettings } from '../../src/types.js';
 
 export type NotificationConfig = {
+  completionMode: NotificationSettings['completionMode'];
   enabled: boolean;
   webhookUrl: string;
   signingSecret: string;
@@ -13,6 +14,7 @@ export type NotificationConfig = {
   revision: number;
 };
 export type NotificationInput = {
+  completionMode?: NotificationSettings['completionMode'];
   enabled: boolean;
   webhookUrl?: string;
   signingSecret?: string;
@@ -39,9 +41,17 @@ export class NotificationStore {
         revision INTEGER NOT NULL
       );
       CREATE INDEX IF NOT EXISTS notification_queue ON notification_deliveries(status,next_attempt_at);
+      CREATE TABLE IF NOT EXISTS notification_watches (
+        workspace_id TEXT NOT NULL, session_id TEXT NOT NULL, since INTEGER NOT NULL,
+        PRIMARY KEY(workspace_id,session_id)
+      );
       UPDATE notification_deliveries SET status='failed', error='上次投递中断，结果未确认，请核对群消息' WHERE status='sending';
     `);
     const columns = db.prepare('PRAGMA table_info(notification_settings)').all();
+    if (!columns.some((column) => column.name === 'completion_mode')) {
+      db.exec(`ALTER TABLE notification_settings ADD COLUMN completion_mode TEXT NOT NULL DEFAULT 'watched';
+        UPDATE notification_settings SET completion_mode='all' WHERE enabled_at>0;`);
+    }
     if (!columns.some((column) => column.name === 'input_since')) {
       db.exec(
         'ALTER TABLE notification_settings ADD COLUMN input_since INTEGER NOT NULL DEFAULT 0',
@@ -62,6 +72,7 @@ export class NotificationStore {
   config(): NotificationConfig {
     const row = this.db.prepare('SELECT * FROM notification_settings WHERE id=1').get()!;
     return {
+      completionMode: row.completion_mode === 'all' ? 'all' : 'watched',
       enabled: !!row.enabled,
       webhookUrl: String(row.webhook_url),
       signingSecret: String(row.signing_secret),
@@ -75,6 +86,7 @@ export class NotificationStore {
   publicConfig(monitorError = ''): NotificationSettings {
     const config = this.config();
     return {
+      completionMode: config.completionMode,
       enabled: config.enabled,
       provider: 'lark',
       webhookConfigured: !!config.webhookUrl,
@@ -93,7 +105,7 @@ export class NotificationStore {
       this.db
         .prepare(
           `UPDATE notification_settings SET enabled=?,webhook_url=?,signing_secret=?,public_url=?,
-        enabled_at=?,scan_at=?,input_since=?,revision=revision+1 WHERE id=1`,
+        enabled_at=?,scan_at=?,input_since=?,completion_mode=?,revision=revision+1 WHERE id=1`,
         )
         .run(
           Number(input.enabled),
@@ -103,6 +115,7 @@ export class NotificationStore {
           reset ? enabledAt : old.enabledAt,
           reset ? enabledAt : old.scanAt,
           reset ? Math.max(Date.now(), old.inputSince + 1) : old.inputSince,
+          input.completionMode ?? old.completionMode,
         );
       // Changing credentials or disabling must never send an old queued message to a new recipient.
       if (reset || !input.enabled)
@@ -111,15 +124,61 @@ export class NotificationStore {
             "UPDATE notification_deliveries SET status='cancelled',error='通知已关闭或接收配置已变更' WHERE status='pending'",
           )
           .run();
-      else
+      else {
+        if (
+          (input.completionMode ?? old.completionMode) === 'watched' &&
+          old.completionMode === 'all'
+        )
+          this.db
+            .exec(`UPDATE notification_deliveries AS delivery SET status='cancelled',error='已改为仅提醒关注会话'
+            WHERE status='pending' AND kind='session.completed' AND NOT EXISTS (
+              SELECT 1 FROM notification_watches AS watch WHERE watch.workspace_id=delivery.workspace_id AND watch.session_id=delivery.session_id
+            );`);
         this.db
           .prepare("UPDATE notification_deliveries SET revision=? WHERE status='pending'")
           .run(old.revision + 1);
+      }
       this.db.exec('COMMIT');
     } catch (error) {
       this.db.exec('ROLLBACK');
       throw error;
     }
+  }
+  watches() {
+    return this.db
+      .prepare(
+        'SELECT workspace_id AS workspaceId,session_id AS sessionId FROM notification_watches',
+      )
+      .all() as { workspaceId: string; sessionId: string }[];
+  }
+  watched(workspaceId: string, sessionId: string, at: number) {
+    return !!this.db
+      .prepare(
+        'SELECT 1 FROM notification_watches WHERE workspace_id=? AND session_id=? AND since<=?',
+      )
+      .get(workspaceId, sessionId, at);
+  }
+  watch(workspaceId: string, sessionId: string, watched: boolean) {
+    if (watched) {
+      this.db
+        .prepare(
+          `INSERT OR IGNORE INTO notification_watches SELECT ?,?,?
+        WHERE (SELECT COUNT(*) FROM notification_watches)<500`,
+        )
+        .run(workspaceId, sessionId, Date.now());
+    } else {
+      this.db
+        .prepare('DELETE FROM notification_watches WHERE workspace_id=? AND session_id=?')
+        .run(workspaceId, sessionId);
+      if (this.config().completionMode === 'watched')
+        this.db
+          .prepare(
+            `UPDATE notification_deliveries SET status='cancelled',error='已取消关注'
+        WHERE workspace_id=? AND session_id=? AND kind='session.completed' AND status='pending'`,
+          )
+          .run(workspaceId, sessionId);
+    }
+    return !watched || this.watched(workspaceId, sessionId, Date.now());
   }
   has(key: string) {
     return !!this.db.prepare('SELECT 1 FROM notification_deliveries WHERE event_key=?').get(key);
@@ -177,6 +236,7 @@ export class NotificationStore {
       .run(key);
   }
   cancelWorkspace(workspaceId: string) {
+    this.db.prepare('DELETE FROM notification_watches WHERE workspace_id=?').run(workspaceId);
     this.db
       .prepare(
         `UPDATE notification_deliveries SET status='cancelled',error='工作空间已移除'

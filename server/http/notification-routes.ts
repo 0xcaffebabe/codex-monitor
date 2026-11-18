@@ -27,6 +27,7 @@ const settings = z
   .object({
     enabled: z.boolean(),
     provider: z.literal('lark'),
+    completionMode: z.enum(['watched', 'all']).optional(),
     webhookUrl: z.string().trim().max(512).refine(validLarkWebhook).optional(),
     signingSecret: z.string().trim().max(256).optional(),
     publicUrl,
@@ -59,6 +60,19 @@ export function installNotificationRoutes(
     res.json(result);
   });
   app.get('/api/notifications', admin, (_req, res) => res.json(notifications.state()));
+  app.get('/api/notifications/watches', admin, (_req, res) => res.json({ watches: notifications.store.watches() }));
+  app.put('/api/notifications/watches', admin, (req, res) => {
+    const parsed = z.object({
+      workspaceId: z.string().regex(/^[A-Za-z0-9_-]{1,100}$/),
+      sessionId: z.string().regex(/^[A-Za-z0-9_-]{1,100}$/),
+      watched: z.boolean(),
+    }).strict().safeParse(req.body);
+    if (!parsed.success) return fail(res, 400, '关注操作无效');
+    const { workspaceId, sessionId, watched } = parsed.data;
+    if (!notifications.store.watch(workspaceId, sessionId, watched))
+      return fail(res, 409, '已达到关注上限，请先取消不再跟进的会话');
+    res.json({ watches: notifications.store.watches() });
+  });
   app.put('/api/notifications', admin, async (req, res) => {
     const parsed = settings.safeParse(req.body);
     if (!parsed.success) return fail(res, 400, '请填写有效的飞书/Lark Webhook 和访问地址');

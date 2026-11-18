@@ -1,8 +1,6 @@
 import { ArrowUpRight, BookOpen, LoaderCircle, TriangleAlert } from 'lucide-react';
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
 import { cx } from '../../shared/format';
-import { useMediaQuery } from '../../shared/useMediaQuery';
-import { MobileOutline } from './MobileOutline';
 import type { TimelineModel } from './useTimeline';
 import type { DetailProps } from './useTimeline';
 
@@ -10,12 +8,7 @@ export type OutlineProps = Pick<DetailProps, 'outlineData' | 'outlineError' | 'p
   model: Pick<TimelineModel, 'outlineEntries' | 'activeEntry' | 'jumpingEntry' | 'jumpToEntry'>;
 };
 
-export function Outline(props: OutlineProps) {
-  const mobile = useMediaQuery('(max-width: 760px)');
-  return mobile ? <MobileOutline {...props} /> : <OutlineRail {...props} />;
-}
-
-function OutlineRail({ outlineData, outlineError, page, model }: OutlineProps) {
+export function Outline({ outlineData, outlineError, page, model }: OutlineProps) {
   const { outlineEntries, activeEntry, jumpingEntry, jumpToEntry } = model;
   const [previewId, setPreviewId] = useState('');
   const [previewTop, setPreviewTop] = useState(0);

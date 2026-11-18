@@ -112,7 +112,7 @@ async function enter(page: Page, request: APIRequestContext) {
       ).ok(),
     ).toBeTruthy();
   await page.addInitScript((token) => localStorage.setItem('codex-monitor.auth.v1', token), token);
-  await page.goto('/');
+  await page.goto('/?view=all');
   await expect(page.getByRole('heading', { name: '全部会话', exact: true })).toBeVisible();
 }
 
@@ -911,6 +911,7 @@ test('web controls change models when continuing completed sessions and retain s
     for (const bounds of controls.slice(1))
       expect(Math.abs(bounds!.y + bounds!.height / 2 - toolbarCenter)).toBeLessThan(3);
     await closeComposerMenu(page, '发送设置');
+    await expect(page.getByRole('button', { name: '发送设置', exact: true })).toContainText(/· 高$/);
     await input.fill('continue using chosen model');
     expect(
       await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
@@ -970,6 +971,7 @@ test('web controls desktop channel preserves drafts, submits model settings and 
   await openComposerMenu(page, '发送设置');
   await desktop.check();
   await closeComposerMenu(page, '发送设置');
+  await expect(page.getByRole('button', { name: '发送设置', exact: true })).toContainText('桌面通道');
   await page.reload();
   await expect(desktop).toBeChecked();
   await expect(input).toHaveValue('desktop channel request ' + test.info().project.name);
@@ -1102,10 +1104,15 @@ test('web controls keep composer tools compact and support searching and editing
   await search.fill('目标');
   await expect(menu.getByRole('button', { name: '目标', exact: true })).toBeVisible();
   await search.fill('');
+  const compact = menu.getByRole('button', { name: '压缩上下文', exact: true });
   await search.press('ArrowDown');
-  await expect(menu.getByRole('button', { name: 'Computer Use', exact: true })).toBeFocused();
+  if (await compact.isEnabled()) {
+    await expect(compact).toBeFocused();
+    await page.keyboard.press('ArrowDown');
+  }
+  await expect(menu.getByRole('button', { name: '目标', exact: true })).toBeFocused();
   await page.keyboard.press('ArrowDown');
-  await expect(menu.getByRole('button', { name: '提交代码', exact: true })).toBeFocused();
+  await expect(menu.getByRole('button', { name: 'Computer Use', exact: true })).toBeFocused();
   await page.keyboard.press('Escape');
   await expect(menu).toBeHidden();
   await expect(trigger).toBeFocused();
@@ -1746,9 +1753,9 @@ test('password login persists after reload, and logout invalidates access', asyn
   await expect(page.getByRole('alert')).toContainText('用户名或密码错误');
   await page.getByLabel('密码', { exact: true }).fill(password);
   await page.getByRole('button', { name: '进入工作空间' }).click();
-  await expect(page.getByRole('heading', { name: '全部会话', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '任务动态', exact: true })).toBeVisible();
   await page.reload();
-  await expect(page.getByRole('heading', { name: '全部会话', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '任务动态', exact: true })).toBeVisible();
   const token = await page.evaluate(() => localStorage.getItem('codex-monitor.auth.v1'));
   if (test.info().project.name === 'mobile') await page.getByTitle('打开菜单').click();
   await page.getByTitle('退出登录').click();
@@ -1823,12 +1830,16 @@ test('conversation keeps messages visible, folds activity, searches details and 
   await refreshed;
   await expect(activity).toHaveAttribute('open', '');
   await expect(page.locator('.tool-body pre').first()).toBeVisible();
-  await page.getByLabel('搜索会话内容', { exact: true }).fill('npm test');
+  const search = page.getByLabel('搜索会话内容', { exact: true });
+  await search.fill('  NPM TEST  ');
   await expect(page.locator('.tool-card')).toHaveCount(1);
   await expect(page.locator('.tool-body pre')).toBeVisible();
-  await page.getByLabel('搜索会话内容', { exact: true }).fill('检查权限边界');
+  await expect(page.locator('.timeline-search-status')).toContainText('1 条匹配');
+  await search.fill('检查权限边界');
   await expect(page.locator('.reasoning-card .markdown')).toBeVisible();
-  await page.getByTitle('清除内容搜索', { exact: true }).click();
+  await search.press('Escape');
+  await expect(search).toHaveValue('');
+  await expect(search).toBeFocused();
   await expect(page.locator('.timeline .message')).toHaveCount(messageCount);
   await expect(activity).not.toHaveAttribute('open', '');
   expect(await exportSession(request)).toContain('请开发一个实时会话监控应用。');
@@ -2480,7 +2491,6 @@ test('conversation rail previews long conversations and tracks the reading posit
     const rows = page.locator('.mobile-outline-entry');
     const reader = page.locator('.timeline-scroll');
     const backdrop = page.getByRole('button', { name: '关闭对话目录', exact: true });
-    const running = page.getByTitle('展开正在进行的会话', { exact: true });
     await expect(launcher).toBeVisible();
     await expect(page.locator('.outline')).toHaveCount(0);
     await expect(rows).toHaveCount(0);
@@ -2491,7 +2501,6 @@ test('conversation rail previews long conversations and tracks the reading posit
     await expect(rows).toHaveCount(entries.length);
     await expect(rows.last()).toHaveAttribute('aria-current', 'location');
     await expect(rows.last()).toBeInViewport();
-    await expect(running).toBeHidden();
     expect(await reader.evaluate((element) => element.scrollTop)).toBe(scrollBefore);
     expect(
       await page.locator('.mobile-outline-list').evaluate((element) =>
@@ -2518,8 +2527,8 @@ test('conversation rail previews long conversations and tracks the reading posit
       animations: 'disabled',
     });
     await page.evaluate(() => (document.documentElement.dataset.theme = 'dark'));
-    await expect(panel).toHaveCSS('background-color', 'rgb(25, 33, 37)');
-    await expect(rows.nth(16)).toHaveCSS('background-color', 'rgb(32, 61, 51)');
+    await expect(panel).toHaveCSS('background-color', 'rgb(32, 32, 32)');
+    await expect(rows.nth(16)).toHaveCSS('background-color', 'rgb(52, 52, 52)');
     await page.screenshot({
       path: test.info().outputPath('mobile-outline-dark.png'),
       animations: 'disabled',
@@ -2534,10 +2543,8 @@ test('conversation rail previews long conversations and tracks the reading posit
     await page.keyboard.press('Escape');
     await expect(launcher).toBeFocused();
     await expect(backdrop).toHaveCount(0);
-    await running.tap();
-    await expect(launcher).toBeHidden();
-    await page.getByTitle('收起进行中会话快捷栏', { exact: true }).tap();
-    await expect(launcher).toBeVisible();
+    await page.getByRole('button', { name: '返回任务动态', exact: true }).tap();
+    await expect(page.getByRole('heading', { name: '任务动态', exact: true })).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     return;
   }
@@ -2589,7 +2596,7 @@ test('conversation rail previews long conversations and tracks the reading posit
     animations: 'disabled',
   });
   await page.evaluate(() => (document.documentElement.dataset.theme = 'dark'));
-  await expect(popover).toHaveCSS('background-color', 'rgb(25, 33, 37)');
+  await expect(popover).toHaveCSS('background-color', 'rgb(32, 32, 32)');
   await page.screenshot({
     path: test.info().outputPath('codex-outline-dark.png'),
     animations: 'disabled',
@@ -2696,117 +2703,6 @@ test('conversation rail previews turns and locates unloaded history', async ({
     for (const id of generated) history.prepare('DELETE FROM thread_items WHERE item_id=?').run(id);
     appendFileSync(rollout, '\n');
     history.close();
-  }
-});
-
-test('mobile fixed shortcuts switch running conversations and can collapse', async ({
-  page,
-  request,
-}) => {
-  const history = new DatabaseSync(path.join(root, 'codex', 'thread_history_1.sqlite'));
-  history
-    .prepare('INSERT INTO thread_turns VALUES(?,?,?,?,?,?)')
-    .run(ids.legacy, 'quick-switch-test', 999, 'inProgress', Math.floor(Date.now() / 1000), null);
-  try {
-    await enter(page, request);
-    const shortcuts = page.getByRole('navigation', { name: '正在进行的会话快捷切换' });
-    if (test.info().project.name === 'desktop') {
-      await expect(shortcuts).not.toBeVisible();
-      return;
-    }
-    await expect(shortcuts).toBeVisible();
-    await page.getByTitle('展开正在进行的会话').click();
-    await shortcuts
-      .getByRole('button', { name: '切换到正在进行的会话：检查旧版本会话解析', exact: true })
-      .click();
-    await expect(page.locator('.detail-heading')).toContainText('检查旧版本会话解析');
-    await page.getByTitle('展开正在进行的会话').click();
-    await expect(
-      shortcuts.getByRole('button', {
-        name: '切换到正在进行的会话：检查旧版本会话解析',
-        exact: true,
-      }),
-    ).toHaveAttribute('aria-current', 'page');
-    await shortcuts
-      .getByRole('button', {
-        name: '切换到正在进行的会话：开发 codex-monitor 实时监控',
-        exact: true,
-      })
-      .click();
-    await expect(page.locator('.detail-heading')).toContainText('开发 codex-monitor 实时监控');
-    await page.getByTitle('展开正在进行的会话').click();
-    await page.getByTitle('收起进行中会话快捷栏').click();
-    await expect(shortcuts.getByRole('button', { name: /^切换到/ })).toHaveCount(0);
-    await page.getByTitle('展开正在进行的会话').click();
-    await expect(
-      shortcuts
-        .getByRole('region', { name: '本机工作空间的进行中会话' })
-        .getByRole('button', { name: /^切换到/ }),
-    ).toHaveCount(2);
-    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
-      true,
-    );
-    await page.screenshot({ path: 'test-results/mobile-running-switcher.png', fullPage: true });
-  } finally {
-    history.prepare('DELETE FROM thread_turns WHERE turn_id=?').run('quick-switch-test');
-    history.close();
-  }
-});
-
-test.describe('mobile switcher mouse states', () => {
-  // Use a mouse at mobile widths to verify hover/active; the touch workflow is covered separately.
-  test.use({ isMobile: false, hasTouch: false });
-  for (const theme of ['light', 'dark']) {
-    test(`mobile running switcher preserves the ${theme} page behind its backdrop`, async ({
-      page,
-      request,
-    }) => {
-      test.skip(test.info().project.name !== 'mobile', 'The running switcher is mobile only');
-      await page.addInitScript(
-        (theme) => localStorage.setItem('codex-monitor.theme', theme),
-        theme,
-      );
-      await enter(page, request);
-      const shortcuts = page.getByRole('navigation', { name: '正在进行的会话快捷切换' });
-      const backdrop = page.getByRole('button', { name: '关闭运行会话列表', exact: true });
-      for (const view of ['list', 'detail']) {
-        await page.getByTitle('展开正在进行的会话').click();
-        await expect(backdrop).toBeVisible();
-        const background = await backdrop.evaluate(
-          (node) => getComputedStyle(node).backgroundColor,
-        );
-        expect(background).toMatch(/^rgba\(.+,\s0\.\d+\)$/);
-        // Move away first so a previous touch cannot suppress a mouse move to identical coordinates.
-        await shortcuts.getByTitle('收起进行中会话快捷栏').hover();
-        await backdrop.hover({ position: { x: 10, y: 10 } });
-        await expect.poll(() => backdrop.evaluate((node) => node.matches(':hover'))).toBe(true);
-        await backdrop.evaluate((node) =>
-          Promise.all(node.getAnimations().map((animation) => animation.finished)),
-        );
-        await page.screenshot({ path: test.info().outputPath(`${view}-backdrop-hover.png`) });
-        await expect(backdrop).toHaveCSS('background-color', background);
-        await page.mouse.down();
-        await expect.poll(() => backdrop.evaluate((node) => node.matches(':active'))).toBe(true);
-        await backdrop.evaluate((node) =>
-          Promise.all(node.getAnimations().map((animation) => animation.finished)),
-        );
-        await expect(backdrop).toHaveCSS('background-color', background);
-        await page.mouse.up();
-        await expect(backdrop).toHaveCount(0);
-        if (view === 'list') {
-          await expect(page.getByRole('heading', { name: '全部会话', exact: true })).toBeVisible();
-          await page.getByTitle('展开正在进行的会话').click();
-          await shortcuts
-            .getByRole('button', {
-              name: '切换到正在进行的会话：开发 codex-monitor 实时监控',
-              exact: true,
-            })
-            .click();
-        }
-        await expect(page.locator('.detail-heading')).toContainText('开发 codex-monitor 实时监控');
-        await expect(shortcuts).toHaveClass(/collapsed/);
-      }
-    });
   }
 });
 

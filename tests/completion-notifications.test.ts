@@ -344,6 +344,7 @@ test('a rolled-back report never publishes notices or consumes their deduplicati
   try {
     await service.configure({
       enabled: true,
+      completionMode: 'all',
       publicUrl: '',
       webhookUrl:
         'https://open.larksuite.com/open-apis/bot/v2/hook/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
@@ -365,6 +366,34 @@ test('a rolled-back report never publishes notices or consumes their deduplicati
     assert.equal(service.receive({ id: 'local', name: '本机' }, report), true);
     assert.equal(service.completions.snapshot().notifications.length, 1);
     assert.equal(service.state().deliveries.length, 1);
+  } finally {
+    await service.close();
+    db.close();
+  }
+});
+
+test('watched completion delivery is workspace-scoped and does not replay pre-watch results', async () => {
+  const db = new DatabaseSync(':memory:');
+  const service = new NotificationService(db, 60000, async () => Response.json({ code: 0 }));
+  try {
+    await service.configure({
+      enabled: true,
+      publicUrl: '',
+      webhookUrl: 'https://open.larksuite.com/open-apis/bot/v2/hook/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
+    });
+    const workspace = { id: 'local', name: '本机' };
+    const completion = { ...event(), occurredAt: Date.now() };
+    const report = (turn: typeof completion) => ({ revision: service.policy().revision, events: [turn], monitorError: '' as const });
+    service.receive(workspace, report(completion));
+    assert.equal(service.state().deliveries.length, 0);
+    service.store.watch(workspace.id, completion.sessionId, true);
+    const next = { ...completion, turnId: 'next-turn', occurredAt: Date.now() + 1 };
+    service.receive({ id: 'remote', name: '远端' }, report(next));
+    assert.equal(service.state().deliveries.length, 0);
+    service.receive(workspace, report(next));
+    assert.equal(service.state().deliveries[0].status, 'pending');
+    service.store.watch(workspace.id, completion.sessionId, false);
+    assert.equal(service.state().deliveries[0].status, 'cancelled');
   } finally {
     await service.close();
     db.close();

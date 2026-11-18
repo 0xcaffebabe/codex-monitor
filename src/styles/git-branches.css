@@ -10,7 +10,7 @@
   border-radius: 6px;
   color: var(--accent);
   background: var(--surface2);
-  font-size: 11px;
+  font-size: var(--font-meta);
 }
 .session-branch-trigger > span {
   min-width: 0;
@@ -56,12 +56,12 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 11px;
+  font-size: var(--font-meta);
   color: var(--muted);
 }
 .git-branch-body {
   padding: 18px;
-  font-size: 12px;
+  font-size: var(--font-meta);
 }
 .git-branch-current {
   display: flex;

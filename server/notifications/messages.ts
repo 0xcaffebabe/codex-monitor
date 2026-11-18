@@ -7,7 +7,7 @@ export function notificationMessage(
 ) {
   const completed = event.kind === 'session.completed';
   const lines = [
-    completed ? '✅ Codex 会话完成' : '🙋 Codex 需要你选择或回答',
+    completed ? '✅ Codex 本轮已结束' : '🙋 Codex 需要你选择或回答',
     `工作空间：${workspace.name}`,
     `会话：${event.title}`,
     `项目：${event.project}`,
@@ -30,7 +30,10 @@ export function notificationMessage(
     const url = new URL(publicUrl);
     url.searchParams.set('session', event.sessionId);
     url.searchParams.set('workspace', workspace.id);
-    lines.push('', `[查看会话](<${url.href}>)`);
+    url.searchParams.set('view', 'attention');
+    if (completed) url.searchParams.set('result', event.turnId);
+    else url.searchParams.set('request', event.requestId);
+    lines.push('', `[${completed ? '查看本轮结果' : '查看会话'}](<${url.href}>)`);
   }
   if (completed) {
     if (event.summary.trim()) lines.push('', `回复摘要：\n${event.summary}`);

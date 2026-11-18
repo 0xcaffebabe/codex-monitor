@@ -105,6 +105,7 @@ export class RolloutStore {
     const events: TimelineEvent[] = [];
     const byId = new Map<string, TimelineEvent>();
     let ordinal = 0;
+    let turnId: string | undefined;
     let status: SessionStatus = 'idle';
     let turnTiming: SessionTurnTiming | undefined;
     for await (const line of jsonLines(file, 8_000_000)) {
@@ -114,6 +115,7 @@ export class RolloutStore {
           p = r.payload ?? {};
         if (r.type === 'event_msg') {
           if (['task_started', 'turn_started'].includes(p.type)) {
+            turnId = String(p.turn_id || p.id || `legacy-${ordinal}`);
             status = 'running';
             if (turnTiming) turnTiming.finishedAt = null;
           } else if (['task_complete', 'task_completed'].includes(p.type)) status = 'completed';
@@ -136,6 +138,7 @@ export class RolloutStore {
           if (e?.kind !== 'user') continue;
         }
         if (!e) continue;
+        if (turnId) e.turnId = turnId;
         const previous = events.at(-1);
         if (
           e.kind === 'user' &&
@@ -161,6 +164,7 @@ export class RolloutStore {
         prev &&
         ['user', 'assistant'].includes(e.kind) &&
         prev.kind === e.kind &&
+        prev.turnId === e.turnId &&
         prev.text === e.text
       )
         continue;

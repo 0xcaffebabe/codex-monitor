@@ -71,6 +71,7 @@ test('admins configure Lark, send a test, complete a chat and see background del
     await expect(section.getByLabel('启用 Webhook 通知')).toBeEnabled();
     await section.getByLabel('飞书 / Lark Webhook', { exact: true }).fill(webhook);
     await section.getByLabel('启用 Webhook 通知').check();
+    await section.getByLabel('成功轮次通知').selectOption('all');
     await section.getByLabel('监控台访问地址（可选）').fill('https://monitor.example.com/');
     await expect(section.getByRole('button', { name: '发送测试通知', exact: true })).toBeDisabled();
     await section.getByRole('button', { name: '保存通知配置' }).click();

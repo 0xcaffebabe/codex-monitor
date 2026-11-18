@@ -8,6 +8,7 @@ export function useNotifications(notify: (message: string) => void) {
   const [saved, setSaved] = useState<NotificationSettings>();
   const [deliveries, setDeliveries] = useState<NotificationDelivery[]>([]);
   const [enabled, setEnabled] = useState(false);
+  const [completionMode, setCompletionMode] = useState<NotificationSettings['completionMode']>('watched');
   const [webhookUrl, setWebhookUrl] = useState('');
   const [signingSecret, setSigningSecret] = useState('');
   const [clearSecret, setClearSecret] = useState(false);
@@ -19,6 +20,7 @@ export function useNotifications(notify: (message: string) => void) {
     setDeliveries(state.deliveries);
     if (reset) {
       setEnabled(state.settings.enabled);
+      setCompletionMode(state.settings.completionMode ?? 'watched');
       setPublicUrl(state.settings.publicUrl);
       setWebhookUrl('');
       setSigningSecret('');
@@ -48,6 +50,7 @@ export function useNotifications(notify: (message: string) => void) {
   const dirty =
     !!saved &&
     (enabled !== saved.enabled ||
+      completionMode !== (saved.completionMode ?? 'watched') ||
       publicUrl !== saved.publicUrl ||
       !!webhookUrl ||
       !!signingSecret ||
@@ -61,6 +64,7 @@ export function useNotifications(notify: (message: string) => void) {
         body: JSON.stringify({
           enabled,
           provider: 'lark',
+          completionMode,
           publicUrl: publicUrl.trim(),
           ...(webhookUrl.trim() ? { webhookUrl: webhookUrl.trim() } : {}),
           ...(clearSecret
@@ -96,6 +100,8 @@ export function useNotifications(notify: (message: string) => void) {
     deliveries,
     enabled,
     setEnabled,
+    completionMode,
+    setCompletionMode,
     webhookUrl,
     setWebhookUrl,
     signingSecret,

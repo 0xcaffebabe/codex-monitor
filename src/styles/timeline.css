@@ -5,16 +5,16 @@
   margin-bottom: 23px;
 }
 .load-earlier span {
-  font-size: 8px;
-  color: #adbab7;
+  font-size: var(--font-meta);
+  color: var(--muted);
   margin-left: auto;
 }
 .detail-footer {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 8px;
-  color: #a6b6af;
+  font-size: var(--font-meta);
+  color: var(--muted);
   padding: 12px 25px;
   border-top: 1px solid var(--line);
   flex-shrink: 0;
@@ -26,8 +26,8 @@
 }
 .detail-footer-count {
   margin-left: auto;
-  color: #b0bcb8;
-  font-size: 7px;
+  color: var(--muted);
+  font-size: var(--font-meta);
 }
 .detail-footer > svg {
   margin-left: 9px;
@@ -39,13 +39,13 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 10px;
+  font-size: var(--font-meta);
   background: var(--surface);
   border: 1px solid var(--line);
   box-shadow: 0 3px 10px #172c2310;
   border-radius: 7px;
   padding: 9px 13px;
-  color: #6d8f7f;
+  color: var(--muted);
 }
 
 .detail-layout {
@@ -70,6 +70,13 @@
   min-width: 0;
   min-height: 0;
   overflow: hidden;
+}
+.timeline-search-status {
+  margin: 0 0 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+  font-size: var(--font-ui);
 }
 .timeline-column .jump-latest {
   bottom: 18px;

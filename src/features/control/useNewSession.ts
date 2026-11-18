@@ -21,7 +21,7 @@ export function useNewSession({ initialPath }: Pick<NewSessionProps, 'initialPat
     [loading, setLoading] = useState(true),
     [refresh, setRefresh] = useState(0);
   const [creationPermissions, setCreationPermissions] = useState(false);
-  const [permissionMode, setPermissionMode] = useState<SessionPermissionMode>('danger-full-access');
+  const [permissionMode, setPermissionMode] = useState<SessionPermissionMode>('inherit');
   const modelSettings = useModelSettings(true, 'new', refresh);
   useEffect(() => {
     let stopped = false;
@@ -37,7 +37,7 @@ export function useNewSession({ initialPath }: Pick<NewSessionProps, 'initialPat
         if (stopped) return;
         setProjects(result.projects);
         setCreationPermissions(!!result.creationPermissions);
-        if (!result.creationPermissions) setPermissionMode('danger-full-access');
+        if (!result.creationPermissions) setPermissionMode('inherit');
         setSelected(
           result.projects.find((p) => p.path === initialPath)?.id || result.projects[0]?.id || '',
         );

@@ -62,6 +62,9 @@ test.describe('PC layout', () => {
       const column = await page.locator('.timeline-column').boundingBox();
       expect(reader!.height).toBeGreaterThan(height * 0.52);
       expect(column!.width).toBeGreaterThan(width * 0.64);
+      const prose = page.locator('.timeline .markdown').first();
+      await expect(prose).toHaveCSS('font-size', width >= 1800 ? '17px' : '16px');
+      expect((await prose.boundingBox())!.width).toBeLessThanOrEqual(880);
       await expect(page.getByLabel('搜索会话内容', { exact: true })).toBeVisible();
       await expect(page.getByRole('button', { name: '会话信息', exact: true })).toHaveAttribute(
         'aria-expanded',
@@ -195,4 +198,66 @@ test.describe('PC layout', () => {
     });
     await page.getByTitle('关闭目标管理', { exact: true }).click();
   });
+});
+
+test('keeps the iPhone Pro Max conversation readable with tools outside the reader', async ({
+  page,
+  request,
+  isMobile,
+}) => {
+  test.skip(!isMobile, 'Uses the mobile browsing context');
+  await page.route('**/api/workspaces/local/sessions?status=running&limit=100&offset=0', (route) =>
+    route.fulfill({
+      json: {
+        sessions: [
+          {
+            id: ids.modern,
+            title: '测试进行中会话',
+            cwd: '/test/project',
+            project: 'project',
+            status: 'running',
+            updatedAt: Date.now(),
+          },
+        ],
+        hasMore: false,
+      },
+    }),
+  );
+  await enter(page, request, 440, 763);
+  await expect(page.locator('.timeline .markdown').first()).toHaveCSS('font-size', '16px');
+  const outline = page.getByRole('button', { name: '展开对话目录', exact: true });
+  const running = page.getByRole('button', { name: '返回任务动态', exact: true });
+  await expect(running).toBeVisible();
+  const reader = (await page.locator('.timeline-reader').boundingBox())!;
+  for (const button of [outline, running]) {
+    const bounds = (await button.boundingBox())!;
+    expect(bounds.width).toBeGreaterThanOrEqual(44);
+    expect(bounds.height).toBeGreaterThanOrEqual(44);
+    expect(bounds.y + bounds.height).toBeLessThanOrEqual(reader.y);
+  }
+  const input = page.getByRole('textbox', { name: '发送给 Codex 的消息', exact: true });
+  await expect(input).toHaveCSS('font-size', '16px');
+  await input.fill('移动端草稿');
+  await input.press('Enter');
+  await input.press('End');
+  await input.press('A');
+  await expect(input).toHaveValue('移动端草稿\nA');
+  await outline.tap();
+  await expect(page.getByRole('complementary', { name: '对话目录', exact: true })).toBeVisible();
+  await page.getByTitle('收起对话目录', { exact: true }).tap();
+  await expect(input).toHaveValue('移动端草稿\nA');
+  await expect(outline).toBeFocused();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(440);
+  const refresh = page.getByTitle('刷新数据', { exact: true });
+  for (const width of [320, 390, 440]) {
+    await page.setViewportSize({ width, height: 763 });
+    const bounds = (await refresh.boundingBox())!;
+    expect(bounds.x + bounds.width).toBeLessThanOrEqual(width);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
+  }
+  await page.screenshot({ path: test.info().outputPath('iphone-17-pro-max.png') });
+  await page.getByTitle('返回会话列表', { exact: true }).tap();
+  await expect(page.getByTestId('session-row').first()).toBeInViewport({ ratio: 0.5 });
+  await running.tap();
+  await expect(page.getByRole('heading', { name: '任务动态', exact: true })).toBeVisible();
 });

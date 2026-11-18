@@ -32,6 +32,7 @@ export class SessionOutlineReader {
       if (!current || (event.kind === 'user' && current.prompt)) {
         current = {
           id: event.id,
+          ...(turnId ? { turnId } : {}),
           ordinal,
           timestamp: event.timestamp,
           prompt: '',
@@ -125,7 +126,7 @@ export class SessionOutlineReader {
     }
     if (!projected) {
       const parsed = await this.rollouts.read(session);
-      parsed.events.forEach((event, ordinal) => add(event, ordinal, parsed.status));
+      parsed.events.forEach((event, ordinal) => add(event, ordinal, parsed.status, event.turnId));
     }
     const result = { sessionId: id, entries, version };
     if (this.outlineCache.size >= 8)

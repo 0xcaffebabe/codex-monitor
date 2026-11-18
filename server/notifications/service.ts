@@ -83,6 +83,12 @@ export class NotificationService {
           (event.kind === 'session.completed' ? config.enabledAt : config.inputSince)
         )
           continue;
+        if (
+          event.kind === 'session.completed' &&
+          config.completionMode === 'watched' &&
+          !this.store.watched(workspace.id, event.sessionId, event.occurredAt)
+        )
+          continue;
         this.store.enqueue(
           {
             key,

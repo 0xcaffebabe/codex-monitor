@@ -10,12 +10,12 @@
     position: fixed;
     inset: 0;
     z-index: 19;
-    background: #102c2426;
+    background: #0004;
     cursor: default;
   }
   .mobile-outline {
     position: fixed;
-    left: 10px;
+    left: var(--mobile-gutter, 16px);
     top: 50%;
     transform: translateY(-50%);
     z-index: 20;
@@ -26,33 +26,12 @@
     background: var(--surface);
     border: 1px solid var(--line);
     border-radius: 13px;
-    box-shadow: 0 8px 35px #17352c33;
-  }
-  .mobile-outline.collapsed {
-    left: 5px;
-    width: 44px;
-    max-height: none;
-    border-radius: 11px;
-    box-shadow: 0 3px 16px #17352c14;
-  }
-  .mobile-outline:not(.collapsed) {
+    box-shadow: var(--shadow);
     overflow: hidden;
   }
   .mobile-outline-launcher {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 4px;
-    width: 42px;
-    height: 49px;
-    color: var(--accent);
-    border-radius: 11px;
-    background: var(--surface);
-  }
-  .mobile-outline-launcher > span {
-    font-size: 10px;
-    font-family: Consolas, monospace;
+    width: 44px;
+    height: 44px;
   }
   .mobile-outline-header {
     display: flex;
@@ -66,7 +45,7 @@
     display: flex;
     align-items: center;
     gap: 7px;
-    font-size: 12px;
+    font-size: var(--font-meta);
     font-weight: 600;
   }
   .mobile-outline-header strong > svg {
@@ -75,12 +54,12 @@
   .mobile-outline-header strong > span {
     margin-left: 2px;
     color: var(--muted);
-    font-size: 10px;
+    font-size: var(--font-meta);
     font-weight: 400;
   }
   .mobile-outline-header .icon-button {
-    height: 28px;
-    width: 28px;
+    height: 44px;
+    width: 44px;
   }
   .mobile-outline-list {
     position: relative;
@@ -119,7 +98,7 @@
     border: 1px solid var(--line);
     border-radius: 5px;
     background: var(--surface2);
-    font-size: 10px;
+    font-size: var(--font-ui);
     font-family: Consolas, monospace;
   }
   .mobile-outline-entry.active .mobile-outline-index {
@@ -143,12 +122,12 @@
     line-height: 1.7;
   }
   .mobile-outline-body > strong {
-    font-size: 12px;
+    font-size: var(--font-meta);
     font-weight: 550;
     color: var(--ink);
   }
   .mobile-outline-body > small {
-    font-size: 11px;
+    font-size: var(--font-meta);
   }
   .mobile-outline-entry > svg {
     align-self: center;
@@ -161,10 +140,10 @@
     margin: 0;
     padding: 20px 12px 24px;
     color: var(--muted);
-    font-size: 12px;
+    font-size: var(--font-meta);
   }
-  body:has(.mobile-outline:not(.collapsed)) .running-switcher.collapsed,
-  body:has(.running-switcher:not(.collapsed)) .mobile-outline.collapsed {
+  body:has(.mobile-outline) .running-launcher,
+  body:has(.running-switcher:not(.collapsed)) .mobile-outline-launcher {
     visibility: hidden;
   }
 }

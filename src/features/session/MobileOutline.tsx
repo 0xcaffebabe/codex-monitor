@@ -47,95 +47,88 @@ export function MobileOutline({ outlineData, outlineError, page, model }: Outlin
       list.scrollTop = entry.offsetTop + entry.offsetHeight - list.clientHeight;
   }, [expanded, activeIndex]);
 
-  return createPortal(
+  return (
     <>
-      {expanded && (
-        <button className="mobile-outline-scrim" aria-label="关闭对话目录" onClick={close} />
-      )}
-      <aside
-        id="conversation-outline"
-        className={cx('mobile-outline', !expanded && 'collapsed')}
-        aria-label="对话目录"
+      <button
+        className="icon-button mobile-outline-launcher"
+        title="展开对话目录"
+        aria-label="展开对话目录"
+        aria-expanded={expanded}
+        aria-controls={expanded ? 'conversation-outline' : undefined}
+        ref={launcherRef}
+        onClick={() => setExpanded(true)}
       >
-        {!expanded ? (
-          <button
-            className="mobile-outline-launcher"
-            title="展开对话目录"
-            aria-label="展开对话目录"
-            aria-expanded={false}
-            aria-controls="mobile-outline-list"
-            ref={launcherRef}
-            onClick={() => setExpanded(true)}
-          >
-            <BookOpen size={17} />
-            <span>{outlineEntries.length}</span>
-          </button>
-        ) : (
+        <BookOpen size={19} />
+      </button>
+      {expanded &&
+        createPortal(
           <>
-            <header className="mobile-outline-header">
-              <strong>
-                <BookOpen size={15} />
-                对话目录<span>{outlineEntries.length}</span>
-              </strong>
-              <button className="icon-button" title="收起对话目录" ref={closeRef} onClick={close}>
-                <X size={17} />
-              </button>
-            </header>
-            <div id="mobile-outline-list" className="mobile-outline-list" ref={listRef}>
-              {outlineEntries.map((entry, index) => (
-                <button
-                  key={entry.id}
-                  className={cx('mobile-outline-entry', entry.id === activeEntry && 'active')}
-                  aria-label={`定位第 ${index + 1} 次提问`}
-                  aria-current={entry.id === activeEntry ? 'location' : undefined}
-                  disabled={!!jumpingEntry || !page}
-                  onClick={() => {
-                    close();
-                    void jumpToEntry(entry);
-                  }}
-                >
-                  <span className="mobile-outline-index" aria-hidden="true">
-                    {jumpingEntry === entry.id ? (
-                      <LoaderCircle size={12} className="spin" />
-                    ) : (
-                      String(index + 1).padStart(2, '0')
-                    )}
-                  </span>
-                  <span className="mobile-outline-body">
-                    <strong>{entry.prompt || 'Codex'}</strong>
-                    <small>
-                      {entry.reply ||
-                        (entry.status === 'running' ? '正在执行，等待回复…' : '暂无回复')}
-                    </small>
-                  </span>
-                  <ChevronRight size={15} aria-hidden="true" />
+            <button className="mobile-outline-scrim" aria-label="关闭对话目录" onClick={close} />
+            <aside id="conversation-outline" className="mobile-outline" aria-label="对话目录">
+              <header className="mobile-outline-header">
+                <strong>
+                  <BookOpen size={15} />
+                  对话目录<span>{outlineEntries.length}</span>
+                </strong>
+                <button className="icon-button" title="收起对话目录" ref={closeRef} onClick={close}>
+                  <X size={17} />
                 </button>
-              ))}
-            </div>
-            {(outlineError || !outlineEntries.length) && (
-              <p className="mobile-outline-notice" role="status">
-                {outlineError ? (
-                  <>
-                    <TriangleAlert size={15} />
-                    目录暂时不可用，请刷新重试
-                  </>
-                ) : outlineData ? (
-                  <>
-                    <BookOpen size={15} />
-                    本会话尚无提问
-                  </>
-                ) : (
-                  <>
-                    <LoaderCircle size={15} className="spin" />
-                    正在读取对话目录…
-                  </>
-                )}
-              </p>
-            )}
-          </>
+              </header>
+              <div id="mobile-outline-list" className="mobile-outline-list" ref={listRef}>
+                {outlineEntries.map((entry, index) => (
+                  <button
+                    key={entry.id}
+                    className={cx('mobile-outline-entry', entry.id === activeEntry && 'active')}
+                    aria-label={`定位第 ${index + 1} 次提问`}
+                    aria-current={entry.id === activeEntry ? 'location' : undefined}
+                    disabled={!!jumpingEntry || !page}
+                    onClick={() => {
+                      close();
+                      void jumpToEntry(entry);
+                    }}
+                  >
+                    <span className="mobile-outline-index" aria-hidden="true">
+                      {jumpingEntry === entry.id ? (
+                        <LoaderCircle size={12} className="spin" />
+                      ) : (
+                        String(index + 1).padStart(2, '0')
+                      )}
+                    </span>
+                    <span className="mobile-outline-body">
+                      <strong>{entry.prompt || 'Codex'}</strong>
+                      <small>
+                        {entry.reply ||
+                          (entry.status === 'running' ? '正在执行，等待回复…' : '暂无回复')}
+                      </small>
+                    </span>
+                    <ChevronRight size={15} aria-hidden="true" />
+                  </button>
+                ))}
+              </div>
+              {(outlineError || !outlineEntries.length) && (
+                <p className="mobile-outline-notice" role="status">
+                  {outlineError ? (
+                    <>
+                      <TriangleAlert size={15} />
+                      目录暂时不可用，请刷新重试
+                    </>
+                  ) : outlineData ? (
+                    <>
+                      <BookOpen size={15} />
+                      本会话尚无提问
+                    </>
+                  ) : (
+                    <>
+                      <LoaderCircle size={15} className="spin" />
+                      正在读取对话目录…
+                    </>
+                  )}
+                </p>
+              )}
+            </aside>
+          </>,
+          document.body,
         )}
-      </aside>
-    </>,
-    document.body,
+    </>
   );
 }

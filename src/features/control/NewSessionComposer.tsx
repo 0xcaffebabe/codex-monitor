@@ -83,16 +83,18 @@ export function NewSessionComposer(props: NewSessionProps) {
               disabled={loading || !online}
               onChange={(event) => setPermissionMode(event.target.value as SessionPermissionMode)}
             >
-              <option value="danger-full-access">完全访问（默认）</option>
-              <option value="inherit">沿用本机配置</option>
+              <option value="inherit">沿用本机配置（默认）</option>
               <option value="read-only">只读 · 额外权限在网页确认</option>
               <option value="workspace-write">项目写入 · 联网时申请</option>
               <option value="workspace-write-network">项目写入并允许联网</option>
+              <option value="danger-full-access">完全访问 · 不经逐次审批</option>
             </select>
             <span className="control-hint">
               {permissionMode === 'danger-full-access'
                 ? '允许读写本机文件和联网，无需逐次审批。仅用于新会话。'
-                : '仅用于新会话。受限模式的额外权限需在会话中确认。'}
+                : permissionMode === 'inherit'
+                  ? '使用目标机器的 Codex 权限与审批设置。'
+                  : '仅用于新会话。受限模式的额外权限需在会话中确认。'}
             </span>
           </label>
         )}

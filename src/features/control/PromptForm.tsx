@@ -21,6 +21,7 @@ export function PromptForm(props: PromptFormProps) {
     allowAttachments = false,
     projectFilesUrl,
     attachmentControls,
+    modelSummary,
     submitActions,
     allowGoal = false,
     allowDesktopChannel = false,
@@ -56,6 +57,10 @@ export function PromptForm(props: PromptFormProps) {
   const submitLabel = asGoal ? '创建并执行目标' : label;
   const promptLabel = asGoal ? '目标内容' : inputLabel;
   const busyLabel = draft.creation ? '正在保存目标…' : '正在发送…';
+  const enterSends = submitOnEnter && !isMobile;
+  const sendSettings = [draft.desktopChannel && '桌面通道', modelSummary]
+    .filter(Boolean)
+    .join(' · ');
   return (
     <form
       className={
@@ -104,9 +109,9 @@ export function PromptForm(props: PromptFormProps) {
                 : '输入消息…'
           }
           aria-keyshortcuts={
-            submitOnEnter ? 'Enter Control+Enter Meta+Enter' : 'Control+Enter Meta+Enter'
+            enterSends ? 'Enter Control+Enter Meta+Enter' : 'Control+Enter Meta+Enter'
           }
-          title={submitOnEnter ? 'Enter 发送，Shift+Enter 换行' : undefined}
+          title={enterSends ? 'Enter 发送，Shift+Enter 换行' : undefined}
           value={draft.prompt}
           maxLength={
             asGoal
@@ -122,7 +127,7 @@ export function PromptForm(props: PromptFormProps) {
           onKeyDown={(event) => {
             if (
               event.key === 'Enter' &&
-              (submitOnEnter ? !event.shiftKey : event.ctrlKey || event.metaKey) &&
+              (enterSends ? !event.shiftKey : event.ctrlKey || event.metaKey) &&
               !event.nativeEvent.isComposing &&
               event.nativeEvent.keyCode !== 229
             ) {
@@ -167,8 +172,9 @@ export function PromptForm(props: PromptFormProps) {
           {(attachmentControls || allowDesktopChannel || draft.desktopChannel) && (
             <Popover
               label="发送设置"
+              displayLabel={sendSettings || undefined}
               icon={draft.desktopChannel ? <Monitor size={15} /> : <SlidersHorizontal size={15} />}
-              active={!!draft.desktopChannel}
+              active={!!sendSettings}
               className="composer-settings-trigger"
             >
               {() => (

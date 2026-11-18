@@ -1,16 +1,20 @@
 import { MessageSquare, Shield, TriangleAlert } from 'lucide-react';
 import { lazy, Suspense, useEffect, useState } from 'react';
 import { cx } from '../../shared/format';
+import { useMediaQuery } from '../../shared/useMediaQuery';
 import { MessageComposer } from '../control/MessageComposer';
 import { NewSessionComposer } from '../control/NewSessionComposer';
 import type { NewSessionProps } from '../control/useNewSession';
 import { DetailHeader } from './DetailHeader';
+import { MobileOutline } from './MobileOutline';
 import { Outline } from './Outline';
 import { Timeline } from './Timeline';
 import { useSessionActions } from './useSessionActions';
 import { DetailProps, useTimeline } from './useTimeline';
 import { ComputerUseTimeline } from './ComputerUseTimeline';
-import { GitBranchSelector } from '../git/GitBranchSelector';
+import { ProjectBranchDialog } from '../git/GitBranchSelector';
+import type { AttentionRequest, AttentionSession } from '../../attention-types';
+import { TurnResult } from './TurnResult';
 const ProjectTerminal = lazy(() => import('../terminal/ProjectTerminal'));
 const GitDiff = lazy(() => import('../git/GitDiff'));
 
@@ -18,6 +22,11 @@ export function Detail(
   props: DetailProps & {
     focusMode?: boolean;
     newSession?: Omit<NewSessionProps, 'user'>;
+    result?: { turn: string | null; observed: number };
+    linkedQuestion?: { workspaceName: string; observed: boolean; current?: AttentionRequest };
+    workspaceName?: string;
+    activeSessions?: AttentionSession[];
+    taskWatch?: { watched: boolean; toggle: () => Promise<void> };
   },
 ) {
   const {
@@ -37,14 +46,18 @@ export function Detail(
     newSession,
   } = props;
   const model = useTimeline(props);
+  const mobile = useMediaQuery('(max-width: 760px)');
   const { setFollow, session } = model;
   const actions = useSessionActions(notify);
   const [computerUseSession, setComputerUseSession] = useState('');
   const [terminalSession, setTerminalSession] = useState('');
   const [gitSession, setGitSession] = useState('');
+  const [branchSession, setBranchSession] = useState('');
+  const [savingWatch, setSavingWatch] = useState(false);
   useEffect(() => setComputerUseSession(''), [session?.id]);
   useEffect(() => setTerminalSession(''), [session?.id]);
   useEffect(() => setGitSession(''), [session?.id]);
+  useEffect(() => setBranchSession(''), [session?.id]);
   return (
     <section
       className={cx('detail-panel', !!newSession && 'new-session-detail')}
@@ -55,10 +68,34 @@ export function Detail(
         page={page}
         onBack={onBack}
         model={model}
+        mobileOutline={mobile && !focusMode && !newSession && session && (
+          <MobileOutline
+            key={session.id}
+            outlineData={outlineData}
+            outlineError={outlineError}
+            page={page}
+            model={model}
+          />
+        )}
         onComputerUse={() => setComputerUseSession(session?.id ?? '')}
         onTerminal={user.role === 'admin' ? () => setTerminalSession(session?.id ?? '') : undefined}
         onGitDiff={user.role === 'admin' ? () => setGitSession(session?.id ?? '') : undefined}
+        onBranches={user.role === 'admin' ? () => setBranchSession(session?.id ?? '') : undefined}
+        taskWatch={session && props.taskWatch && {
+          watched: props.taskWatch.watched,
+          busy: savingWatch,
+          toggle: async () => {
+            if (savingWatch || !props.taskWatch) return;
+            setSavingWatch(true);
+            try { await props.taskWatch.toggle(); }
+            catch (error) { notify((error as Error).message); }
+            finally { setSavingWatch(false); }
+          },
+        }}
       />
+      {session && branchSession === session.id && (
+        <ProjectBranchDialog session={session} workspaceName={props.workspaceName} activeSessions={props.activeSessions} onClose={() => setBranchSession('')} />
+      )}
       {session && gitSession === session.id && (
         <Suspense fallback={null}>
           <GitDiff
@@ -105,6 +142,12 @@ export function Detail(
           {w}
         </div>
       ))}
+      {page && props.result?.turn && <TurnResult turn={props.result.turn} observed={props.result.observed} page={page} outline={outlineData} error={outlineError} model={model} />}
+      {props.linkedQuestion && <section className="turn-result" aria-label="待答复问题">
+        <div><h2>待答复问题</h2><p>{props.linkedQuestion.current
+          ? `${props.linkedQuestion.current.title} · 请在 ${props.linkedQuestion.workspaceName} 的 Codex 答复。`
+          : props.linkedQuestion.observed ? '该问题不在当前待答复列表中。' : '暂无法确认此问题是否仍需答复。'}</p></div>
+      </section>}
       <div className="detail-layout">
         <div className={cx('timeline-column', user.role === 'admin' && 'with-composer')}>
           {newSession ? (
@@ -123,7 +166,7 @@ export function Detail(
               model={model}
               copied={actions.copied}
             >
-              {!focusMode && (
+              {!mobile && !focusMode && (
                 <Outline
                   key={session?.id}
                   outlineData={outlineData}
@@ -142,11 +185,6 @@ export function Detail(
               user={user}
               threadId={session.id}
               sessionStatus={session.status}
-              contextControls={
-                user.role === 'admin' && session.cwd ? (
-                  <GitBranchSelector key={`${session.id}:${session.cwd}`} session={session} />
-                ) : undefined
-              }
               onAccepted={() => {
                 setFollow(true);
                 onMessageSent();

@@ -468,7 +468,7 @@ export class NativeDesktopControl implements DesktopControl {
     const project = (await this.projects(context)).find((project) => project.id === projectId);
     if (!project) throw new ControlError('项目不可用，请刷新项目列表。', false, 400);
     const created = this.createRuntime();
-    const permissionMode = settings.permissionMode ?? 'danger-full-access';
+    const permissionMode = settings.permissionMode ?? 'inherit';
     const fullAccess = permissionMode === 'danger-full-access';
     let thread: any;
     try {

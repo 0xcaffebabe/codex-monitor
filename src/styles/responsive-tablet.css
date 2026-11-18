@@ -10,17 +10,11 @@
     width: 27px;
     height: 28px;
   }
-  .sidebar .brand small {
-    letter-spacing: 1px;
-  }
   .workspace-label {
     padding: 8px;
   }
   .sidebar .nav-item {
-    font-size: 11px;
-  }
-  .stat-card small {
-    font-size: 7px;
+    font-size: var(--font-meta);
   }
   .table-head {
     grid-template-columns: minmax(0, 1fr) 80px 80px 70px 12px;
@@ -32,7 +26,7 @@
     font-size: 24px;
   }
   .today {
-    font-size: 8px;
+    font-size: var(--font-meta);
   }
   .session-preview {
     display: none;
@@ -51,7 +45,7 @@
     gap: 5px;
   }
   .compact .list-heading h2 {
-    font-size: 11px;
+    font-size: var(--font-meta);
   }
   .detail-search {
     display: none;

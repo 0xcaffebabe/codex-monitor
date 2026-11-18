@@ -17,7 +17,7 @@
   border: 1px solid var(--line);
   border-radius: 10px;
   padding: 9px 12px;
-  font-size: 12px;
+  font-size: var(--font-meta);
 }
 .completion-notifications-header {
   display: flex;
@@ -33,7 +33,7 @@
   border-radius: 10px;
   background: var(--surface);
   color: #b6493e;
-  font-size: 12px;
+  font-size: var(--font-meta);
 }
 .completion-notification a[aria-disabled='true'] {
   cursor: wait;
@@ -65,7 +65,7 @@
 .completion-notification-label {
   display: block;
   color: var(--accent);
-  font-size: 12px;
+  font-size: var(--font-meta);
   margin-bottom: 5px;
 }
 .completion-notification strong {
@@ -81,7 +81,7 @@
   display: block;
   overflow-wrap: anywhere;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--font-meta);
   margin-top: 6px;
 }
 .completion-notification-open {
@@ -89,7 +89,7 @@
   align-items: center;
   gap: 3px;
   color: var(--accent);
-  font-size: 12px;
+  font-size: var(--font-meta);
   margin-top: 9px;
 }
 .completion-notification-close {

@@ -14,6 +14,7 @@ export function useSessionList({
   subagents,
   workspaces,
   archived,
+  enabled = true,
 }: {
   query: string;
   project: string;
@@ -21,6 +22,7 @@ export function useSessionList({
   subagents: boolean;
   workspaces: ManagedWorkspace[];
   archived?: 'true' | 'false' | 'all';
+  enabled?: boolean;
 }) {
   const [sessions, setSessions] = useState<WorkspaceSession[]>([]),
     [total, setTotal] = useState(0),
@@ -34,6 +36,7 @@ export function useSessionList({
   const activeRequest = useRef<ListRequest | null>(null);
   const fetchList = useCallback(
     (append = false, preserveLoaded = false): Promise<void> => {
+      if (!enabled) return Promise.resolve();
       const key = JSON.stringify([query, project, tab, subagents, workspaceKey, archived]);
       if (preserveLoaded && activeRequest.current?.key === key)
         return activeRequest.current.promise;
@@ -121,7 +124,7 @@ export function useSessionList({
       })();
       return request.promise;
     },
-    [query, project, tab, subagents, workspaceKey, archived],
+    [query, project, tab, subagents, workspaceKey, archived, enabled],
   );
 
   const loadListRef = useRef(fetchList);
@@ -131,6 +134,7 @@ export function useSessionList({
     [],
   );
   useEffect(() => {
+    if (!enabled) return;
     setSessions([]);
     setTotal(0);
     setError('');
@@ -142,6 +146,6 @@ export function useSessionList({
       activeRequest.current?.controller.abort();
       activeRequest.current = null;
     };
-  }, [query, project, tab, subagents, workspaceKey, archived, loadList]);
+  }, [query, project, tab, subagents, workspaceKey, archived, enabled, loadList]);
   return { sessions, total, error, listWarning, listBusy, loadList };
 }

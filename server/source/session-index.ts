@@ -197,6 +197,24 @@ export class SessionIndex {
     await this.refresh();
     return this.sessions.find((s) => s.id === id);
   }
+  async attentionSessions(since: number) {
+    await this.refresh();
+    const active = this.visible(false).filter((session) => !session.archived);
+    const sorted = active.sort((left, right) => right.updatedAt - left.updatedAt);
+    const running = sorted.filter((session) => session.status === 'running');
+    const waiting = sorted.filter((session) => session.status === 'waiting');
+    const ended = sorted.filter((session) =>
+      session.updatedAt >= since && ['completed', 'failed', 'interrupted'].includes(session.status),
+    );
+    const stale = sorted.filter((session) => session.updatedAt >= since && session.status === 'stale');
+    return {
+      running: running.slice(0, 100),
+      waiting: waiting.slice(0, 100),
+      ended: ended.slice(0, 30),
+      stale: stale.slice(0, 30),
+      counts: { running: running.length, waiting: waiting.length, ended: ended.length, stale: stale.length },
+    };
+  }
   async usageSessions() {
     await this.refresh();
     return this.sessions.map((s) => ({ ...publicSession(s), subagent: s.subagent }));

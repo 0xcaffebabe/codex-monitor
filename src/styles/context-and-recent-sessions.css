@@ -7,7 +7,7 @@
   border: 1px solid var(--line);
   border-radius: 6px;
   background: var(--surface2);
-  font-size: 9px;
+  font-size: var(--font-meta);
   min-height: 33px;
   color: var(--muted);
 }
@@ -16,16 +16,16 @@
   align-items: center;
   gap: 6px;
   white-space: nowrap;
-  font-size: 10px;
+  font-size: var(--font-meta);
 }
 .context-values {
   font-family: Consolas, monospace;
   color: var(--ink);
-  font-size: 10px;
+  font-size: var(--font-meta);
 }
 .context-values small {
   font-family: inherit;
-  font-size: 8px;
+  font-size: var(--font-meta);
   color: var(--muted);
 }
 .context-track {
@@ -44,25 +44,25 @@
 }
 .context-meter > strong {
   font-family: Consolas, monospace;
-  font-size: 10px;
+  font-size: var(--font-meta);
   font-weight: 500;
   color: var(--accent);
 }
 .context-meter.elevated .context-track > span {
-  background: #b29149;
+  background: var(--warning);
 }
 .context-meter.elevated > strong {
-  color: #b29149;
+  color: var(--warning);
 }
 .context-meter.near-limit .context-track > span {
-  background: #bf736d;
+  background: var(--danger);
 }
 .context-meter.near-limit > strong {
-  color: #bf736d;
+  color: var(--danger);
 }
 .context-unknown {
   color: var(--muted);
-  font-size: 9px;
+  font-size: var(--font-meta);
 }
 @media (max-width: 760px) {
   .detail-summary .context-meter {
@@ -80,14 +80,14 @@
     display: none;
   }
   .context-values {
-    font-size: 10px;
+    font-size: var(--font-meta);
     white-space: nowrap;
   }
   .detail-summary .context-meter > strong {
     margin-left: auto;
   }
   .context-label {
-    font-size: 10px;
+    font-size: var(--font-meta);
     gap: 4px;
   }
   .message-composer {
@@ -109,7 +109,7 @@
   }
   .message-composer > .control-hint {
     margin: 0 28px 6px 0;
-    font-size: 11px;
+    font-size: var(--font-meta);
     max-height: 60px;
     overflow-y: auto;
   }
@@ -196,7 +196,7 @@
   .message-composer > .prompt-form > .control-notice {
     grid-column: 1 / -1;
     margin: 0;
-    font-size: 11px;
+    font-size: var(--font-meta);
   }
   .message-composer > .prompt-form.has-receipt > .prompt-label {
     grid-column: 2 / -1;
@@ -207,7 +207,7 @@
     justify-content: flex-start;
   }
   .message-composer > .prompt-form > .prompt-actions > .secondary {
-    font-size: 11px;
+    font-size: var(--font-meta);
     padding: 7px 10px;
     min-height: 36px;
   }

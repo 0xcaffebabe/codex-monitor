@@ -58,6 +58,9 @@ export class CodexSource {
   list(query: Parameters<SessionIndex['list']>[0]) {
     return this.index.list(query);
   }
+  attentionSessions(since: number) {
+    return this.index.attentionSessions(since);
+  }
   get(id: string) {
     return this.index.get(id);
   }
@@ -107,7 +110,7 @@ export class CodexSource {
       const stat = statSync(file);
       fingerprint = `${stat.size}-${stat.mtimeMs}`;
     }
-    return JSON.stringify([s.updatedAt, s.status, s.title, fingerprint]);
+    return JSON.stringify([s.updatedAt, s.status, s.title, s.cwd, fingerprint]);
   }
   async detail(id: string, before?: number, limit = 70): Promise<SessionPage | null> {
     const s = await this.get(id);

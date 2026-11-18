@@ -8,7 +8,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  font-size: 12px;
+  font-size: var(--font-meta);
 }
 .composer-heading .icon-button {
   width: 25px;
@@ -26,7 +26,7 @@
   margin: 5px 0 10px;
 }
 .common-commands > .muted {
-  font-size: 10px;
+  font-size: var(--font-meta);
   line-height: 30px;
   margin-left: auto;
 }
@@ -34,7 +34,7 @@
 .goal-actions .secondary {
   min-height: 28px;
   padding: 5px 9px;
-  font-size: 11px;
+  font-size: var(--font-meta);
   gap: 6px;
 }
 .command-action {
@@ -73,7 +73,7 @@
   display: flex;
   flex-direction: column;
   gap: 8px;
-  font-size: 12px;
+  font-size: var(--font-meta);
   color: var(--muted);
 }
 .message-composer > .prompt-form > .prompt-label {
@@ -88,7 +88,7 @@
   border-radius: 9px;
   padding: 11px 12px;
   background: var(--surface2);
-  color: var(--text);
+  color: var(--ink);
   font: inherit;
   font-size: 13px;
 }
@@ -109,7 +109,7 @@
   justify-content: flex-end;
   flex-wrap: wrap;
   gap: 8px;
-  font-size: 11px;
+  font-size: var(--font-meta);
 }
 .prompt-actions > .muted {
   margin-right: auto;
@@ -124,14 +124,14 @@
   width: 38px;
   height: 38px;
   border: 1px solid var(--line);
-  color: #c44b44;
+  color: var(--danger);
 }
 .stop-turn-action > .icon-button:disabled {
   cursor: default;
   color: var(--muted);
 }
 .stop-turn-action > .icon-button:hover:not(:disabled) {
-  background: #c44b4414;
+  background: var(--danger-bg);
 }
 .message-composer > .control-notice {
   grid-column: 1 / -1;
@@ -140,13 +140,13 @@
 .control-error,
 .control-hint,
 .control-notice {
-  font-size: 12px;
+  font-size: var(--font-meta);
   line-height: 1.6;
   margin: 2px 0 8px;
   overflow-wrap: anywhere;
 }
 .control-error {
-  color: #c44b44;
+  color: var(--danger);
 }
 .control-hint {
   color: var(--muted);
@@ -213,7 +213,7 @@
   gap: 6px;
   min-height: 32px;
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--font-meta);
   cursor: pointer;
 }
 .composer-desktop-channel input {
@@ -320,7 +320,7 @@
   margin: 8px 0;
 }
 .approval-request dt {
-  font-size: 12px;
+  font-size: var(--font-meta);
   color: var(--muted);
   margin-top: 8px;
 }
@@ -336,7 +336,7 @@
   overflow: auto;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-  font-size: 12px;
+  font-size: var(--font-meta);
 }
 .approval-actions {
   flex-wrap: wrap;

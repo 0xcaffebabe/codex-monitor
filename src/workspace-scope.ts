@@ -3,6 +3,7 @@ let requests = new AbortController();
 const scopedRoute = /^\/api\/(?:overview|sessions|control|uploads|usage|stream)(?:[/?]|$)/;
 const navigationEvent = 'monitor:navigate';
 const navigationListeners = new Set<() => void>();
+export const currentWorkspace = () => active;
 const notifyNavigation = () => {
   // One browser listener keeps workspace and session updates in the same batch.
   for (const listener of navigationListeners) listener();

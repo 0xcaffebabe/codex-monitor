@@ -10,7 +10,7 @@
     padding-right: 12px;
   }
   .image-lightbox > header {
-    font-size: 10px;
+    font-size: var(--font-meta);
     padding: 0 15px;
   }
   .running-switcher-scrim,
@@ -19,7 +19,7 @@
     display: block;
     position: fixed;
     inset: 0;
-    background: #102c2426;
+    background: #0004;
     z-index: 19;
     cursor: default;
   }
@@ -31,29 +31,30 @@
     align-items: stretch;
     border-radius: 13px;
     gap: 0;
-    box-shadow: 0 8px 35px #17352c33;
+    box-shadow: var(--shadow);
   }
   .running-switcher.collapsed {
-    width: 44px;
-    right: 5px;
-    padding: 0;
-    border-radius: 11px;
-    max-height: none;
+    position: static;
+    transform: none;
+    width: auto;
+    border: 0;
+    background: transparent;
+    box-shadow: none;
+    z-index: auto;
   }
   .running-launcher {
     display: flex;
-    flex-direction: column;
     align-items: center;
     justify-content: center;
     gap: 4px;
-    width: 42px;
-    height: 49px;
-    color: var(--accent);
-    border-radius: 11px;
-    background: var(--surface);
+    min-width: 44px;
+    height: 44px;
+    padding: 0 5px;
+    color: var(--success);
+    border-radius: 7px;
   }
   .running-launcher > span {
-    font-size: 10px;
+    font-size: var(--font-meta);
     font-family: Consolas, monospace;
   }
   .running-switcher-header {
@@ -67,21 +68,21 @@
     display: flex;
     align-items: center;
     gap: 7px;
-    font-size: 12px;
+    font-size: var(--font-meta);
     font-weight: 600;
   }
   .running-switcher-header strong > svg {
     color: var(--accent);
   }
   .running-switcher-header strong > span {
-    font-size: 10px;
+    font-size: var(--font-meta);
     font-weight: 400;
     color: var(--muted);
     margin-left: 2px;
   }
   .running-switcher-header .icon-button {
-    height: 28px;
-    width: 28px;
+    height: 44px;
+    width: 44px;
   }
   .running-switcher-list {
     padding: 7px;
@@ -102,7 +103,7 @@
     gap: 6px;
     margin: 0;
     padding: 8px 9px;
-    font-size: 10px;
+    font-size: var(--font-meta);
     font-weight: 400;
     color: var(--muted);
   }
@@ -120,7 +121,7 @@
   }
   .running-workspace-header > small {
     color: var(--accent);
-    font-size: 9px;
+    font-size: var(--font-meta);
     white-space: nowrap;
   }
   .running-workspace-sessions {
@@ -146,7 +147,7 @@
     background: var(--surface2);
     border: 1px solid var(--line);
     border-radius: 5px;
-    font-size: 10px;
+    font-size: var(--font-meta);
     font-family: Consolas, monospace;
     height: 24px;
     line-height: 1;
@@ -162,7 +163,7 @@
     gap: 8px;
   }
   .running-shortcut-body > strong {
-    font-size: 12px;
+    font-size: var(--font-ui);
     font-weight: 550;
     line-height: 1.8;
     color: var(--ink);
@@ -172,7 +173,7 @@
     display: flex;
     align-items: center;
     gap: 5px;
-    font-size: 9px;
+    font-size: var(--font-meta);
     line-height: 1.6;
     color: var(--muted);
     flex-wrap: wrap;
@@ -197,8 +198,5 @@
   .running-shortcut.active .running-index {
     color: var(--accent);
     background: var(--accent-bg);
-  }
-  .app-shell:has(.running-switcher:not(.collapsed)) .timeline {
-    padding-right: 19px;
   }
 }

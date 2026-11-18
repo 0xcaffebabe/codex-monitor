@@ -53,7 +53,12 @@ export function Timeline({
             </div>
           ) : (
             <>
-              {page?.before !== null && page?.before !== undefined && (
+              {find && (
+                <p className="timeline-search-status" role="status">
+                  {events.length} 条匹配 · {page?.before == null ? '全部记录' : '已加载记录'}
+                </p>
+              )}
+              {page?.before != null && (
                 <button
                   className="load-earlier"
                   disabled={olderBusy}
@@ -65,15 +70,19 @@ export function Timeline({
                     ? '正在加载更早的记录…'
                     : olderFailed || error
                       ? '重试加载更早的记录'
-                      : '加载更早的记录'}
+                      : find
+                        ? '加载更早的记录并搜索'
+                        : '加载更早的记录'}
                   <span>{page.total} 条原始记录</span>
                 </button>
               )}
-              <div className="timeline-date">
-                <span />
-                {session ? `${date(session.createdAt)} · ${time(session.createdAt)} 开始` : ''}
-                <span />
-              </div>
+              {!find && (
+                <div className="timeline-date">
+                  <span />
+                  {session ? `${date(session.createdAt)} · ${time(session.createdAt)} 开始` : ''}
+                  <span />
+                </div>
+              )}
               {!events.length && (
                 <div className="empty">
                   <Search size={24} />
@@ -100,7 +109,7 @@ export function Timeline({
                   />
                 ) : null,
               )}
-              {session?.status === 'running' && (
+              {session?.status === 'running' && !find && (
                 <div className="working-indicator">
                   <span className="assistant-avatar">
                     <Code2 size={17} />
@@ -119,7 +128,7 @@ export function Timeline({
         </div>
       </div>
       {children}
-      {!follow && (
+      {!follow && !find && (
         <button className="jump-latest" onClick={jumpToLatest}>
           <ArrowDown size={14} />
           回到最新

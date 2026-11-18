@@ -61,7 +61,7 @@ export default function GitDiff({
       <header className="git-diff-header">
         <FileDiff size={21} />
         <div>
-          <h2 id="git-diff-heading">代码变更</h2>
+          <h2 id="git-diff-heading">工作区变更</h2>
           <p title={model.status?.root || session.cwd}>{model.status?.root || session.cwd}</p>
         </div>
         <button

@@ -89,7 +89,9 @@ async function enter(page: Page, request: APIRequestContext, query = '') {
       ).ok(),
     ).toBeTruthy();
   await page.addInitScript((token) => localStorage.setItem('codex-monitor.auth.v1', token), token);
-  await page.goto('/?' + query);
+  const search = new URLSearchParams(query);
+  if (!search.has('session') && !search.has('view')) search.set('view', 'all');
+  await page.goto('/?' + search);
   await expect(page.getByLabel('切换工作空间')).toBeVisible();
   return token;
 }
@@ -266,7 +268,7 @@ test('new sessions select a workspace, load its projects and create on that clie
     'remote-new-session.txt',
   );
   await expect(page).toHaveURL(new RegExp(`workspace=${second}&session=${receipt.threadId}`));
-  expect(new URL(page.url()).searchParams.has('view')).toBe(false);
+  expect(new URL(page.url()).searchParams.get('view')).toBe('all');
   expect(
     (
       await request.get(`/api/workspaces/local/sessions/${receipt.threadId}`, {
@@ -337,7 +339,7 @@ test('new sessions retain separate drafts across workspace changes and refreshes
   await expect(composer.getByRole('button', { name: '创建并发送' })).toBeEnabled();
   await page.getByTitle('返回会话列表').click();
   await expect(composer).toHaveCount(0);
-  expect(new URL(page.url()).searchParams.has('view')).toBe(false);
+  expect(new URL(page.url()).searchParams.get('view')).toBe('all');
 });
 
 test('session records search all workspaces and retain the query when opening identical session IDs', async ({
@@ -379,140 +381,6 @@ test('session records search all workspaces and retain the query when opening id
     path: test.info().outputPath('global-session-records-search.png'),
     fullPage: true,
   });
-});
-
-test('running project filters switch across workspaces and preserve search and session details', async ({
-  page,
-  request,
-  isMobile,
-}) => {
-  await page.route('**/api/workspaces/*/sessions?*', async (route) => {
-    const url = new URL(route.request().url());
-    const source = new URL(url);
-    source.searchParams.delete('project');
-    const response = await route.fetch({ url: source.href });
-    const body = await response.json();
-    if (url.pathname.includes(second))
-      for (const session of body.sessions)
-        if (session.id === ids.modern) {
-          session.cwd = 'D:/project/sample-project';
-          session.project = 'sample-project';
-        }
-    const project = url.searchParams.get('project');
-    if (project)
-      body.sessions = body.sessions.filter((session: Session) => session.cwd === project);
-    await route.fulfill({
-      response,
-      json: { ...body, total: body.sessions.length, hasMore: false },
-    });
-  });
-  await enter(page, request, 'workspace=local');
-  const filters = page.getByRole('group', { name: '进行中项目筛选' });
-  const all = filters.getByRole('button', { name: '全部项目', exact: true });
-  const localProject = filters.getByRole('button', {
-    name: '筛选项目：codex-monitor',
-    exact: true,
-  });
-  const remoteProject = filters.getByRole('button', {
-    name: '筛选项目：sample-project',
-    exact: true,
-  });
-  const rows = page.getByTestId('session-row');
-  await expect(all).toHaveAttribute('aria-pressed', 'true');
-  await expect(localProject.locator('.running-project-count')).toHaveText('1');
-  await expect(remoteProject.locator('.running-project-count')).toHaveText('1');
-  await remoteProject.click();
-  await expect(rows).toHaveCount(3);
-  await expect(rows.filter({ hasText: '第二台电脑的独立会话' })).toHaveCount(1);
-  await expect(localProject).toBeVisible();
-  await expect(remoteProject).toHaveAttribute('aria-pressed', 'true');
-  expect(new URL(page.url()).searchParams.get('project')).toBe('D:/project/sample-project');
-  await page.reload();
-  await expect(remoteProject).toHaveAttribute('aria-pressed', 'true');
-  const search = page.getByLabel('搜索会话', { exact: true });
-  await search.fill('旧版本');
-  await expect(rows).toHaveCount(2);
-  await localProject.click();
-  await expect(rows).toHaveCount(0);
-  await expect(search).toHaveValue('旧版本');
-  await all.click();
-  await expect(rows).toHaveCount(2);
-  await expect(search).toHaveValue('旧版本');
-  await page.getByTitle('清除搜索', { exact: true }).click();
-  await localProject.click();
-  await rows.filter({ hasText: '开发 codex-monitor 实时监控' }).click();
-  await expect(page.locator('.detail-heading')).toContainText('开发 codex-monitor 实时监控');
-  if (isMobile) await page.getByTitle('返回会话列表', { exact: true }).click();
-  await remoteProject.click();
-  await expect(remoteProject).toHaveAttribute('aria-pressed', 'true');
-  await expect(rows).toHaveCount(3);
-  if (!isMobile) {
-    await expect(page.locator('.detail-heading')).toContainText('开发 codex-monitor 实时监控');
-    expect(new URL(page.url()).searchParams.get('session')).toBe(ids.modern);
-    await page.screenshot({ path: test.info().outputPath('running-project-filters-compact.png') });
-  }
-  await remoteProject.click();
-  await expect(all).toHaveAttribute('aria-pressed', 'true');
-  expect(new URL(page.url()).searchParams.has('project')).toBe(false);
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-});
-
-test('running project filters refresh independently and keep the selected project clearable', async ({
-  page,
-  request,
-}) => {
-  let mode: 'running' | 'completed' | 'empty' = 'running';
-  await page.route('**/api/workspaces/*/sessions?*', async (route) => {
-    const url = new URL(route.request().url());
-    if (url.searchParams.has('q')) return route.continue();
-    const response = await route.fetch();
-    const body = await response.json();
-    const remote = url.pathname.includes(second);
-    const template = body.sessions[0];
-    const sessions =
-      mode === 'empty' || (remote && mode === 'completed')
-        ? []
-        : remote
-          ? Array.from({ length: 8 }, (_, index) => ({
-              ...template,
-              id: `${template.id}-${index}`,
-              cwd: `/remote/very-long-project-name-${index}`,
-              project: `very-long-project-name-${index}`,
-            }))
-          : body.sessions;
-    await route.fulfill({
-      response,
-      json: { ...body, sessions, total: sessions.length, hasMore: false },
-    });
-  });
-  await page.clock.install();
-  await enter(page, request, 'workspace=local');
-  const filters = page.getByRole('group', { name: '进行中项目筛选' });
-  const all = filters.getByRole('button', { name: '全部项目', exact: true });
-  const remote = filters.getByRole('button', {
-    name: '筛选项目：very-long-project-name-7',
-    exact: true,
-  });
-  await expect(filters.getByRole('button')).toHaveCount(10);
-  await remote.click();
-  await expect(remote).toHaveAttribute('aria-pressed', 'true');
-  await expect(all).toBeInViewport();
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-  await page.screenshot({ path: test.info().outputPath('running-project-filters-overflow.png') });
-  mode = 'completed';
-  await page.clock.fastForward(3000);
-  await expect(remote.locator('.running-project-count')).toHaveText('0');
-  await expect(remote).toHaveAttribute('aria-pressed', 'true');
-  await expect(filters.getByRole('button')).toHaveCount(3);
-  await all.click();
-  await expect(remote).toHaveCount(0);
-  mode = 'running';
-  await page.clock.fastForward(3000);
-  await expect(remote.locator('.running-project-count')).toHaveText('1');
-  await expect(filters.getByRole('button')).toHaveCount(10);
-  mode = 'empty';
-  await page.clock.fastForward(3000);
-  await expect(filters).toHaveCount(0);
 });
 
 test('session records merge workspace pages, preserve loaded results and recover unavailable workspaces', async ({
@@ -593,143 +461,12 @@ test('session records merge workspace pages, preserve loaded results and recover
   await expect(rows.first()).toContainText('远端最新活动');
 });
 
-test('mobile running shortcuts group workspaces and open identical session IDs in the right client', async ({
-  page,
-  request,
-}) => {
-  test.skip(test.info().project.name !== 'mobile', 'The fixed running switcher is mobile only');
-  await enter(page, request, `workspace=local&session=${ids.modern}`);
-  const shortcuts = page.getByRole('navigation', { name: '正在进行的会话快捷切换' });
-  const local = shortcuts.getByRole('region', { name: '本机工作空间的进行中会话' });
-  const remote = shortcuts.getByRole('region', { name: '第二台测试电脑的进行中会话' });
-  await expect(shortcuts.locator('.running-launcher')).toHaveText('2');
-  await page.getByTitle('展开正在进行的会话').click();
-  await expect(local.getByRole('heading')).toContainText('当前空间');
-  await expect(local.getByRole('button')).toHaveAttribute('aria-current', 'page');
-  await expect(remote.getByRole('button')).not.toHaveAttribute('aria-current');
-  await expect(remote.getByRole('button')).toContainText('第二台电脑的独立会话');
-  await remote.getByRole('button').click();
-  await expect(page).toHaveURL(new RegExp(`workspace=${second}&session=${ids.modern}`));
-  await expect(page.locator('.detail-heading')).toContainText('第二台电脑的独立会话');
-  await expect(shortcuts).toHaveClass(/collapsed/);
-  await page.getByTitle('展开正在进行的会话').click();
-  await expect(remote.getByRole('heading')).toContainText('当前空间');
-  await expect(remote.getByRole('button')).toHaveAttribute('aria-current', 'page');
-  await expect(local.getByRole('button')).not.toHaveAttribute('aria-current');
-  await local.getByRole('button').click();
-  await expect(page).toHaveURL(new RegExp(`workspace=local&session=${ids.modern}`));
-  await expect(page.locator('.detail-heading')).toContainText('开发 codex-monitor');
-});
-
-test('mobile running shortcuts update activity times, hide empty workspaces and recover their lists', async ({
-  page,
-  request,
-}) => {
-  test.skip(test.info().project.name !== 'mobile', 'The fixed running switcher is mobile only');
-  const now = Date.now();
-  let mode: 'running' | 'empty' | 'error' | 'offline' | 'all-empty' | 'all-error' = 'running';
-  await page.route('**/api/workspaces', async (route) => {
-    const response = await route.fetch();
-    const body = await response.json();
-    if (mode === 'offline')
-      body.workspaces.find((workspace: { id: string }) => workspace.id === second).online = false;
-    await route.fulfill({ response, json: body });
-  });
-  await page.route('**/api/workspaces/*/sessions?*', async (route) => {
-    const url = new URL(route.request().url());
-    if (url.searchParams.get('status') !== 'running') return route.continue();
-    const remote = url.pathname.includes(second);
-    if ((remote && mode === 'error') || mode === 'all-error')
-      return route.fulfill({ status: 503, json: { error: '测试连接失败' } });
-    const response = await route.fetch();
-    const body = await response.json();
-    if ((remote && mode === 'empty') || mode === 'all-empty') {
-      body.sessions = [];
-      body.total = 0;
-    }
-    for (const session of body.sessions) session.updatedAt = now - (remote ? 125000 : 5000);
-    await route.fulfill({ response, json: body });
-  });
-  await page.clock.install({ time: now });
-  await enter(page, request, 'workspace=local');
-  const shortcuts = page.getByRole('navigation', { name: '正在进行的会话快捷切换' });
-  await expect(shortcuts.locator('.running-launcher')).toHaveText('2');
-  await page.getByTitle('展开正在进行的会话').click();
-  const local = shortcuts.getByRole('region', { name: '本机工作空间的进行中会话' });
-  const remote = shortcuts.getByRole('region', { name: '第二台测试电脑的进行中会话' });
-  const localTime = local.locator('time');
-  await expect(localTime).toHaveText(/^\d+ 秒前$/);
-  await expect(remote.locator('time')).toHaveText('2 分钟前');
-  await expect(localTime).toHaveAttribute('datetime', new Date(now - 5000).toISOString());
-  await expect(localTime).toHaveAttribute('title', /^最后活跃：/);
-  const initialTime = await localTime.textContent();
-  await page.clock.fastForward(1000);
-  await expect(localTime).not.toHaveText(initialTime!);
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-  await page.screenshot({
-    path: test.info().outputPath('all-workspaces-running.png'),
-    fullPage: true,
-  });
-  await page.clock.fastForward(60000);
-  await expect(localTime).toHaveText('1 分钟前');
-  mode = 'empty';
-  await page.clock.fastForward(3000);
-  await expect(remote).toHaveCount(0);
-  await expect(shortcuts.locator('.running-switcher-header')).toContainText('1');
-  await expect(local.getByRole('button')).toHaveCount(1);
-  await page.screenshot({
-    path: test.info().outputPath('running-shortcuts-hide-empty-workspaces.png'),
-    fullPage: true,
-  });
-  mode = 'running';
-  await page.clock.fastForward(3000);
-  await expect(remote.getByRole('button')).toHaveCount(1);
-  mode = 'error';
-  await page.clock.fastForward(3000);
-  await expect(remote).toHaveCount(0);
-  await expect(local.getByRole('button')).toHaveCount(1);
-  mode = 'running';
-  await page.clock.fastForward(3000);
-  await expect(remote.getByRole('button')).toHaveCount(1);
-  mode = 'offline';
-  await page.clock.fastForward(3000);
-  await expect(remote).toHaveCount(0);
-  mode = 'running';
-  await page.clock.fastForward(3000);
-  await expect(remote.getByRole('button')).toHaveCount(1);
-  await expect(shortcuts.locator('.running-switcher-header')).toContainText('2');
-  mode = 'all-empty';
-  await page.clock.fastForward(3000);
-  await expect(shortcuts).toHaveCount(0);
-  await expect(page.getByRole('button', { name: '关闭运行会话列表', exact: true })).toHaveCount(0);
-  mode = 'running';
-  await page.clock.fastForward(3000);
-  await expect(local.getByRole('button')).toHaveCount(1);
-  await expect(remote.getByRole('button')).toHaveCount(1);
-  mode = 'all-error';
-  await page.clock.fastForward(3000);
-  await expect(shortcuts).toHaveCount(0);
-  await expect(page.getByRole('button', { name: '关闭运行会话列表', exact: true })).toHaveCount(0);
-});
-
-test('shows real host CPU and memory for connected clients in the header and management list', async ({
+test('shows real host CPU and memory in the management list, not in the header', async ({
   page,
   request,
 }) => {
   await enter(page, request, `workspace=local&session=${ids.modern}`);
-  const summary = page
-    .locator('.workspace-selector')
-    .getByRole('group', { name: '本机工作空间整机资源' });
-  await expect(summary).toContainText(/CPU\s*\d+\.\d%/, { timeout: 15000 });
-  await expect(summary).toContainText(/内存\s*\d+\.\d%/);
-  const header = page.locator('.topbar');
-  const headerBox = await header.boundingBox();
-  const summaryBox = await summary.boundingBox();
-  expect(summaryBox!.y + summaryBox!.height).toBeLessThanOrEqual(headerBox!.y + headerBox!.height);
-  await page.screenshot({
-    path: test.info().outputPath('host-resources-header.png'),
-    fullPage: true,
-  });
+  await expect(page.locator('.topbar').getByRole('group', { name: '本机工作空间整机资源' })).toHaveCount(0);
   await page.getByRole('button', { name: '管理工作空间', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: '管理工作空间' });
   for (const name of ['本机工作空间', '第二台测试电脑']) {
@@ -769,8 +506,9 @@ test('hides stale and offline values, expires a sample without another response,
     await route.fulfill({ response, json: body });
   });
   await enter(page, request, 'workspace=local');
+  await page.getByRole('button', { name: '管理工作空间', exact: true }).click();
   const summary = page
-    .locator('.workspace-selector')
+    .getByRole('dialog', { name: '管理工作空间' })
     .getByRole('group', { name: '本机工作空间整机资源' });
   await expect(summary).toContainText('CPU 23.5%');
   await expect(summary).toContainText('内存 75.0%');

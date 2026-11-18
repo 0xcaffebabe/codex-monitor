@@ -18,6 +18,7 @@ import { frameSchema, workspacePath } from '../server/transport/protocol.js';
 const webhook =
   'https://open.larksuite.com/open-apis/bot/v2/hook/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
 const settings = {
+  completionMode: 'all',
   enabled: true,
   provider: 'lark',
   webhookUrl: webhook,

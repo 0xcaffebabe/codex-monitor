@@ -6,33 +6,14 @@
   background: var(--surface);
 }
 .login-art {
-  background: #172923;
-  color: #eff7f1;
+  background: var(--sidebar);
+  color: var(--ink);
+  border-right: 1px solid var(--line);
   padding: 45px 55px;
   display: flex;
   flex-direction: column;
   position: relative;
   overflow: hidden;
-}
-.login-art:before {
-  content: '';
-  position: absolute;
-  width: 650px;
-  height: 650px;
-  bottom: -350px;
-  right: -260px;
-  border: 1px solid #ffffff0c;
-  border-radius: 50%;
-  box-shadow:
-    0 0 0 80px #ffffff03,
-    0 0 0 160px #ffffff03;
-  pointer-events: none;
-}
-.login-art .brand small {
-  color: #a0b4a4;
-}
-.login-art .brand-symbol {
-  background: #325043;
 }
 .login-copy {
   margin: auto 0;
@@ -41,36 +22,36 @@
   padding: 60px 0;
 }
 .login-copy .eyebrow {
-  color: #a1c6ad;
-  font-size: 10px;
+  color: var(--muted);
+  font-size: var(--font-meta);
   display: flex;
   align-items: center;
   gap: 9px;
 }
 .login-copy h1 {
-  font-size: clamp(30px, 3.8vw, 52px);
+  font-size: 2rem;
   line-height: 1.4;
-  letter-spacing: -1.8px;
+  letter-spacing: 0;
   font-weight: 550;
   margin: 24px 0;
 }
 .login-copy h1 > span {
-  color: #95d9ae;
+  color: var(--ink);
 }
 .login-copy > p {
   font-size: 13px;
   line-height: 1.95;
-  color: #9dafaa;
+  color: var(--muted);
 }
 .art-terminal {
   margin-top: 38px;
-  border: 1px solid #ffffff18;
+  border: 1px solid var(--line);
   border-radius: 10px;
-  background: #0d1b1799;
+  background: var(--surface);
   max-width: 410px;
   box-shadow: 0 20px 40px #00000010;
   font-family: 'Cascadia Code', Consolas, monospace;
-  font-size: 11px;
+  font-size: var(--font-meta);
   line-height: 2.3;
   overflow: hidden;
 }
@@ -78,10 +59,10 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  border-bottom: 1px solid #ffffff0c;
+  border-bottom: 1px solid var(--line);
   height: 35px;
   padding: 0 13px;
-  color: #7e9589;
+  color: var(--muted);
 }
 .terminal-bar > span {
   width: 6px;
@@ -98,27 +79,27 @@
 .terminal-bar small {
   margin-left: 10px;
   flex: 1;
-  font-size: 9px;
-  letter-spacing: 0.3px;
+  font-size: var(--font-meta);
+  letter-spacing: 0;
 }
 .art-terminal > div:last-child {
   padding: 17px 15px 20px;
-  color: #c3d3c7;
+  color: var(--ink);
 }
 .terminal-muted {
-  color: #486256;
+  color: var(--muted);
   margin-right: 12px;
 }
 .terminal-green {
-  color: #9fdbaf;
+  color: var(--success);
   margin-right: 9px;
 }
 .login-foot {
   display: flex;
   gap: 8px;
   align-items: center;
-  color: #7d9a88;
-  font-size: 11px;
+  color: var(--muted);
+  font-size: var(--font-meta);
   position: relative;
 }
 .login-main {
@@ -135,7 +116,7 @@
 .login-form > .eyebrow {
   display: block;
   margin-top: 26px;
-  font-size: 9px;
+  font-size: var(--font-meta);
 }
 .login-icon {
   width: 48px;
@@ -149,19 +130,19 @@
 }
 .login-form h2 {
   font-size: 26px;
-  letter-spacing: -0.8px;
+  letter-spacing: 0;
   font-weight: 650;
   margin: 12px 0 10px;
 }
 .login-form > p {
-  font-size: 12px;
+  font-size: var(--font-meta);
   color: var(--muted);
   margin-bottom: 30px;
   line-height: 1.9;
 }
 .login-form label:not(.checkbox) {
   display: block;
-  font-size: 12px;
+  font-size: var(--font-meta);
   font-weight: 550;
   margin: 20px 0;
 }
@@ -175,22 +156,22 @@
   border: 1px solid var(--line);
   border-radius: 7px;
   padding: 0 12px;
-  font-size: 12px;
+  font-size: var(--font-meta);
   box-shadow: 0 1px 2px #00000002;
 }
 .login-form input::placeholder {
-  color: #a2aaae;
+  color: var(--muted);
 }
 .checkbox {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 11px;
-  color: #61706c;
+  font-size: var(--font-meta);
+  color: var(--muted);
   margin: 22px 0;
 }
 .checkbox input {
-  accent-color: #287457;
+  accent-color: var(--accent);
   width: 14px;
   height: 14px;
   margin: 0;
@@ -198,7 +179,7 @@
 .checkbox span {
   margin-left: auto;
   color: var(--muted);
-  font-size: 10px;
+  font-size: var(--font-meta);
 }
 .login-submit {
   width: 100%;
@@ -213,7 +194,7 @@
   align-items: flex-start;
   gap: 8px;
   color: var(--muted);
-  font-size: 10px;
+  font-size: var(--font-meta);
   line-height: 1.8;
 }
 .login-security svg {
@@ -225,8 +206,8 @@
 .login-main > footer {
   position: absolute;
   bottom: 26px;
-  font-size: 10px;
-  letter-spacing: 0.4px;
+  font-size: var(--font-meta);
+  letter-spacing: 0;
   color: var(--muted);
 }
 .login-main > footer span {
@@ -234,7 +215,7 @@
   padding: 2px 5px;
   margin-left: 7px;
   border-radius: 4px;
-  font-size: 9px;
+  font-size: var(--font-meta);
 }
 .login-mobile-brand {
   display: none;

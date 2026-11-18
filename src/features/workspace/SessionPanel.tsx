@@ -12,25 +12,22 @@ import {
 } from 'lucide-react';
 import { cx } from '../../shared/format';
 import type { User } from '../../types';
-import type { RunningWorkspace } from '../workspaces/useRunningSessions';
-import { RunningProjectFilters } from './RunningProjectFilters';
 import { SessionRows } from './SessionRows';
 import type { WorkspaceModel } from './useWorkspace';
 
 export function SessionPanel({
   user,
   model,
-  runningWorkspaces,
   onSessionSelected,
 }: {
   user: User;
-  runningWorkspaces: RunningWorkspace[];
   onSessionSelected?: () => void;
   model: Pick<
     WorkspaceModel,
     | 'selected'
     | 'workspaceId'
     | 'total'
+    | 'title'
     | 'subagents'
     | 'setSubagents'
     | 'group'
@@ -40,7 +37,6 @@ export function SessionPanel({
     | 'setQ'
     | 'tab'
     | 'changeTab'
-    | 'project'
     | 'setProject'
     | 'error'
     | 'listWarning'
@@ -57,6 +53,7 @@ export function SessionPanel({
     selected,
     workspaceId,
     total,
+    title,
     subagents,
     setSubagents,
     group,
@@ -66,7 +63,6 @@ export function SessionPanel({
     setQ,
     tab,
     changeTab,
-    project,
     setProject,
     error,
     listWarning,
@@ -87,7 +83,7 @@ export function SessionPanel({
     >
       <div className="list-toolbar">
         <div className="list-heading">
-          <h2>会话记录</h2>
+          {hasDetail ? <h2>会话记录</h2> : <h1 className="history-heading">{title}</h1>}
           <span className="count">{total}</span>
           {!hasDetail && <span className="muted list-hint">全部工作空间 · 最近活动优先</span>}
         </div>
@@ -140,9 +136,7 @@ export function SessionPanel({
         <input
           ref={searchRef}
           aria-label="搜索会话"
-          placeholder={
-            hasDetail ? '搜索全部空间的会话…' : '搜索全部空间的标题、项目、首条消息或会话 ID…'
-          }
+          placeholder="搜索所有工作空间的会话"
           maxLength={200}
           value={q}
           onChange={(e) => setQ(e.target.value)}
@@ -155,11 +149,6 @@ export function SessionPanel({
           <kbd>/</kbd>
         )}
       </div>
-      <RunningProjectFilters
-        workspaces={runningWorkspaces}
-        project={project}
-        onProjectChange={setProject}
-      />
       {!hasDetail && (
         <div className="filter-row">
           <div className="filter-tabs">

@@ -1,11 +1,11 @@
 @media (max-width: 760px) {
   .workspace-footer {
     padding: 15px 17px calc(15px + env(safe-area-inset-bottom));
-    font-size: 7px;
-    letter-spacing: 0.3px;
+    font-size: var(--font-meta);
+    letter-spacing: 0;
   }
   .workspace-footer > span:last-child {
-    font-size: 8px;
+    font-size: var(--font-meta);
   }
   .workspace-footer .muted {
     display: none;
@@ -17,24 +17,21 @@
     margin: 0;
   }
   .detail-header {
-    padding: 4px 12px;
+    padding: 2px var(--mobile-gutter);
     gap: 4px;
-    min-height: 48px;
+    min-height: 50px;
     flex-shrink: 0;
   }
   .detail-heading h1 {
     margin: 0;
-    font-size: 14px;
+    font-size: 1.125rem;
     white-space: nowrap;
     display: block;
     line-height: 1.5;
   }
-  .detail-heading .eyebrow {
-    display: none;
-  }
   .detail-header > .icon-button {
-    width: 36px;
-    height: 36px;
+    width: 44px;
+    height: 44px;
   }
   .detail-header .back-button {
     margin-left: -4px;
@@ -59,8 +56,8 @@
   .detail-summary {
     display: flex;
     align-items: center;
-    gap: 10px;
-    padding: 0 12px 4px;
+    gap: 8px;
+    padding: 0;
     min-height: 32px;
     flex-shrink: 0;
   }
@@ -72,10 +69,11 @@
     display: inline-flex;
     align-items: center;
     gap: 3px;
-    min-height: 32px;
-    padding: 0 2px 0 6px;
+    min-height: 44px;
+    min-width: 44px;
+    padding: 0 2px;
     color: var(--muted);
-    font-size: 11px;
+    font-size: var(--font-meta);
     flex-shrink: 0;
   }
   .detail-info-toggle[aria-expanded='true'] {
@@ -90,11 +88,11 @@
   .detail-meta {
     padding: 0 16px 10px;
     gap: 7px;
-    font-size: 8px;
+    font-size: var(--font-meta);
   }
   .path-chip {
     max-width: 100%;
-    font-size: 9px;
+    font-size: var(--font-meta);
     flex: 1 1 100%;
     width: max-content;
     margin-bottom: 3px;
@@ -104,29 +102,32 @@
   .detail-meta > span:nth-last-child(2) {
     display: initial;
   }
-  .conversation-toolbar {
-    padding: 0 12px;
-    height: 40px;
-    gap: 12px;
+  .detail-toolbar {
+    flex-wrap: wrap;
+    gap: 0 12px;
+    padding: 0 var(--mobile-gutter) 3px;
   }
   .conversation-label {
-    font-size: 11px;
+    display: none;
+  }
+  .conversation-toolbar {
+    flex: 1 1 140px;
   }
   .detail-search {
     display: flex;
     flex: 1;
-    max-width: 130px;
+    min-height: 40px;
   }
   .detail-search input {
     width: 0;
     flex: 1;
-    font-size: 12px;
+    font-size: var(--font-meta);
   }
   .detail-search > svg {
     flex-shrink: 0;
   }
   .detail-search .icon-button {
-    width: 24px;
-    height: 30px;
+    width: 40px;
+    height: 40px;
   }
 }

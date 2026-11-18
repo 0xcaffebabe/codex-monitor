@@ -1,61 +1,34 @@
-import { ChevronDown, GitBranch, LoaderCircle, RefreshCw, X } from 'lucide-react';
+import { GitBranch, LoaderCircle, RefreshCw, X } from 'lucide-react';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { Session } from '../../types';
+import type { AttentionSession } from '../../attention-types';
 import { useGitBranches } from './useGitBranches';
 
-export function GitBranchSelector({ session }: { session: Session }) {
-  const model = useGitBranches(session.id);
-  const [open, setOpen] = useState(false);
-  return (
-    <>
-      <button
-        className="session-branch-trigger"
-        aria-label="选择 Git 分支"
-        aria-haspopup="dialog"
-        title={
-          model.data
-            ? `当前分支：${model.data.branch}${model.data.detached ? '（分离 HEAD）' : ''}`
-            : model.error || '正在读取 Git 分支'
-        }
-        onClick={() => {
-          setOpen(true);
-          void model.refresh();
-        }}
-      >
-        {model.loading && !model.data ? (
-          <LoaderCircle size={12} className="spin" />
-        ) : (
-          <GitBranch size={12} />
-        )}
-        <span>{model.data?.branch || (model.error ? 'Git 不可用' : '读取分支…')}</span>
-        <ChevronDown size={12} />
-      </button>
-      {open && <BranchDialog session={session} model={model} onClose={() => setOpen(false)} />}
-    </>
-  );
-}
-
-function BranchDialog({
-  session,
-  model,
-  onClose,
-}: {
+export function ProjectBranchDialog({ session, workspaceName, activeSessions, onClose }: {
   session: Session;
-  model: ReturnType<typeof useGitBranches>;
+  workspaceName?: string;
+  activeSessions?: AttentionSession[];
   onClose: () => void;
 }) {
+  const model = useGitBranches(session.id);
   const dialog = useRef<HTMLDialogElement>(null);
   const opener = useRef(
     document.activeElement instanceof HTMLElement ? document.activeElement : null,
   );
   const [selected, setSelected] = useState('');
   const data = model.data;
+  const root = data?.root?.replaceAll('\\', '/').replace(/\/$/, '');
+  const affected = root ? activeSessions?.filter((item) => {
+    const path = item.cwd.replaceAll('\\', '/');
+    return path === root || path.startsWith(`${root}/`);
+  }) : undefined;
   useLayoutEffect(() => {
     const element = dialog.current!;
     element.showModal();
     return () => {
       element.close();
-      if (opener.current?.isConnected) opener.current.focus({ preventScroll: true });
+      if (opener.current?.getClientRects().length) opener.current.focus({ preventScroll: true });
+      else document.querySelector<HTMLElement>('.project-tools-trigger')?.focus({ preventScroll: true });
     };
   }, []);
   useEffect(() => {
@@ -78,7 +51,7 @@ function BranchDialog({
         <GitBranch size={20} />
         <div>
           <h2 id="git-branch-heading">切换 Git 分支</h2>
-          <p title={data?.root || session.cwd}>{data?.root || session.cwd}</p>
+          <p title={data?.root || session.cwd}>{workspaceName && `${workspaceName} · `}{data?.root || session.cwd}</p>
         </div>
         <button
           className="icon-button"
@@ -146,6 +119,7 @@ function BranchDialog({
               切换会作用于此项目目录，使用同一目录的其他会话也会受影响。未提交的改动若与目标分支冲突，Git
               会阻止切换。
             </p>
+            {!!affected?.length && <p className="git-branch-hint" role="status">该目录下有已观测到的活跃会话：{affected.map((item) => item.title).join('、')}</p>}
           </>
         )}
         {model.switchError && (

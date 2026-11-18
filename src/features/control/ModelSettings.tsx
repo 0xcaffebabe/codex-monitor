@@ -13,6 +13,11 @@ const effortLabels: Record<ReasoningEffort, string> = {
   ultra: '极高',
 };
 
+export function modelSettingsSummary(settings: ReturnType<typeof useModelSettings>) {
+  const model = settings.selectedModel?.displayName;
+  return model && (settings.thinking ? `${model} · ${effortLabels[settings.thinking]}` : model);
+}
+
 export function ModelSettings({
   settings,
   prefix,

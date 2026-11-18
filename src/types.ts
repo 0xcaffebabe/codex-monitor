@@ -112,6 +112,7 @@ export interface SessionContext {
 }
 export interface OutlineEntry {
   id: string;
+  turnId?: string;
   ordinal: number;
   timestamp: number;
   prompt: string;
@@ -144,6 +145,7 @@ export interface User {
   role: 'admin' | 'viewer';
 }
 export interface NotificationSettings {
+  completionMode: 'watched' | 'all';
   enabled: boolean;
   provider: 'lark';
   webhookConfigured: boolean;

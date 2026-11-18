@@ -85,7 +85,4 @@
     padding: 6px 0;
     border-radius: 9px 0 0 9px;
   }
-  .app-shell:has(.running-switcher:not(.collapsed)) .timeline {
-    padding-right: 65px;
-  }
 }

@@ -5,7 +5,7 @@
   color: var(--accent);
 }
 .git-diff-trigger span {
-  font-size: 11px;
+  font-size: var(--font-meta);
   white-space: nowrap;
 }
 .git-diff-dialog {
@@ -53,7 +53,7 @@
 }
 .git-diff-header p {
   margin: 5px 0 0;
-  font-size: 12px;
+  font-size: var(--font-meta);
   color: var(--muted);
   overflow: hidden;
   white-space: nowrap;
@@ -76,7 +76,7 @@
 }
 .git-diff-scopes button {
   padding: 7px 12px;
-  font-size: 12px;
+  font-size: var(--font-meta);
   border-radius: 6px;
   white-space: nowrap;
 }
@@ -94,10 +94,10 @@
   white-space: nowrap;
   text-overflow: ellipsis;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--font-meta);
 }
 .git-diff-branch small {
-  font-size: 10px;
+  font-size: var(--font-meta);
 }
 .git-review-trigger {
   margin-left: auto;
@@ -124,11 +124,11 @@
   align-items: center;
   justify-content: space-between;
   padding: 15px 14px 10px;
-  font-size: 12px;
+  font-size: var(--font-meta);
 }
 .git-files-heading > span {
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--font-meta);
 }
 .git-file-search {
   display: flex;
@@ -146,7 +146,7 @@
   width: 100%;
   border: 0;
   outline-offset: 2px;
-  font-size: 12px;
+  font-size: var(--font-meta);
   background: transparent;
 }
 .git-file-list {
@@ -164,7 +164,7 @@
   padding: 9px 8px;
   text-align: left;
   border-radius: 6px;
-  font-size: 12px;
+  font-size: var(--font-meta);
 }
 .git-file > svg {
   color: var(--muted);
@@ -194,7 +194,7 @@
   display: none;
 }
 .git-file-status {
-  font-size: 10px;
+  font-size: var(--font-meta);
   color: var(--accent);
 }
 .git-file-status.deleted,
@@ -210,7 +210,7 @@
 }
 .git-files-no-match {
   margin: 18px 8px;
-  font-size: 12px;
+  font-size: var(--font-meta);
   color: var(--muted);
 }
 .git-file-content {
@@ -247,14 +247,14 @@
   margin-top: 5px;
   overflow-wrap: anywhere;
   color: var(--muted);
-  font-size: 10px;
+  font-size: var(--font-meta);
 }
 .git-reviewed-toggle {
   display: inline-flex;
   align-items: center;
   gap: 4px;
   flex-shrink: 0;
-  font-size: 11px;
+  font-size: var(--font-meta);
   color: var(--muted);
 }
 .git-reviewed-toggle input {
@@ -289,7 +289,7 @@
   text-align: right;
   color: var(--muted);
   user-select: none;
-  font-size: 10px;
+  font-size: var(--font-meta);
   border-right: 1px solid var(--line);
   vertical-align: top;
 }
@@ -325,7 +325,7 @@
 }
 .git-line.meta {
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--font-meta);
 }
 .git-diff-empty {
   flex: 1;
@@ -352,7 +352,7 @@
   padding: 9px 16px;
   color: var(--git-del);
   background: var(--git-del-bg);
-  font-size: 11px;
+  font-size: var(--font-meta);
 }
 .git-diff-footer {
   display: flex;
@@ -361,7 +361,7 @@
   padding: 9px 16px;
   border-top: 1px solid var(--line);
   color: var(--muted);
-  font-size: 10px;
+  font-size: var(--font-meta);
 }
 .git-review {
   flex-shrink: 0;
@@ -382,14 +382,14 @@
 }
 .git-review p {
   margin: 5px 0 9px;
-  font-size: 11px;
+  font-size: var(--font-meta);
   color: var(--muted);
 }
 .git-review .prompt-form {
   padding: 0;
 }
 .git-review .prompt-label {
-  font-size: 11px;
+  font-size: var(--font-meta);
 }
 .git-review textarea {
   display: block;
@@ -404,7 +404,7 @@
   background: var(--surface);
   color: var(--ink);
   font-family: inherit;
-  font-size: 12px;
+  font-size: var(--font-meta);
   line-height: 1.6;
 }
 .git-review .prompt-actions {
@@ -437,16 +437,16 @@
     gap: 8px;
   }
   .git-diff-scopes button {
-    font-size: 11px;
+    font-size: var(--font-meta);
     padding: 6px 9px;
   }
   .git-diff-branch {
     max-width: 90px;
-    font-size: 10px;
+    font-size: var(--font-meta);
   }
   .git-review-trigger {
     margin-left: 0;
-    font-size: 11px;
+    font-size: var(--font-meta);
   }
   .git-diff-body {
     display: flex;
@@ -491,7 +491,7 @@
     padding: 0 5px;
   }
   .git-patch {
-    font-size: 11px;
+    font-size: var(--font-meta);
   }
   .git-review {
     padding: 10px;
@@ -499,6 +499,6 @@
   }
   .git-diff-footer {
     padding: 8px 10px;
-    font-size: 9px;
+    font-size: var(--font-meta);
   }
 }

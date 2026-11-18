@@ -1,23 +1,41 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ShieldCheck, RefreshCw } from 'lucide-react';
-import { api, ApiError, post } from '../../api';
+import { api, ApiError } from '../../api';
 import type { ApprovalDecision, ApprovalRequest } from '../../approval-types';
+import {
+  approvalReceiptText,
+  approvalUrl,
+  queryApprovalReceipt,
+  saveApprovalReceipt,
+  useApprovalReceipts,
+  type ApprovalReceipt,
+} from './approval-receipts';
 
-export function ApprovalPanel({ threadId }: { threadId: string }) {
+export function ApprovalPanel({
+  threadId,
+  userId,
+  workspaceId,
+  requestId,
+  onChange,
+}: {
+  threadId: string;
+  userId: string;
+  workspaceId: string;
+  requestId?: string;
+  onChange?: () => void;
+}) {
   const [requests, setRequests] = useState<ApprovalRequest[]>([]);
   const [connected, setConnected] = useState(false);
   const [error, setError] = useState('');
   const [refresh, setRefresh] = useState(0);
   const [busy, setBusy] = useState('');
-  const [attempts, setAttempts] = useState<Record<string, ApprovalDecision>>({});
-  const [notice, setNotice] = useState('');
-  useEffect(() => {
-    setRequests([]);
-    setAttempts({});
-    setNotice('');
-    setBusy('');
-    setConnected(false);
-  }, [threadId]);
+  const locked = useRef(false);
+  const receipts = useApprovalReceipts(userId).filter(
+    (receipt) =>
+      receipt.scope === workspaceId &&
+      receipt.threadId === threadId &&
+      (!requestId || receipt.id === requestId),
+  );
   useEffect(() => {
     let stopped = false,
       loading = false;
@@ -27,11 +45,11 @@ export function ApprovalPanel({ threadId }: { threadId: string }) {
       loading = true;
       try {
         const result = await api<{ available: boolean; requests: ApprovalRequest[] }>(
-          `/api/sessions/${threadId}/approvals`,
-          { signal: controller.signal },
+          approvalUrl(workspaceId, threadId),
+          { signal: AbortSignal.any([controller.signal, AbortSignal.timeout(10000)]) },
         );
         if (!stopped) {
-          setRequests(result.requests);
+          setRequests(result.requests.filter((request) => !requestId || request.id === requestId));
           setConnected(result.available);
           setError('');
         }
@@ -52,41 +70,38 @@ export function ApprovalPanel({ threadId }: { threadId: string }) {
       controller.abort();
       clearInterval(timer);
     };
-  }, [threadId, refresh]);
+  }, [threadId, workspaceId, requestId, refresh]);
   const answer = async (request: ApprovalRequest, decision: ApprovalDecision) => {
+    if (locked.current) return;
+    locked.current = true;
     setBusy(request.id);
-    setAttempts((previous) => ({ ...previous, [request.id]: decision }));
-    setNotice('');
+    const entry: ApprovalReceipt = {
+      scope: workspaceId,
+      threadId,
+      id: request.id,
+      decision,
+      status: 'unknown',
+      at: Date.now(),
+    };
     try {
-      await post(`/api/sessions/${threadId}/approvals/${request.id}`, { decision });
+      saveApprovalReceipt(userId, entry);
+      const result = await api<ApprovalRequest>(approvalUrl(workspaceId, threadId, request.id), {
+        method: 'POST',
+        body: JSON.stringify({ decision }),
+        signal: AbortSignal.timeout(10000),
+      });
+      saveApprovalReceipt(userId, { ...entry, status: result.state, actual: result.decision });
       setRequests((previous) => previous.filter((value) => value.id !== request.id));
-      setNotice(decision === 'accept' ? '已允许，Codex 将继续执行。' : '已拒绝该请求。');
-    } catch (error) {
-      try {
-        const receipt = await api<ApprovalRequest>(
-          `/api/sessions/${threadId}/approvals/${request.id}`,
-        );
-        if (receipt.state === 'answered') {
-          setRequests((previous) => previous.filter((value) => value.id !== request.id));
-          setNotice(
-            receipt.decision === 'accept' ? '已允许，Codex 将继续执行。' : '已拒绝该请求。',
-          );
-        } else if (receipt.state !== 'pending') {
-          setRequests((previous) => previous.filter((value) => value.id !== request.id));
-          setNotice('审批已过期或取消，请查看当前会话。');
-        } else
-          setNotice(
-            `答复结果待确认：${(error as Error).message}。可重试同一答复，或刷新审批状态。`,
-          );
-      } catch {
-        setNotice(`答复结果待确认：${(error as Error).message}。可重试同一答复，或刷新审批状态。`);
-      }
+    } catch {
+      await queryApprovalReceipt(userId, entry);
     } finally {
+      locked.current = false;
       setBusy('');
       setRefresh((value) => value + 1);
+      onChange?.();
     }
   };
-  if (!requests.length && !notice && !error) return null;
+  if (!requests.length && !receipts.length && !error && !requestId) return null;
   return (
     <section className="approval-panel" aria-label="权限审批">
       <header>
@@ -106,7 +121,29 @@ export function ApprovalPanel({ threadId }: { threadId: string }) {
           {error}
         </p>
       )}
-      {notice && <p role="status">{notice}</p>}
+      {!error && requestId && !requests.length && !receipts.length && (
+        <p role="status">{connected ? '此请求已不在待审批列表。' : '正在核对审批状态…'}</p>
+      )}
+      {receipts.map((receipt) => (
+        <p className="approval-receipt" role="status" key={receipt.id}>
+          {busy === receipt.id ? '正在提交答复…' : approvalReceiptText(receipt)}
+          {['unknown', 'pending'].includes(receipt.status) && (
+            <button
+              className="secondary"
+              disabled={!!busy}
+              onClick={async () => {
+                setBusy(receipt.id);
+                await queryApprovalReceipt(userId, receipt);
+                setBusy('');
+                setRefresh((value) => value + 1);
+                onChange?.();
+              }}
+            >
+              查询原回执
+            </button>
+          )}
+        </p>
+      ))}
       {requests.map((request) => (
         <article key={request.id} className="approval-request" aria-label={request.title}>
           <strong>{request.title}</strong>
@@ -132,11 +169,15 @@ export function ApprovalPanel({ threadId }: { threadId: string }) {
                 !connected ||
                 !!busy ||
                 !request.canAccept ||
-                (!!attempts[request.id] && attempts[request.id] !== 'accept')
+                receipts.some(
+                  (receipt) =>
+                    receipt.id === request.id &&
+                    (receipt.status !== 'pending' || receipt.decision !== 'accept'),
+                )
               }
               onClick={() => void answer(request, 'accept')}
             >
-              {attempts[request.id] === 'accept' ? '重试允许本次' : '允许本次'}
+              允许本次
             </button>
             <button
               type="button"
@@ -144,11 +185,15 @@ export function ApprovalPanel({ threadId }: { threadId: string }) {
               disabled={
                 !connected ||
                 !!busy ||
-                (!!attempts[request.id] && attempts[request.id] !== 'decline')
+                receipts.some(
+                  (receipt) =>
+                    receipt.id === request.id &&
+                    (receipt.status !== 'pending' || receipt.decision !== 'decline'),
+                )
               }
               onClick={() => void answer(request, 'decline')}
             >
-              {attempts[request.id] === 'decline' ? '重试拒绝' : '拒绝'}
+              拒绝
             </button>
           </div>
         </article>

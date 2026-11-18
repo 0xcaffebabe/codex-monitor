@@ -664,16 +664,17 @@ test('shared app-server approvals stay with their own thread and are cancelled w
   }
 });
 
-test('native sessions default to full access with no per-command approval, including older callers', async () => {
+test('native sessions inherit permissions unless full access is explicitly requested', async () => {
   const f = fixture();
   try {
-    for (const settings of [{}, { permissionMode: 'danger-full-access' as const }]) {
-      await f.control.create('', 'project', 'task', settings);
-      const start = f.calls.filter((call) => call.method === 'thread/start').at(-1)!.params;
-      assert.equal(start.sandbox, 'danger-full-access');
-      assert.equal(start.approvalPolicy, 'never');
-      assert.equal(start.config, undefined);
-    }
+    await f.control.create('', 'project', 'task', {});
+    const inherited = f.calls.filter((call) => call.method === 'thread/start').at(-1)!.params;
+    assert.equal(inherited.sandbox, undefined);
+    assert.equal(inherited.approvalPolicy, undefined);
+    await f.control.create('', 'project', 'task', { permissionMode: 'danger-full-access' });
+    const explicit = f.calls.filter((call) => call.method === 'thread/start').at(-1)!.params;
+    assert.equal(explicit.sandbox, 'danger-full-access');
+    assert.equal(explicit.approvalPolicy, 'never');
   } finally {
     f.control.close();
   }

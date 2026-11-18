@@ -13,6 +13,7 @@ import type { SessionCreationSettings } from '../src/types.js';
 import type { Identity } from './http/access.js';
 import { ProjectFiles } from './project-files.js';
 import { installProjectFileRoutes } from './http/project-file-routes.js';
+import { installAttentionRoute } from './http/attention-route.js';
 import {
   creationReceipt,
   restoreControlRequests,
@@ -41,6 +42,9 @@ export function installControl(
     state TEXT NOT NULL, result_json TEXT, created_at INTEGER NOT NULL
   )`);
   restoreControlRequests(db);
+  const recentRequests = db.prepare(`SELECT id,state,result_json,created_at FROM control_requests
+    WHERE user_id=? AND created_at>=? ORDER BY
+    CASE WHEN state IN ('unknown','pending','queued') THEN 0 ELSE 1 END, created_at DESC LIMIT 30`);
   const active = new Map<string, Promise<void>>();
   const goalRetries = new Map<string, Promise<CreationReceipt>>();
   const lanes = new Map<string, Promise<void>>();
@@ -163,6 +167,18 @@ export function installControl(
       });
     }
   });
+  installAttentionRoute(app, source, bridge.approvals, authorize, (userId, since) =>
+    recentRequests.all(userId, since).map((row) => {
+      const result = row.result_json ? JSON.parse(String(row.result_json)) : {};
+      return {
+        id: String(row.id), at: Number(row.created_at), state: String(row.state),
+        threadId: typeof result.threadId === 'string' && validId(result.threadId) ? result.threadId : undefined,
+        operation: typeof result.mode === 'string' ? result.mode : '',
+        detail: result.goalState === 'unknown' || result.goalState === 'pending'
+          ? '目标保存结果待确认，请查看原会话。' : undefined,
+      };
+    }),
+  );
   app.get('/api/sessions/:id/approvals', admin, async (req, res) => {
     try {
       await authorize(req);

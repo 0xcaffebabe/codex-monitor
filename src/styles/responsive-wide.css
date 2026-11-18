@@ -16,12 +16,6 @@
   .stat-card strong {
     font-size: 32px;
   }
-  .stat-card small {
-    font-size: 10px;
-  }
-  .stat-card > span:nth-child(2) {
-    font-size: 12px;
-  }
   .split .session-panel {
     width: 335px;
   }
@@ -29,12 +23,9 @@
     padding-top: 20px;
     padding-bottom: 20px;
   }
-  .session-info > strong {
-    font-size: 13px;
-  }
   .session-preview,
   .project-tag {
-    font-size: 10px;
+    font-size: var(--font-meta);
   }
   .table-head,
   .session-row {
@@ -46,18 +37,12 @@
   .timeline {
     padding: 30px 50px 55px;
   }
-  .markdown {
-    font-size: 14px;
-  }
   .tool-card summary strong {
-    font-size: 12px;
+    font-size: var(--font-meta);
   }
   .tool-preview,
   .tool-body pre {
-    font-size: 11px;
-  }
-  .message-top > strong {
-    font-size: 12px;
+    font-size: var(--font-meta);
   }
   .detail-heading h1 {
     font-size: 19px;

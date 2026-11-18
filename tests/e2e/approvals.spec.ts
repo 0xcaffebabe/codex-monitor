@@ -34,8 +34,8 @@ async function create(
   await page.goto('/');
   await page.getByRole('button', { name: '新建会话', exact: true }).click();
   const dialog = page.getByRole('region', { name: '新建会话', exact: true });
-  await expect(dialog.getByLabel('新会话权限')).toHaveValue('danger-full-access');
-  if (permissionMode !== 'danger-full-access')
+  await expect(dialog.getByLabel('新会话权限')).toHaveValue('inherit');
+  if (permissionMode !== 'inherit')
     await dialog.getByLabel('新会话权限').selectOption(permissionMode);
   if (kind === 'ordinary')
     await page.screenshot({
@@ -81,7 +81,7 @@ test('requested write and network permissions appear before execution and approv
   await expect(panel.getByRole('button', { name: '允许本次', exact: true })).toHaveCount(0);
 });
 
-test('new sessions select full access by default and submit that choice explicitly', async ({
+test('new sessions inherit permissions by default and allow a deliberate full-access choice', async ({
   page,
   request,
 }) => {
@@ -116,7 +116,7 @@ test('a lost approval response is queried without sending approval a second time
     await route.abort('failed');
   });
   await panel.getByRole('button', { name: '允许本次', exact: true }).click();
-  await expect(panel).toContainText('已允许，Codex 将继续执行。');
+  await expect(panel).toContainText('答复已确认：允许本次');
   await expect(page.locator('.timeline')).toContainText('APPROVAL_ALLOWED');
   expect(decisions).toBe(1);
   expect(readFileSync(file, 'utf8')).toBe('approved\n');

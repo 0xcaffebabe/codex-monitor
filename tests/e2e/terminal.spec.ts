@@ -34,10 +34,11 @@ async function enter(page: Page, request: APIRequestContext, workspace = 'local'
   }
   await page.addInitScript((value) => localStorage.setItem('codex-monitor.auth.v1', value), token);
   await page.goto(`/?workspace=${workspace}&session=${ids.modern}`);
-  await expect(page.getByRole('button', { name: '打开项目终端', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: '项目工具', exact: true })).toBeVisible();
 }
 
 async function open(page: Page) {
+  await page.getByRole('button', { name: '项目工具', exact: true }).click();
   await page.getByRole('button', { name: '打开项目终端', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: '项目终端', exact: true });
   await expect(input(dialog)).toBeEditable();
@@ -278,6 +279,7 @@ test('project terminals use the selected workspace client and report missing pro
     ids.modern,
   );
   db.close();
+  await page.getByRole('button', { name: '项目工具', exact: true }).click();
   await page.getByRole('button', { name: '打开项目终端', exact: true }).click();
   await expect(page.getByRole('dialog', { name: '项目终端' }).getByRole('alert')).toContainText(
     '项目目录不存在',

@@ -22,10 +22,8 @@
 @import './styles/mobile-timeline.css';
 @import './styles/accessibility.css';
 @import './styles/compact-screen.css';
-@import './styles/theme-overrides.css';
 @import './styles/outline-responsive.css';
 @import './styles/session-images.css';
-@import './styles/running-switcher.css';
 @import './styles/mobile-outline.css';
 @import './styles/context-and-recent-sessions.css';
 @import './styles/desktop-layout.css';
@@ -35,7 +33,7 @@
 @import './styles/project-terminal.css';
 @import './styles/git-diff.css';
 @import './styles/git-branches.css';
-@import './styles/completion-notifications.css';
 @import './styles/session-reference.css';
 @import './styles/composer-tools.css';
 @import './styles/project-files.css';
+@import './styles/attention.css';

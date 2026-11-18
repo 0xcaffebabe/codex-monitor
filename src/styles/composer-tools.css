@@ -4,9 +4,9 @@
   align-items: start;
   gap: 8px 12px;
   padding: 10px;
-  border: 1px solid var(--line);
-  border-radius: 14px;
-  background: var(--surface2);
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: var(--surface);
   transition:
     border-color 0.15s,
     box-shadow 0.15s;
@@ -28,7 +28,7 @@
   border: 0;
   border-radius: 0;
   background: transparent;
-  font-size: 14px;
+  font-size: var(--font-prose);
   line-height: 1.6;
   outline: none;
 }
@@ -67,7 +67,7 @@
   padding: 6px 8px;
   border-radius: 7px;
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--font-meta);
   white-space: nowrap;
 }
 .composer-tool:hover:not(:disabled),
@@ -151,21 +151,21 @@
 .composer-option strong,
 .shortcut-copy strong,
 .composer-desktop-channel strong {
-  font-size: 12px;
+  font-size: var(--font-ui);
   font-weight: 500;
 }
 .composer-option small,
 .shortcut-copy small,
 .composer-desktop-channel small {
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--font-meta);
   line-height: 1.5;
   white-space: normal;
 }
 .composer-menu-hint {
   margin: 8px 10px;
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--font-meta);
   line-height: 1.6;
 }
 .composer-settings section {
@@ -178,7 +178,7 @@
 .shortcut-group h3 {
   margin: 0 0 9px;
   color: var(--muted);
-  font-size: 10px;
+  font-size: var(--font-meta);
   font-weight: 500;
 }
 .composer-settings .session-model-settings {
@@ -189,7 +189,7 @@
   min-height: 36px;
   max-width: none;
   padding: 8px;
-  font-size: 12px;
+  font-size: var(--font-meta);
 }
 .composer-settings .composer-desktop-channel {
   align-items: flex-start;
@@ -237,7 +237,7 @@
   border: 0;
   outline: none;
   background: transparent;
-  font-size: 12px;
+  font-size: var(--font-meta);
 }
 .shortcut-group + .shortcut-group {
   margin-top: 12px;
@@ -305,16 +305,25 @@
   padding: 10px 8px;
   border-top: 1px solid var(--line);
   color: var(--muted);
-  font-size: 10px;
+  font-size: var(--font-meta);
 }
 .shortcut-empty {
   padding: 22px 8px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--font-meta);
   text-align: center;
 }
-.shortcut-native-actions {
-  margin-top: 12px;
+.composer-settings-trigger {
+  flex-shrink: 1;
+  min-width: 0;
+  max-width: 260px;
+}
+.composer-settings-trigger .composer-tool-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.composer-settings-trigger.is-active {
+  font-weight: 600;
 }
 .shortcut-native-action {
   padding: 6px 8px 8px;
@@ -331,7 +340,7 @@
   gap: 12px;
   border: 0;
   background: transparent;
-  font-size: 12px;
+  font-size: var(--font-meta);
 }
 .shortcut-native-action .secondary > svg {
   margin: 0 7px;
@@ -341,7 +350,7 @@
   display: block;
   margin: 2px 0 0 36px;
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--font-meta);
   line-height: 1.5;
 }
 @media (min-width: 761px) and (max-height: 800px) {
@@ -372,7 +381,7 @@
   .message-composer > .prompt-form.accepts-attachments {
     gap: 7px 8px;
     padding: 9px;
-    border-radius: 13px;
+    border-radius: 8px;
   }
   .message-composer > .prompt-form.accepts-attachments textarea,
   .message-composer > .prompt-form.accepts-attachments textarea:focus {
@@ -382,17 +391,31 @@
     font-size: 16px;
   }
   .composer-tool {
-    min-height: 36px;
+    min-height: 44px;
     padding: 6px;
     gap: 5px;
   }
   .composer-add-trigger,
-  .composer-settings-trigger {
-    width: 32px;
+  .composer-settings-trigger,
+  .composer-shortcuts-trigger,
+  .project-file-trigger {
+    width: 44px;
     padding: 0;
   }
-  .composer-settings-trigger .composer-tool-label {
+  .composer-settings-trigger:not(.is-active) .composer-tool-label,
+  .composer-shortcuts-trigger .composer-tool-label {
     display: none;
+  }
+  .composer-settings-trigger.is-active {
+    flex: 0 1 auto;
+    width: auto;
+    min-width: 44px;
+    max-width: 100%;
+    justify-content: flex-start;
+    padding: 0 8px;
+  }
+  .message-composer .attachment-toolbar:has(.composer-settings-trigger.is-active) {
+    flex-wrap: wrap;
   }
   .composer-settings-trigger .composer-tool-dot {
     position: absolute;
@@ -403,8 +426,8 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 28px;
-    height: 36px;
+    width: 44px;
+    height: 44px;
     border: 0;
     background: transparent;
   }
@@ -413,9 +436,9 @@
   }
   .message-composer > .prompt-form.accepts-attachments > .prompt-actions > .primary,
   .message-composer .stop-turn-action > .icon-button {
-    width: 36px;
-    height: 36px;
-    min-height: 36px;
+    width: 44px;
+    height: 44px;
+    min-height: 44px;
     border-radius: 8px;
   }
   .message-composer .prompt-count,
@@ -445,6 +468,11 @@
   .composer-option,
   .shortcut-send {
     min-height: 64px;
+  }
+}
+@media (max-width: 380px) {
+  .message-composer .attachment-toolbar {
+    gap: 0;
   }
 }
 .message-composer .session-branch-trigger {

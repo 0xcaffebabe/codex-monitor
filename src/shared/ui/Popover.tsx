@@ -3,6 +3,7 @@ import { useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 
 export function Popover({
   label,
+  displayLabel = label,
   icon,
   children,
   disabled = false,
@@ -11,6 +12,7 @@ export function Popover({
   onOpen,
 }: {
   label: string;
+  displayLabel?: string;
   icon: ReactNode;
   children: (close: () => void) => ReactNode;
   disabled?: boolean;
@@ -71,11 +73,12 @@ export function Popover({
         aria-label={label}
         aria-haspopup="dialog"
         aria-expanded={open}
+        aria-description={displayLabel === label ? undefined : displayLabel}
         title={label}
         disabled={disabled}
       >
         {icon}
-        <span className="composer-tool-label">{label}</span>
+        <span className="composer-tool-label">{displayLabel}</span>
         {active && <span className="composer-tool-dot" />}
       </button>
       <div

@@ -109,8 +109,8 @@ async function visitSession(page: Page, request: APIRequestContext, workspace = 
 
 async function enter(page: Page, request: APIRequestContext, workspace = 'local') {
   await visitSession(page, request, workspace);
-  await page.getByRole('button', { name: '查看代码变更', exact: true }).click();
-  const dialog = page.getByRole('dialog', { name: '代码变更', exact: true });
+  await page.getByRole('button', { name: '查看工作区变更', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: '工作区变更', exact: true });
   await expect(
     dialog.getByRole('button', { name: '查看变更：src/review.ts', exact: true }),
   ).toBeVisible();
@@ -164,7 +164,7 @@ test('session diff shows real file changes, line numbers, scopes, binary files a
   expect(bounds!.width).toBeLessThanOrEqual(page.viewportSize()!.width);
   await page.keyboard.press('Escape');
   await expect(dialog).toHaveCount(0);
-  await expect(page.getByRole('button', { name: '查看代码变更', exact: true })).toBeFocused();
+  await expect(page.getByRole('button', { name: '查看工作区变更', exact: true })).toBeFocused();
 });
 
 test('ignored files stay hidden in every scope and refresh applies updated ignore rules', async ({
@@ -274,7 +274,7 @@ test('clean and non-Git projects have clear states and can recover after refresh
   await expect(dialog.locator('.git-line.added .git-line-code')).toContainText('recovered');
 });
 
-test('session branches switch from the composer, preserve conflicting edits and update the current branch', async ({
+test('project branch switching preserves conflicting edits and identifies the workspace', async ({
   page,
   request,
 }) => {
@@ -289,12 +289,11 @@ test('session branches switch from the composer, preserve conflicting edits and 
   git(repo, 'switch', 'review-test');
   write(repo, 'src/review.ts', 'export const value = "unsaved-work";\n');
   await visitSession(page, request);
-  const trigger = page.getByRole('button', { name: '选择 Git 分支', exact: true });
-  await expect(page.locator('.message-composer').getByRole('button', { name: '选择 Git 分支', exact: true })).toBeVisible();
-  await expect(page.locator('.detail-summary').getByRole('button', { name: '选择 Git 分支', exact: true })).toHaveCount(0);
-  await expect(trigger).toHaveText('review-test');
-  await trigger.click();
+  const tools = page.getByRole('button', { name: '项目工具', exact: true });
+  await tools.click();
+  await page.getByRole('button', { name: '选择 Git 分支', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: '切换 Git 分支', exact: true });
+  await expect(dialog.locator('.git-branch-header p')).toContainText('本机工作空间');
   const select = dialog.getByRole('combobox', { name: '目标分支', exact: true });
   const submit = dialog.getByRole('button', { name: '切换分支', exact: true });
   await expect(select).toHaveValue('review-test');
@@ -312,8 +311,6 @@ test('session branches switch from the composer, preserve conflicting edits and 
   await expect(submit).toBeEnabled();
   await submit.click();
   await expect(dialog).toHaveCount(0);
-  await expect(trigger).toHaveText(target);
-  await expect(trigger).toBeFocused();
   expect(git(repo, 'branch', '--show-current').trim()).toBe(target);
   expect(readFileSync(path.join(repo, 'src/review.ts'), 'utf8')).toContain('feature');
   expect(git(projects[1].repo, 'branch', '--show-current').trim()).toBe('review-test');
@@ -322,7 +319,7 @@ test('session branches switch from the composer, preserve conflicting edits and 
     fullPage: true,
   });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-  await page.getByRole('button', { name: '查看代码变更', exact: true }).click();
+  await page.getByRole('button', { name: '查看工作区变更', exact: true }).click();
   await expect(page.locator('.git-diff-branch')).toHaveText(target);
 });
 
@@ -333,11 +330,11 @@ test('branch changes follow the selected workspace and refresh after external Gi
   const { repo } = projects[1];
   git(repo, 'branch', 'feature/second-client');
   await visitSession(page, request, second);
-  const trigger = page.getByRole('button', { name: '选择 Git 分支', exact: true });
-  await expect(trigger).toHaveText('review-test');
-  await trigger.click();
+  const tools = page.getByRole('button', { name: '项目工具', exact: true });
+  await tools.click();
+  await page.getByRole('button', { name: '选择 Git 分支', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: '切换 Git 分支', exact: true });
-  await expect(dialog.locator('.git-branch-header p')).toHaveText(realpathSync(repo));
+  await expect(dialog.locator('.git-branch-header p')).toHaveText(`第二台测试电脑 · ${realpathSync(repo)}`);
   await dialog
     .getByRole('combobox', { name: '目标分支', exact: true })
     .selectOption('feature/second-client');
@@ -348,17 +345,15 @@ test('branch changes follow the selected workspace and refresh after external Gi
   );
   await dialog.getByRole('button', { name: '切换分支', exact: true }).click();
   expect((await switched).ok()).toBe(true);
-  await expect(trigger).toHaveText('feature/second-client');
+  await expect(dialog).toHaveCount(0);
   expect(git(projects[0].repo, 'branch', '--show-current').trim()).toBe('review-test');
   expect(git(repo, 'branch', '--show-current').trim()).toBe('feature/second-client');
   git(repo, 'checkout', '--detach');
-  await page.evaluate(() => window.dispatchEvent(new Event('focus')));
-  await expect(trigger).toHaveAttribute('title', /分离 HEAD/);
-  await trigger.click();
+  await tools.click();
+  await page.getByRole('button', { name: '选择 Git 分支', exact: true }).click();
   await expect(dialog.locator('.git-branch-current')).toContainText('分离 HEAD');
   await page.keyboard.press('Escape');
   await expect(dialog).toHaveCount(0);
-  await expect(trigger).toBeFocused();
 });
 
 test('branch discovery explains non-Git directories and recovers after refreshing', async ({
@@ -370,9 +365,8 @@ test('branch discovery explains non-Git directories and recovers after refreshin
   mkdirSync(repo);
   db.prepare('UPDATE threads SET cwd=? WHERE id=?').run(repo, ids.modern);
   await visitSession(page, request);
-  const trigger = page.getByRole('button', { name: '选择 Git 分支', exact: true });
-  await expect(trigger).toHaveText('Git 不可用');
-  await trigger.click();
+  await page.getByRole('button', { name: '项目工具', exact: true }).click();
+  await page.getByRole('button', { name: '选择 Git 分支', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: '切换 Git 分支', exact: true });
   await expect(dialog.getByRole('alert')).toContainText('不是可读取的 Git 仓库');
   git(repo, 'init', '-b', 'review-test');
@@ -388,7 +382,6 @@ test('branch discovery explains non-Git directories and recovers after refreshin
     'review-test',
   );
   await expect(dialog.getByRole('alert')).toHaveCount(0);
-  await expect(trigger).toHaveText('review-test');
   await page.screenshot({
     path: test.info().outputPath('git-branch-selector.png'),
     fullPage: true,

@@ -1,6 +1,6 @@
 .outline {
   position: absolute;
-  left: 8px;
+  left: max(0px, calc((100% - var(--conversation-width, 56rem)) / 2 - 8px));
   top: 50%;
   transform: translateY(-50%);
   width: 34px;
@@ -44,7 +44,7 @@
   width: var(--marker-width, 8px);
   height: 2px;
   background: currentColor;
-  opacity: 0.22;
+  opacity: 0.42;
   transition:
     width 0.15s ease,
     opacity 0.15s ease;
@@ -117,9 +117,6 @@
   place-items: center;
   min-height: 24px;
   color: var(--muted);
-}
-.timeline-reader:has(.outline) .timeline {
-  padding-left: max(54px, var(--conversation-gutter, 24px));
 }
 .running-switcher {
   display: none;

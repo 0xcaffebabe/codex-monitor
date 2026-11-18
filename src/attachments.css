@@ -33,7 +33,7 @@
 .attachment-toolbar small,
 .attachment-meta small {
   color: var(--muted);
-  font-size: 10px;
+  font-size: var(--font-meta);
 }
 .attachment-toolbar.has-controls {
   gap: 8px;
@@ -53,7 +53,7 @@
   background: var(--surface2);
   color: var(--muted);
   padding: 6px 8px;
-  font-size: 11px;
+  font-size: var(--font-meta);
   cursor: pointer;
 }
 .attachment-add {
@@ -109,7 +109,7 @@
   min-width: 0;
 }
 .attachment-meta strong {
-  font-size: 11px;
+  font-size: var(--font-meta);
   font-weight: 500;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -120,7 +120,7 @@
   align-items: center;
   gap: 5px;
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--font-meta);
   overflow-wrap: anywhere;
   margin: 6px 0 0;
 }

@@ -23,6 +23,7 @@ export type PromptFormProps = {
   allowAttachments?: boolean;
   projectFilesUrl?: string;
   attachmentControls?: React.ReactNode;
+  modelSummary?: string;
   submitActions?: React.ReactNode;
   initialPrompt?: string;
   allowGoal?: boolean;

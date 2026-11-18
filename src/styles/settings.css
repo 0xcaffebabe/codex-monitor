@@ -35,7 +35,7 @@
   font-weight: 600;
 }
 .settings-modal header p {
-  font-size: 10px;
+  font-size: var(--font-meta);
   color: var(--muted);
   margin: 0;
 }
@@ -61,17 +61,17 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 12px;
+  font-size: var(--font-meta);
   font-weight: 600;
   margin: 0 0 14px;
 }
 .settings-body h3 > span {
   margin-left: auto;
-  font-size: 10px;
+  font-size: var(--font-meta);
   color: var(--muted);
 }
 .help {
-  font-size: 10px;
+  font-size: var(--font-meta);
   color: var(--muted);
   line-height: 1.9;
   margin: 9px 0;
@@ -81,7 +81,7 @@
   align-items: center;
   flex-wrap: wrap;
   gap: 6px;
-  font-size: 10px;
+  font-size: var(--font-meta);
   background: var(--surface2);
   border: 1px solid var(--line);
   border-radius: 6px;
@@ -92,7 +92,7 @@
 }
 .source-config code {
   margin-left: auto;
-  font-size: 9px;
+  font-size: var(--font-meta);
   color: var(--muted);
   overflow-wrap: anywhere;
 }
@@ -102,7 +102,7 @@
   gap: 12px;
   padding: 13px 0;
   border-bottom: 1px solid var(--line);
-  color: #8b9e95;
+  color: var(--muted);
 }
 .device-row > div {
   flex: 1;
@@ -112,19 +112,19 @@
   display: flex;
   align-items: center;
   gap: 7px;
-  font-size: 11px;
+  font-size: var(--font-meta);
   color: var(--ink);
   font-weight: 500;
   overflow-wrap: anywhere;
 }
 .device-row small {
   display: block;
-  font-size: 8px;
+  font-size: var(--font-meta);
   color: var(--muted);
   margin-top: 5px;
 }
 .device-current {
-  font-size: 7px;
+  font-size: var(--font-meta);
   color: var(--accent);
   background: var(--accent-bg);
   padding: 2px 5px;
@@ -132,8 +132,8 @@
   white-space: nowrap;
 }
 .text-danger {
-  font-size: 10px;
-  color: #b57870;
+  font-size: var(--font-meta);
+  color: var(--danger);
   white-space: nowrap;
   padding: 6px;
   border-radius: 5px;
@@ -146,7 +146,7 @@
   align-items: flex-end;
 }
 .settings-form label {
-  font-size: 9px;
+  font-size: var(--font-meta);
   color: var(--muted);
   flex: 1;
   min-width: 120px;
@@ -155,11 +155,11 @@
 .settings-form select {
   height: 35px;
   margin-top: 6px;
-  font-size: 11px;
+  font-size: var(--font-meta);
 }
 .settings-form button {
   min-height: 35px;
-  font-size: 10px;
+  font-size: var(--font-meta);
 }
 .settings-modal > footer {
   display: flex;
@@ -170,14 +170,14 @@
   border-top: 1px solid var(--line);
 }
 .settings-modal footer > span {
-  font-size: 9px;
+  font-size: var(--font-meta);
   color: var(--muted);
   display: flex;
   gap: 6px;
   align-items: center;
 }
 .settings-modal footer .secondary {
-  font-size: 11px;
+  font-size: var(--font-meta);
   min-height: 32px;
   padding: 7px 20px;
 }
@@ -192,14 +192,14 @@
 .notification-fields > label {
   display: grid;
   gap: 6px;
-  font-size: 11px;
+  font-size: var(--font-meta);
   color: var(--muted);
 }
 .notification-fields input:not([type='checkbox']) {
   height: 36px;
   width: 100%;
   min-width: 0;
-  font-size: 11px;
+  font-size: var(--font-meta);
 }
 .notification-fields > .notification-toggle {
   display: flex;
@@ -225,7 +225,7 @@
 }
 .notification-actions button {
   min-height: 35px;
-  font-size: 11px;
+  font-size: var(--font-meta);
 }
 .notification-history {
   margin-top: 22px;
@@ -234,12 +234,12 @@
   display: flex;
   justify-content: space-between;
   gap: 10px;
-  font-size: 11px;
+  font-size: var(--font-meta);
   font-weight: 500;
 }
 .notification-history h4 span {
   color: var(--muted);
-  font-size: 9px;
+  font-size: var(--font-meta);
 }
 .notification-delivery {
   display: flex;
@@ -253,24 +253,24 @@
   min-width: 0;
 }
 .notification-delivery strong {
-  font-size: 11px;
+  font-size: var(--font-meta);
   font-weight: 500;
   overflow-wrap: anywhere;
 }
 .notification-delivery small {
   display: block;
-  font-size: 10px;
+  font-size: var(--font-meta);
   line-height: 1.7;
   color: var(--muted);
   overflow-wrap: anywhere;
   margin-top: 4px;
 }
 .notification-delivery .notification-error {
-  color: #b57870;
+  color: var(--danger);
 }
 .notification-status {
   flex-shrink: 0;
-  font-size: 10px;
+  font-size: var(--font-meta);
   color: var(--muted);
   padding: 3px 6px;
   border-radius: 4px;
@@ -281,5 +281,5 @@
   background: var(--accent-bg);
 }
 .notification-status.failed {
-  color: #b57870;
+  color: var(--danger);
 }

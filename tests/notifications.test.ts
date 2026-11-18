@@ -19,6 +19,7 @@ import { fixture, ids } from './fixture.js';
 const webhook =
   'https://open.larksuite.com/open-apis/bot/v2/hook/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
 const input = {
+  completionMode: 'all',
   enabled: true,
   provider: 'lark',
   webhookUrl: webhook,
@@ -234,7 +235,7 @@ test('session links remain clickable when the reply summary ends in a truncated 
     .find((node) => node.type === 'link');
   assert.equal(
     link?.url,
-    `https://monitor.example.com/path(with-parentheses)?session=${ids.modern}&workspace=local`,
+    `https://monitor.example.com/path(with-parentheses)?session=${ids.modern}&workspace=local&view=attention&result=markdown-turn`,
   );
   assert.ok(message.endsWith(summary));
   const code = parsed.children.find((node) => node.type === 'code');
@@ -337,10 +338,10 @@ test('background completion outbox delivers fast turns over real HTTP without SS
     assert.equal(received.length, 2);
     assert.equal(received[0].msg_type, 'interactive');
     assert.equal(received[0].card.schema, '2.0');
-    assert.doesNotMatch(received[0].card.body.elements[0].content, new RegExp(first));
+    assert.match(received[0].card.body.elements[0].content, new RegExp(`result=${first}`));
     assert.ok(received[0].card.body.elements[0].content.includes(summary));
     assert.doesNotMatch(received[0].card.body.elements[0].content, /第二轮独立摘要/);
-    assert.doesNotMatch(received[1].card.body.elements[0].content, new RegExp(second));
+    assert.match(received[1].card.body.elements[0].content, new RegExp(`result=${second}`));
     assert.match(
       received[1].card.body.elements[0].content,
       /https:\/\/monitor.example.com\/\?session=/,
@@ -438,7 +439,7 @@ test('legacy JSONL completion events work without opening a detail page', async 
     await h.service.pollNotifications();
     assert.equal(messages.length, 1);
     assert.match(messages[0], /旧版完成摘要/);
-    assert.doesNotMatch(messages[0], /legacy-new-turn/);
+    assert.match(messages[0], /result=legacy-new-turn/);
   } finally {
     await h.close();
   }

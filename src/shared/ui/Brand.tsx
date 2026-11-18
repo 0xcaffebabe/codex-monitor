@@ -7,8 +7,7 @@ export function Brand() {
         <Code2 size={21} />
       </span>
       <span>
-        codex<span className="brand-light">monitor</span>
-        <small>SESSION CONTROL CENTER</small>
+        Codex<span className="brand-light">Monitor</span>
       </span>
     </div>
   );

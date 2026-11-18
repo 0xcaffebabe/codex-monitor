@@ -4,8 +4,9 @@ import { goalDuration, goalStatuses } from './goal';
 import { GoalDialog } from './GoalDialog';
 import { PromptForm } from './PromptForm';
 import { MessageComposerProps, useMessageComposer } from './useMessageComposer';
-import { ModelSettings } from './ModelSettings';
+import { ModelSettings, modelSettingsSummary } from './ModelSettings';
 import { ApprovalPanel } from './ApprovalPanel';
+import { currentWorkspace } from '../../workspace-scope';
 import { promptShortcuts } from './prompt-shortcuts';
 
 export function MessageComposer(props: MessageComposerProps) {
@@ -44,7 +45,7 @@ export function MessageComposer(props: MessageComposerProps) {
           <RefreshCw size={13} />
         </button>
       </div>
-      <ApprovalPanel key={threadId} threadId={threadId} />
+      <ApprovalPanel key={threadId} threadId={threadId} userId={props.user.id} workspaceId={currentWorkspace()} />
       {(!state?.available || state.compacting) && (
         <p className="control-hint">{state?.reason || '正在连接 Codex…'}</p>
       )}
@@ -211,6 +212,7 @@ export function MessageComposer(props: MessageComposerProps) {
             />
           ) : undefined
         }
+        modelSummary={canChangeModel ? modelSettingsSummary(modelSettings) : undefined}
         url={`/api/sessions/${threadId}/messages`}
         extra={canChangeModel ? modelSettings.overrides : undefined}
         enabled={!!state?.available}

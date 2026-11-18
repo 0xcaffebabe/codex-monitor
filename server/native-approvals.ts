@@ -215,9 +215,12 @@ export class NativeApprovals implements ApprovalControl {
       if (signal.aborted) abort();
     });
   }
-  list(threadId: string) {
+  list(threadId?: string) {
     return [...this.entries.values()]
-      .filter((entry) => entry.view.threadId === threadId && entry.view.state === 'pending')
+      .filter((entry) =>
+        (!threadId || entry.view.threadId === threadId) &&
+        entry.view.state === 'pending' && entry.view.expiresAt > Date.now(),
+      )
       .map((entry) => structuredClone(entry.view));
   }
   get(threadId: string, id: string) {

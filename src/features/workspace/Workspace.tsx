@@ -2,6 +2,7 @@ import {
   Check,
   ChevronRight,
   Maximize2,
+  ListTodo,
   Menu,
   Minimize2,
   Monitor,
@@ -17,13 +18,13 @@ import { cx } from '../../shared/format';
 import { Detail } from '../session/SessionDetail';
 import { Settings } from '../settings/Settings';
 import { UsageDashboard } from '../usage/UsageDashboard';
-import { OverviewCards } from './OverviewCards';
-import { RunningSwitcher } from './RunningSwitcher';
+import { AttentionBoard } from '../attention/AttentionBoard';
 import { SessionPanel } from './SessionPanel';
 import { Sidebar } from './Sidebar';
 import { useWorkspace, WorkspaceProps } from './useWorkspace';
 import { useDesktopLayout } from './useDesktopLayout';
-import type { RunningWorkspace } from '../workspaces/useRunningSessions';
+import type { useAttention } from '../attention/useAttention';
+import type { useTaskWatches } from '../attention/useTaskWatches';
 import { navigateWorkspace } from '../../workspace-scope';
 import type { ManagedWorkspace } from '../../workspaces';
 
@@ -31,7 +32,8 @@ export function Workspace(
   props: WorkspaceProps & {
     workspaceId: string;
     workspaces: ManagedWorkspace[];
-    runningWorkspaces: RunningWorkspace[];
+    attention: ReturnType<typeof useAttention>;
+    taskWatches: ReturnType<typeof useTaskWatches>;
   },
 ) {
   const { user } = props;
@@ -48,6 +50,8 @@ export function Workspace(
     setProject,
     selected,
     page,
+    result,
+    attentionRequest,
     outlineData,
     outlineError,
     detailBusy,
@@ -75,6 +79,8 @@ export function Workspace(
     title,
   } = model;
   const hasDetail = !!selected || creating;
+  const activeObservation = props.attention.groups.find(({ workspace, fresh }) => fresh && workspace.id === props.workspaceId)?.snapshot;
+  const watched = props.taskWatches.watches.some((item) => item.workspaceId === props.workspaceId && item.sessionId === selected);
   const layout = useDesktopLayout(creating ? 'new' : selected, model.searchRef);
   return (
     <div
@@ -135,7 +141,7 @@ export function Workspace(
             >
               <Menu size={21} />
             </button>
-            {user.role === 'admin' && (
+            {user.role === 'admin' && (tab !== 'attention' || hasDetail) && (
               <button
                 className={cx('icon-button new-session-shortcut', creating && 'active')}
                 title="快速新建会话"
@@ -145,6 +151,9 @@ export function Workspace(
                 <SquarePen size={20} />
               </button>
             )}
+            {(tab !== 'attention' || hasDetail) && <button className="icon-button mobile-attention" aria-label="返回任务动态" title="任务动态" onClick={() => changeTab('attention')}>
+              <ListTodo size={19} />
+            </button>}
           </div>
           <div className="breadcrumb">
             <Monitor size={16} />
@@ -168,26 +177,29 @@ export function Workspace(
               <RotateCcw size={15} />
             </button>
           </div>
-          <div className={cx('connection', connected && 'connected')}>
-            <span />
-            {connected ? '实时同步' : '正在连接'}
+          {(tab !== 'attention' || hasDetail) && <div
+            className={cx('connection', connected && 'connected')}
+            title={connected ? '实时同步' : '正在连接'}
+          >
+            <span aria-hidden="true" />
+            <span className="connection-label">{connected ? '实时同步' : '正在连接'}</span>
             <span className="connection-interval">· 1.5s</span>
-          </div>
+          </div>}
           <button
-            className="icon-button"
+            className={cx('icon-button', tab === 'attention' && !hasDetail && 'attention-refresh')}
             title="刷新数据"
             onClick={() => {
+              props.attention.refresh();
               void loadList(false, true);
               void loadOverview();
               setUsageRevision((v) => v + 1);
               if (selected) void loadDetail(selected);
-              notify('数据已刷新');
             }}
           >
             <RefreshCw size={16} />
           </button>
         </header>
-        {props.workspaceNotice && (
+        {props.workspaceNotice && (tab !== 'attention' || hasDetail) && (
           <div className="alert warning workspace-notice" role="status">
             {props.workspaceNotice}
           </div>
@@ -203,16 +215,13 @@ export function Workspace(
           />
         ) : (
           <>
-            {!hasDetail && (
-              <OverviewCards title={title} overview={overview} changeTab={changeTab} />
-            )}
-            {overview?.source.warnings.map((w) => (
+            {tab !== 'attention' && overview?.source.warnings.map((w) => (
               <div key={w} className="alert warning source-warning">
                 <TriangleAlert size={16} />
                 {w}
               </div>
             ))}
-            <div className={cx('content', hasDetail && 'split')}>
+            <div className={cx('content', hasDetail && 'split', tab === 'attention' && 'attention-content')}>
               {hasDetail && layout.sessionDrawerOpen && (
                 <button
                   className="session-list-backdrop desktop-only"
@@ -220,12 +229,11 @@ export function Workspace(
                   onClick={layout.closeSessionDrawer}
                 />
               )}
-              <SessionPanel
-                user={user}
-                model={model}
-                runningWorkspaces={props.runningWorkspaces}
-                onSessionSelected={layout.closeSessionDrawer}
-              />
+              {tab === 'attention' && !creating ? (
+                <AttentionBoard {...props.attention} watches={props.taskWatches.watches} user={user} compact={hasDetail} startSession={startSession} />
+              ) : (
+                <SessionPanel user={user} model={model} onSessionSelected={layout.closeSessionDrawer} />
+              )}
               {hasDetail && (
                 <Detail
                   key={`${props.workspaceId}:${creating ? 'new' : 'session'}`}
@@ -278,10 +286,22 @@ export function Workspace(
                   notify={notify}
                   connected={connected}
                   focusMode={layout.focusMode}
+                  result={result}
+                  linkedQuestion={attentionRequest ? {
+                    workspaceName: props.workspaceName || props.workspaceId,
+                    current: activeObservation?.questions?.find((item) => item.id === attentionRequest && item.session.id === selected),
+                    observed: Array.isArray(activeObservation?.questions),
+                  } : undefined}
+                  workspaceName={props.workspaceName}
+                  activeSessions={activeObservation && [...activeObservation.running, ...activeObservation.waiting]}
+                  taskWatch={selected && props.taskWatches.available && (!page?.session.archived || watched) ? {
+                    watched,
+                    toggle: () => props.taskWatches.toggle(props.workspaceId, selected, !watched),
+                  } : undefined}
                 />
               )}
             </div>
-            {!hasDetail && (
+            {!hasDetail && tab !== 'attention' && (
               <footer className="workspace-footer">
                 <span>
                   CODEX MONITOR <span className="muted">/ 本机会话观测台</span>
@@ -295,17 +315,6 @@ export function Workspace(
           </>
         )}
       </main>
-      {!menu && !settings && (
-        <RunningSwitcher
-          workspaces={props.runningWorkspaces}
-          activeWorkspaceId={props.workspaceId}
-          selected={selected}
-          onSelect={(workspaceId, sessionId) => {
-            if (workspaceId === props.workspaceId) select(sessionId);
-            else navigateWorkspace(workspaceId, sessionId);
-          }}
-        />
-      )}
       {settings && (
         <Settings
           user={user}

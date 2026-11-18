@@ -24,7 +24,7 @@ export type ApprovalRequest = {
   decision?: ApprovalDecision;
 };
 export interface ApprovalControl {
-  list(threadId: string): ApprovalRequest[];
+  list(threadId?: string): ApprovalRequest[];
   get(threadId: string, id: string): ApprovalRequest;
   answer(threadId: string, id: string, decision: ApprovalDecision): ApprovalRequest;
 }

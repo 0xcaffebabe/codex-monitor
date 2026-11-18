@@ -19,7 +19,7 @@
 .project-file-root {
   margin: 0;
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--font-meta);
   overflow-wrap: anywhere;
   max-height: 48px;
   overflow-y: auto;
@@ -55,7 +55,7 @@
   min-height: 38px;
   padding: 8px;
   border-radius: 7px;
-  font-size: 12px;
+  font-size: var(--font-meta);
   text-align: left;
   cursor: pointer;
 }
@@ -86,7 +86,7 @@
 }
 .project-file-name small {
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--font-meta);
 }
 .project-file-children {
   margin-left: 15px;
@@ -99,7 +99,7 @@
   gap: 8px;
   padding: 12px 8px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--font-meta);
 }
 .project-file-dialog footer {
   display: flex;
@@ -108,7 +108,7 @@
   flex-shrink: 0;
   padding-top: 12px;
   border-top: 1px solid var(--line);
-  font-size: 12px;
+  font-size: var(--font-meta);
 }
 .project-file-dialog footer > span {
   flex: 1;

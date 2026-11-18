@@ -6,13 +6,13 @@ import { ClientManager } from './ClientManager';
 import { Brand } from '../../shared/ui/Brand';
 import { useState } from 'react';
 import { Settings } from '../settings/Settings';
-import { ResourceMetrics } from './ResourceMetrics';
-import { CompletionNotifications } from '../notifications/CompletionNotifications';
-import { useRunningSessions } from './useRunningSessions';
+import { useAttention } from '../attention/useAttention';
+import { useTaskWatches } from '../attention/useTaskWatches';
 
 export function WorkspaceHost(props: WorkspaceProps) {
   const model = useWorkspaces();
-  const runningWorkspaces = useRunningSessions(model.workspaces);
+  const attention = useAttention(model.workspaces, props.user.id);
+  const taskWatches = useTaskWatches(props.user.role === 'admin');
   const [accessOpen, setAccessOpen] = useState(false);
   const controls = (
     <div className="workspace-selector">
@@ -20,7 +20,7 @@ export function WorkspaceHost(props: WorkspaceProps) {
         <select
           aria-label="切换工作空间"
           value={model.activeId}
-          onChange={(event) => model.select(event.target.value)}
+          onChange={(event) => model.select(event.target.value, undefined, new URLSearchParams(location.search))}
         >
           {!model.active && <option value={model.activeId}>选择工作空间</option>}
           {model.workspaces.map((workspace) => (
@@ -41,14 +41,10 @@ export function WorkspaceHost(props: WorkspaceProps) {
           </button>
         )}
       </div>
-      {model.active && (
-        <ResourceMetrics workspace={model.active} compact unavailable={!!model.error} />
-      )}
     </div>
   );
   return (
     <>
-      <CompletionNotifications key={props.user.id} userId={props.user.id} />
       {model.loading ? (
         <div className="full-loader">
           <Brand />
@@ -60,7 +56,8 @@ export function WorkspaceHost(props: WorkspaceProps) {
           {...props}
           workspaceId={model.active.id}
           workspaces={model.workspaces}
-          runningWorkspaces={runningWorkspaces}
+          attention={attention}
+          taskWatches={taskWatches}
           workspaceName={model.active.name}
           workspaceControls={controls}
           workspaceNotice={
