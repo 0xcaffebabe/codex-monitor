@@ -165,13 +165,27 @@
   }
 
   .compact .session-row {
-    padding: 13px 12px;
+    padding: 7px 12px;
     gap: 8px;
+  }
+
+  .compact .session-row.selected:before {
+    inset-block: 7px;
   }
 
   .compact .session-info > strong {
     font-size: var(--font-ui);
     line-height: 1.5;
+  }
+
+  .compact .session-info > div:not(.compact-meta),
+  .compact .compact-meta {
+    margin-top: 3px;
+  }
+
+  .compact .session-workspace-tag,
+  .compact .compact-meta .status {
+    line-height: 1.4;
   }
 
   .compact .group-label {
