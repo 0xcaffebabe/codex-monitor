@@ -325,21 +325,18 @@ npm run client -- \
 
 最新工作区已将原生 PTY 放入独立 worker。按当前 package.json 完整运行构建，确认 dist/server.mjs 和 dist/terminal-worker.mjs 均存在；只复制 server.mjs 会遗漏终端子进程入口。Mac 侧还应验证关闭终端、client 断线及退出后 worker 与 Shell 子进程都能回收。
 
-有对应测试文件时执行浏览器回归。测试器会重建 MONITOR_TEST_ROOT，因此该变量必须指向专用测试临时目录，不能指向真实 Codex 数据或已有工作目录。
+执行浏览器回归时，每条用例会自动创建独立数据目录并分配端口。完整用法见 [浏览器 E2E](e2e.md)。
 
 ```bash
 npx playwright install chromium 2>&1 | tee "$MAC_TEST_OUT/06-playwright-install.log"
 
 TMPDIR="$MAC_TEST_TMP" \
-MONITOR_TEST_ROOT="$MAC_TEST_TMP/codex-monitor-e2e" \
-MONITOR_TEST_PORT=14327 \
 PLAYWRIGHT_HTML_OUTPUT_DIR="$MAC_TEST_OUT/playwright-report" \
-npx playwright test tests/e2e/workspaces.spec.ts tests/e2e/session-sync.spec.ts \
-  tests/e2e/terminal.spec.ts --output "$MAC_TEST_OUT/playwright-results" \
+npm run test:e2e -- --output "$MAC_TEST_OUT/playwright-results" \
   2>&1 | tee "$MAC_TEST_OUT/06-browser-tests.log"
 ```
 
-端口有占用时选择其他空闲端口。E2E 使用模拟 Codex 控制器，证明 Web 与传输链路在 Mac 测试环境可用，仍不能替代真实桌面鉴权和 owner 控制。
+E2E 使用模拟 Codex 控制器，验证 Web 与传输链路，仍不能替代真实桌面鉴权和 owner 控制。
 
 Mac 自动拉起、start/stop Shell 脚本及 LaunchAgent 目前是待实现项。即使前台 client 通过，也要把它们单独标注。控制通道通过后再评估最小适配：用户 LaunchAgent、明确的 Node / CLI 绝对路径、SHELL / PATH、独立数据目录、日志与退出清理；参考 [Apple LaunchAgent 文档](https://developer.apple.com/library/archive/documentation/MacOSX/Conceptual/BPSystemStartup/Chapters/CreatingLaunchdJobs.html)。
 

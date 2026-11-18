@@ -24,9 +24,10 @@ export class FixtureDesktop implements DesktopControl {
   constructor(
     private f: ReturnType<typeof fixture>,
     private compactMs = 0,
+    private projectPath = 'D:/work',
   ) {}
   async projects() {
-    return [{ id: projectId, name: 'work', path: 'D:/work' }];
+    return [{ id: projectId, name: 'work', path: this.projectPath }];
   }
   async models(): Promise<CodexModel[]> {
     return [
@@ -127,14 +128,14 @@ export class FixtureDesktop implements DesktopControl {
       now = Date.now();
     writeFileSync(
       file,
-      JSON.stringify({ type: 'session_meta', payload: { id, cwd: 'D:/work' } }) + '\n',
+      JSON.stringify({ type: 'session_meta', payload: { id, cwd: this.projectPath } }) + '\n',
     );
     this.f.state
       .prepare('INSERT INTO threads VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
       .run(
         id,
         prompt.slice(0, 70),
-        'D:/work',
+        this.projectPath,
         file,
         Math.floor(now / 1000),
         Math.floor(now / 1000),

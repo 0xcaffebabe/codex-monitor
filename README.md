@@ -97,7 +97,7 @@ Windows 和 macOS 默认共用 App Server 会话控制。新建会话会在当�
 
 默认通道发送前通过会话元数据、原 owner 确认及本地轮次状态判断是否执行中或压缩中；旧 tools 通道继续读取桌面会话列表。状态检查不加载整轮工具输出，单轮工具记录过大也不会因历史读取上限禁用消息或指令。
 
-自动测试使用独立临时数据和模拟桌面服务；真实模型验证另在用户授权的 `work` 项目会话执行。测试任务可配置 `MONITOR_TEST_PORT`、`MONITOR_TEST_ROOT`、`MONITOR_TEST_PUBLIC_DIR` 隔离端口、临时数据和前端构建；临时目录必须位于系统临时目录中，且名称以 `codex-monitor-` 开头。
+自动测试使用独立临时数据和模拟桌面服务；真实模型验证另在用户授权的 `work` 项目会话执行。浏览器测试自动隔离数据和端口，运行方式见 [浏览器 E2E](docs/e2e.md)。
 
 ## 数据和实时性的边界
 
@@ -211,17 +211,17 @@ npm run account -- reset admin
 
 代码按功能与职责拆分，模块边界及维护约定见 [架构说明](docs/architecture.md)。前端请求与状态转换集中在 hooks，后端由组合入口装配路由和读取适配器。
 
-完整浏览器回归启动独立 Server 和两个真实加密 WebSocket client，使用模拟 Codex 数据与控制器，覆盖多工作空间和原有功能。加密协议、双 client 隔离、重连、权限与密钥轮换另有独立集成测试。
+需要 Node.js 24 或更高版本。浏览器回归使用构建后的页面、真实 Server、加密 WebSocket Client 和 SSE，不需要安装 Codex 或配置密钥。覆盖范围及 CI 运行方式见 [浏览器 E2E](docs/e2e.md)。
 
 ```powershell
 npm ci
 npm run build
-npm start
 npm test
+npx playwright install chromium
 npm run test:e2e
 ```
 
-开发时分别运行 `npm run dev`（接口）和 `npm run dev:web`（Vite 页面）。端到端测试自动创建独立临时 Codex 数据和独立账户，监听 `127.0.0.1:14317`，**不写入真实 Codex 数据**。Windows 优先使用已安装的 Edge；其他环境先运行 `npx playwright install chromium`。覆盖桌面与 iPhone 尺寸、持久登录、授权撤销、工具和历史查看、Markdown 安全、导出以及文件更新触发的实时同步和重连。
+开发时分别运行 `npm run dev`（接口）和 `npm run dev:web`（Vite 页面）。E2E 自行启动并停止服务，每条用例分配临时目录和随机回环端口，**不读写真实 Codex 数据**。Linux 上也可用 `npx playwright install --with-deps chromium` 安装浏览器及系统依赖。
 
 技术栈：React 19 / TypeScript / Vite / Express 5 / Node 内置 SQLite。无外部数据库、云服务或 OpenAI API Key 要求。
 

@@ -36,16 +36,12 @@
 浏览器回归使用独立 fixture；真实 CLI 验证另通过仅监听 127.0.0.1 的完整 Server/client 执行。测试只向本地接收器取固定文本，并写入专用临时目录；不修改项目文件。
 
 ```bash
-# 先构建；测试临时目录需先创建，且 MONITOR_TEST_ROOT 只能指向可重建的 fixture。
+# 先运行 npm run build 和 npx playwright install chromium。
 TMPDIR=/private/tmp/codex-monitor-permissions \
   node --disable-warning=ExperimentalWarning --import tsx --test \
   tests/approvals.test.ts tests/native-control.test.ts tests/native-lifecycle.test.ts
 
-TMPDIR=/private/tmp/codex-monitor-permissions \
-MONITOR_TEST_APPROVALS=1 \
-MONITOR_TEST_ROOT=/private/tmp/codex-monitor-permissions/codex-monitor-e2e \
-MONITOR_TEST_PORT=14329 \
-  npm run test:e2e -- tests/e2e/approvals.spec.ts
+npm run test:e2e -- --grep 'explicit approval'
 ```
 
 结构化提问、MCP elicitation 及由桌面原 owner 持有的审批未纳入新的网页审批范围。

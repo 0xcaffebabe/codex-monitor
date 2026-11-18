@@ -13,8 +13,9 @@ export class ApprovalFixtureDesktop extends FixtureDesktop {
   constructor(
     private data: ReturnType<typeof fixture>,
     compactMs = 0,
+    projectPath?: string,
   ) {
-    super(data, compactMs);
+    super(data, compactMs, projectPath);
   }
   override async send(
     context: string,
