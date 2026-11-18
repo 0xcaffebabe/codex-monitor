@@ -197,7 +197,7 @@ export function PromptForm(props: PromptFormProps) {
                         />
                         <span>
                           <strong>桌面通道</strong>
-                          <small>通过 Codex 桌面应用发送；执行中的消息会排队。</small>
+                          <small>通过 Codex 桌面应用发送，支持执行中追加。</small>
                         </span>
                       </label>
                     </section>

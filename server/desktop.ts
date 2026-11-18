@@ -26,7 +26,12 @@ export interface DesktopControl {
   state(
     context: string,
     threadId: string,
-  ): Promise<{ status: string; turnId?: string; compacting?: boolean }>;
+  ): Promise<{
+    status: string;
+    turnId?: string;
+    compacting?: boolean;
+    owner?: 'monitor' | 'desktop';
+  }>;
   send(
     context: string,
     threadId: string,

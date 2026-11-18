@@ -102,10 +102,46 @@ test('idle sends preserve model and desktop channel through queue migration, res
   }
 });
 
-test('desktop messages wait for running turns and handoff readiness, then deliver once', async () => {
+test('desktop messages append to running desktop turns without waiting and deduplicate receipts', async () => {
   const f = fixture(),
     control = new FixtureDesktop(f),
     service = await boot(f, control);
+  try {
+    // The legacy desktop tools bridge does not report an owner.
+    for (const owner of ['desktop', undefined] as const) {
+      control.owner = owner;
+      f.hist
+        .prepare("UPDATE thread_turns SET status='inProgress' WHERE thread_id=?")
+        .run(ids.modern);
+      const previous = await control.state('', ids.modern);
+      const input = { requestId: randomUUID(), prompt: 'append on desktop', channel: 'desktop' };
+      const sends = control.sends;
+      const response = await service.request(route, input);
+      assert.equal(response.status, 200);
+      const receipt = await response.json();
+      assert.equal(receipt.state, 'succeeded');
+      assert.equal(receipt.mode, 'append');
+      assert.equal(receipt.threadId, ids.modern);
+      assert.equal(receipt.previousTurnId, previous.turnId);
+      assert.equal(receipt.requestId, input.requestId);
+      assert.equal(control.sends, sends + 1);
+      assert.deepEqual(control.lastSend, { channel: 'desktop' });
+      assert.equal((await control.state('', ids.modern)).turnId, previous.turnId);
+      assert.equal((await service.request(route, input)).status, 200);
+      assert.equal(control.sends, sends + 1, 'a repeated receipt must not send the message twice');
+    }
+  } finally {
+    await service.close();
+    f.close();
+    rmSync(f.root, { recursive: true, force: true });
+  }
+});
+
+test('desktop messages wait for running monitor turns and handoff readiness, then deliver once', async () => {
+  const f = fixture(),
+    control = new FixtureDesktop(f),
+    service = await boot(f, control);
+  control.owner = 'monitor';
   const input = {
     requestId: randomUUID(),
     prompt: 'desktop after the current turn',
@@ -147,6 +183,33 @@ test('desktop messages wait for running turns and handoff readiness, then delive
     });
     assert.equal((await service.request(route, input)).status, 200);
     assert.equal(control.sends, 1);
+  } finally {
+    await service.close();
+    f.close();
+    rmSync(f.root, { recursive: true, force: true });
+  }
+});
+
+test('desktop messages wait for an unavailable writer and append once its desktop owner is reachable', async () => {
+  const f = fixture(),
+    control = new FixtureDesktop(f),
+    service = await boot(f, control);
+  const state = control.state.bind(control);
+  let reachable = false;
+  control.state = async (...args) =>
+    reachable ? state(...args) : { status: 'notLoaded', compacting: false };
+  const input = { requestId: randomUUID(), prompt: 'append after reconnect', channel: 'desktop' };
+  try {
+    assert.equal((await service.request(route, input)).status, 202);
+    assert.equal(control.sends, 0);
+    reachable = true;
+    await until(
+      async () =>
+        (await (await service.request(`/api/control/requests/${input.requestId}`)).json()).state ===
+        'succeeded',
+    );
+    assert.equal(control.sends, 1);
+    assert.equal((await (await service.request(route, input)).json()).mode, 'append');
   } finally {
     await service.close();
     f.close();
@@ -203,7 +266,11 @@ test('model changes reject active turns, invalid efforts and turns that start du
     thinking: 'ultra',
   };
   try {
-    assert.equal((await service.request(route, { ...input, requestId: randomUUID() })).status, 409);
+    for (const channel of [undefined, 'desktop'])
+      assert.equal(
+        (await service.request(route, { ...input, channel, requestId: randomUUID() })).status,
+        409,
+      );
     assert.equal(control.sends, 0);
     f.hist.prepare("UPDATE thread_turns SET status='completed' WHERE thread_id=?").run(ids.modern);
     for (const overrides of [

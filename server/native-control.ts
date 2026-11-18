@@ -253,7 +253,7 @@ export class NativeDesktopControl implements DesktopControl {
     );
   }
 
-  async state(_context: string, threadId: string) {
+  async state(_context: string, threadId: string): ReturnType<DesktopControl['state']> {
     const runtime = this.runtimes.get(threadId);
     let result: any;
     try {
@@ -271,6 +271,7 @@ export class NativeDesktopControl implements DesktopControl {
     if (this.runtimes.has(threadId) && thread.status?.type !== 'notLoaded') {
       return {
         status: thread.status.type,
+        owner: 'monitor',
         turnId: local?.turnId,
         compacting:
           this.compacting.has(threadId) ||
@@ -291,6 +292,7 @@ export class NativeDesktopControl implements DesktopControl {
       const activity = this.options.activity(threadId);
       return {
         status: activity?.running ? 'active' : 'idle',
+        owner: 'desktop',
         turnId: activity?.turnId,
         compacting: !!activity?.compacting,
       };
@@ -321,7 +323,7 @@ export class NativeDesktopControl implements DesktopControl {
         (await this.native.get(threadId))?.status === 'active'
       )
         throw new ControlError(
-          '桌面通道消息已排队，等待当前执行或目标结束后自动发送。',
+          '桌面通道消息已排队，等待当前执行或目标结束后交接桌面。',
           false,
           409,
           'desktop_busy',

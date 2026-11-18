@@ -159,6 +159,25 @@ test('desktop message selection uses desktop tools with model settings and never
   }
 });
 
+test('running desktop owners accept immediate desktop input without creating a CLI runtime', async () => {
+  const f = fixture();
+  try {
+    f.setStatus('notLoaded');
+    f.setGoal({ status: 'active' });
+    const state = await f.control.state('context', 'desktop-thread');
+    assert.equal(state.status, 'active');
+    assert.equal(state.owner, 'desktop');
+    await f.control.send('context', 'desktop-thread', 'append while working', {
+      channel: 'desktop',
+    });
+    assert.deepEqual(f.desktopCalls, [['context', 'desktop-thread', 'append while working', {}]]);
+    assert.equal(f.disposals, 0);
+    assert.ok(f.calls.every((call) => call.method === 'thread/read'));
+  } finally {
+    f.control.close();
+  }
+});
+
 test('selected desktop creation delegates the first message and reports errors without CLI fallback', async () => {
   const f = fixture();
   try {
@@ -263,6 +282,7 @@ test('desktop selection leaves running CLI turns and active goals intact until t
   try {
     await f.control.create('', 'project', 'keep working');
     f.setStatus('active');
+    assert.equal((await f.control.state('', 'thread')).owner, 'monitor');
     await assert.rejects(
       f.control.send('', 'thread', 'desktop next', { channel: 'desktop' }),
       (error: any) => error.code === 'desktop_busy' && !error.uncertain,

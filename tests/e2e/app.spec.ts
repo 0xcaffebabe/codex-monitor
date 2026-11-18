@@ -1005,17 +1005,28 @@ test('web controls desktop channel preserves drafts, submits model settings and 
   await expect(input).toHaveValue('');
 });
 
-test('web controls desktop channel waits for the running turn and survives a queued reload', async ({
+test('web controls desktop channel appends directly to a running desktop turn', async ({
   page,
   request,
 }) => {
   const activeHistory = new DatabaseSync(path.join(root, 'codex', 'thread_history_1.sqlite'));
-  activeHistory.prepare("UPDATE thread_turns SET status='inProgress' WHERE thread_id=?").run(ids.modern);
+  activeHistory
+    .prepare("UPDATE thread_turns SET status='inProgress' WHERE thread_id=?")
+    .run(ids.modern);
+  const previousTurnId = activeHistory
+    .prepare(
+      'SELECT turn_id FROM thread_turns WHERE thread_id=? ORDER BY rollout_ordinal DESC LIMIT 1',
+    )
+    .get(ids.modern)!.turn_id;
   activeHistory.close();
   await enter(page, request);
   await page.getByTestId('session-row').filter({ hasText: '开发 codex-monitor' }).click();
   const input = page.getByLabel('发送给 Codex 的消息');
-  const desktop = page.getByRole('checkbox', { name: '桌面通道', exact: true, includeHidden: true });
+  const desktop = page.getByRole('checkbox', {
+    name: '桌面通道',
+    exact: true,
+    includeHidden: true,
+  });
   let submissions = 0;
   page.on('request', (req) => {
     if (req.method() === 'POST' && req.url().endsWith('/messages')) submissions++;
@@ -1023,26 +1034,29 @@ test('web controls desktop channel waits for the running turn and survives a que
   await openComposerMenu(page, '发送设置');
   await desktop.check();
   await closeComposerMenu(page, '发送设置');
-  await input.fill('queued desktop channel ' + test.info().project.name);
-  const queued = page.waitForResponse(
+  await input.fill('direct desktop append ' + test.info().project.name);
+  const sent = page.waitForResponse(
     (response) => response.request().method() === 'POST' && response.url().endsWith('/messages'),
   );
   await page.locator('.message-composer button[type="submit"]').click();
-  expect((await queued).status()).toBe(202);
-  await expect(desktop).toBeDisabled();
-  await expect(page.locator('.message-composer .control-notice')).toContainText('等待当前执行');
-  await page.reload();
-  await expect(desktop).toBeChecked();
-  await expect(desktop).toBeDisabled();
-  await expect(input).toHaveValue('queued desktop channel ' + test.info().project.name);
-  expect(submissions).toBe(1);
-  const hist = new DatabaseSync(path.join(root, 'codex', 'thread_history_1.sqlite'));
-  hist.prepare("UPDATE thread_turns SET status='completed' WHERE thread_id=?").run(ids.modern);
-  hist.close();
-  await expect(input).toHaveValue('', { timeout: 15000 });
+  const response = await sent;
+  expect(response.status()).toBe(200);
+  expect(await response.json()).toMatchObject({
+    state: 'succeeded',
+    mode: 'append',
+    previousTurnId,
+  });
+  expect(response.request().postDataJSON()).toHaveProperty('channel', 'desktop');
+  expect(response.request().postDataJSON()).not.toHaveProperty('model');
+  expect(response.request().postDataJSON()).not.toHaveProperty('thinking');
+  await expect(input).toHaveValue('');
   await expect(desktop).not.toBeChecked();
   await expect(desktop).toBeEnabled();
-  await expect(page.locator('.timeline')).toContainText('测试回复：queued desktop channel');
+  await expect(page.getByRole('button', { name: '取消排队', exact: true })).toHaveCount(0);
+  await expect(page.locator('.timeline')).toContainText('测试回复：direct desktop append');
+  await page.reload();
+  await expect(input).toHaveValue('');
+  await expect(desktop).not.toBeChecked();
   expect(submissions).toBe(1);
 });
 
@@ -1121,10 +1135,19 @@ test('web controls computer use shortcut selects desktop and sends the preset pr
 }) => {
   const hist = new DatabaseSync(path.join(root, 'codex', 'thread_history_1.sqlite'));
   hist.prepare("UPDATE thread_turns SET status='inProgress' WHERE thread_id=?").run(ids.modern);
+  hist.close();
   await enter(page, request);
   await page.getByTestId('session-row').filter({ hasText: '开发 codex-monitor' }).click();
-  const shortcut = page.getByRole('button', { name: 'Computer Use', exact: true, includeHidden: true });
-  const desktop = page.getByRole('checkbox', { name: '桌面通道', exact: true, includeHidden: true });
+  const shortcut = page.getByRole('button', {
+    name: 'Computer Use',
+    exact: true,
+    includeHidden: true,
+  });
+  const desktop = page.getByRole('checkbox', {
+    name: '桌面通道',
+    exact: true,
+    includeHidden: true,
+  });
   const input = page.getByLabel('发送给 Codex 的消息');
   const prompt = '已切换为桌面端通道，开通了 computer use 权限';
   let submissions = 0;
@@ -1136,26 +1159,25 @@ test('web controls computer use shortcut selects desktop and sends the preset pr
   await openComposerMenu(page, '快捷操作');
   await expect(shortcut).toBeEnabled();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-  await page.screenshot({ path: test.info().outputPath('computer-use-shortcut.png'), fullPage: true });
-  const queued = page.waitForResponse(
+  await page.screenshot({
+    path: test.info().outputPath('computer-use-shortcut.png'),
+    fullPage: true,
+  });
+  const sent = page.waitForResponse(
     (response) => response.request().method() === 'POST' && response.url().endsWith('/messages'),
   );
   await shortcut.click();
-  const response = await queued;
-  expect(response.status()).toBe(202);
+  const response = await sent;
+  expect(response.status()).toBe(200);
+  expect(await response.json()).toMatchObject({ state: 'succeeded', mode: 'append' });
   expect(response.request().postDataJSON()).toMatchObject({ prompt, channel: 'desktop' });
   expect(response.request().postDataJSON()).not.toHaveProperty('attachments');
-  await expect(desktop).toBeChecked();
-  await expect(input).toHaveValue(prompt);
-  await expect(shortcut).toBeDisabled();
+  await expect(desktop).not.toBeChecked();
+  await expect(input).toHaveValue('');
+  await expect(shortcut).toBeEnabled();
   await page.reload();
-  await expect(desktop).toBeChecked();
-  await expect(input).toHaveValue(prompt);
-  await expect(shortcut).toBeDisabled();
-  expect(submissions).toBe(1);
-  hist.prepare("UPDATE thread_turns SET status='completed' WHERE thread_id=?").run(ids.modern);
-  hist.close();
-  await expect(input).toHaveValue('', { timeout: 15000 });
+  await expect(desktop).not.toBeChecked();
+  await expect(input).toHaveValue('');
   await expect(shortcut).toBeEnabled();
   await expect(page.locator('.timeline')).toContainText('测试回复：' + prompt);
   expect(submissions).toBe(1);
@@ -1362,7 +1384,7 @@ test('web controls recover a lost stop receipt without interrupting a new turn',
   ).toMatchObject({ running: true, turnId: 'turn-after-stop' });
 });
 
-test('web controls queue input during compaction, survive reload and support cancellation', async ({
+test('web controls queue desktop input during compaction, survive reload and support cancellation', async ({
   page,
   request,
 }) => {
@@ -1372,6 +1394,14 @@ test('web controls queue input during compaction, survive reload and support can
     await enter(page, request);
     await page.getByTestId('session-row').filter({ hasText: '开发 codex-monitor' }).click();
     await page.getByTitle('刷新发送状态').click();
+    const desktop = page.getByRole('checkbox', {
+      name: '桌面通道',
+      exact: true,
+      includeHidden: true,
+    });
+    await openComposerMenu(page, '发送设置');
+    await desktop.check();
+    await closeComposerMenu(page, '发送设置');
     await openComposerMenu(page, '快捷操作');
     await expect(page.getByRole('button', { name: '压缩上下文', exact: true })).toBeEnabled();
     await page.getByRole('button', { name: '压缩上下文', exact: true }).click();
@@ -1385,12 +1415,15 @@ test('web controls queue input during compaction, survive reload and support can
     const response = await queued;
     expect(response.status()).toBe(202);
     expect((await response.json()).state).toBe('queued');
+    expect(response.request().postDataJSON()).toHaveProperty('channel', 'desktop');
     await expect(page.getByRole('button', { name: '取消排队', exact: true })).toBeVisible();
     await page.screenshot({
       path: `test-results/${test.info().project.name}-compaction-queue.png`,
       fullPage: true,
     });
     await page.reload();
+    await expect(desktop).toBeChecked();
+    await expect(desktop).toBeDisabled();
     await expect(input).toHaveValue(prompt);
     await expect(input).toBeDisabled();
     await expect(page.locator('.message-composer .control-notice')).toContainText(/排队|提交/);
@@ -1398,6 +1431,7 @@ test('web controls queue input during compaction, survive reload and support can
       page.locator('.timeline').getByText('测试回复：' + prompt, { exact: true }),
     ).toBeVisible();
     await expect(input).toHaveValue('');
+    await expect(desktop).not.toBeChecked();
     expect(
       hist
         .prepare(
@@ -1419,17 +1453,26 @@ test('web controls queue input during compaction, survive reload and support can
     await page.getByRole('button', { name: '取消排队', exact: true }).click();
     await expect(input).toBeEnabled();
     await expect(input).toHaveValue(cancelled);
-    await expect(page.locator('.message-composer .prompt-form > .control-notice')).toContainText('已取消排队');
+    await expect(page.locator('.message-composer .prompt-form > .control-notice')).toContainText(
+      '已取消排队',
+    );
     const headers = { Authorization: 'Bearer ' + (await ownerToken(request)) };
     await expect
       .poll(
         async () =>
-          (await (await request.get(`/api/workspaces/local/sessions/${ids.modern}/control`, { headers })).json())
-            .compacting ?? false,
+          (
+            await (
+              await request.get(`/api/workspaces/local/sessions/${ids.modern}/control`, { headers })
+            ).json()
+          ).compacting ?? false,
       )
       .toBe(false);
     expect(
-      (await (await request.get(`/api/workspaces/local/control/requests/${requestId}`, { headers })).json()).state,
+      (
+        await (
+          await request.get(`/api/workspaces/local/control/requests/${requestId}`, { headers })
+        ).json()
+      ).state,
     ).toBe('cancelled');
     expect(
       hist

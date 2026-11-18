@@ -7,7 +7,7 @@ import { validateModelSettings } from './model-settings.js';
 
 export type ControlLane = <T>(threadId: string, operation: () => Promise<T>) => Promise<T>;
 const waitingMessage = '消息已排队，等待上下文压缩结束后自动发送。';
-const desktopWaitingMessage = '桌面通道消息已排队，等待当前执行结束后自动发送。';
+const desktopWaitingMessage = '桌面通道消息已排队，等待当前执行结束后交接桌面。';
 
 /** Only queued inputs can be resumed. A dispatched input always needs a definite receipt. */
 export class MessageQueue {
@@ -241,9 +241,11 @@ export class MessageQueue {
       });
       return;
     }
+    // Only monitor-owned runtimes need a handoff; desktop turns accept mid-turn input.
     if (
       settings.channel === 'desktop' &&
-      (state.status === 'active' || (state.status === 'notLoaded' && session.status === 'running'))
+      ((state.status === 'active' && state.owner === 'monitor') ||
+        (state.status === 'notLoaded' && session.status === 'running'))
     ) {
       this.waiting(requestId, threadId, desktopWaitingMessage);
       return;
@@ -283,7 +285,8 @@ export class MessageQueue {
     }
     if (
       settings.channel === 'desktop' &&
-      (state.status === 'active' || (state.status === 'notLoaded' && current.status === 'running'))
+      ((state.status === 'active' && state.owner === 'monitor') ||
+        (state.status === 'notLoaded' && current.status === 'running'))
     ) {
       this.waiting(requestId, threadId, desktopWaitingMessage);
       return;

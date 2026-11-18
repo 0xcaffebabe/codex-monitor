@@ -16,6 +16,7 @@ export class FixtureDesktop implements DesktopControl {
   compactions = 0;
   interruptions = 0;
   compacting = false;
+  owner: 'monitor' | 'desktop' | undefined = 'desktop';
   goals = new Map<string, any>();
   constructor(
     private f: ReturnType<typeof fixture>,
@@ -48,6 +49,7 @@ export class FixtureDesktop implements DesktopControl {
       status: this.compacting || turn?.status === 'inProgress' ? 'active' : 'idle',
       compacting: this.compacting,
       turnId: turn?.turn_id as string | undefined,
+      owner: this.owner,
     };
   }
   async send(_context: string, id: string, prompt: string, settings: SessionMessageSettings = {}) {
