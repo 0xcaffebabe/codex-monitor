@@ -1,9 +1,7 @@
 import {
   Check,
   ChevronRight,
-  Maximize2,
   Menu,
-  Minimize2,
   Monitor,
   PanelLeftClose,
   PanelLeftOpen,
@@ -92,7 +90,6 @@ export function Workspace(
         hasDetail && 'has-detail',
         layout.navigationCollapsed && 'navigation-collapsed',
         !layout.sessionsVisible && 'sessions-collapsed',
-        layout.focusMode && 'focus-mode',
       )}
     >
       {menu && <div className="scrim" onClick={() => setMenu(false)} />}
@@ -102,29 +99,20 @@ export function Workspace(
           <div className="desktop-only desktop-panel-controls">
             <button
               className="icon-button"
-              title={layout.navigationCollapsed || layout.focusMode ? '展开导航' : '折叠导航'}
+              title={layout.navigationCollapsed ? '展开导航' : '折叠导航'}
               aria-label="切换导航"
-              aria-expanded={!layout.navigationCollapsed && !layout.focusMode}
+              aria-expanded={!layout.navigationCollapsed}
               aria-controls="workspace-navigation"
               onClick={layout.toggleNavigation}
             >
-              {layout.navigationCollapsed || layout.focusMode ? (
-                <PanelLeftOpen size={18} />
-              ) : (
-                <PanelLeftClose size={18} />
-              )}
+              {layout.navigationCollapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}
             </button>
             {hasDetail && (
               <button
-                className={cx(
-                  'icon-button',
-                  layout.sessionsVisible && !layout.focusMode && 'active',
-                )}
-                title={
-                  layout.sessionsVisible && !layout.focusMode ? '收起会话列表' : '展开会话列表'
-                }
+                className={cx('icon-button', layout.sessionsVisible && 'active')}
+                title={layout.sessionsVisible ? '收起会话列表' : '展开会话列表'}
                 aria-label="切换会话列表"
-                aria-expanded={layout.sessionsVisible && !layout.focusMode}
+                aria-expanded={layout.sessionsVisible}
                 aria-controls="workspace-sessions"
                 onClick={layout.toggleSessions}
               >
@@ -161,17 +149,6 @@ export function Workspace(
             <strong>{creating ? '新建会话' : selected ? '会话详情' : title}</strong>
           </div>
           <div className="desktop-only desktop-layout-actions">
-            {hasDetail && (
-              <button
-                className={cx('layout-focus-button', layout.focusMode && 'active')}
-                title={layout.focusMode ? '退出专注模式（Esc）' : '专注模式'}
-                aria-pressed={layout.focusMode}
-                onClick={layout.toggleFocus}
-              >
-                {layout.focusMode ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
-                <span>{layout.focusMode ? '退出专注' : '专注模式'}</span>
-              </button>
-            )}
             <button className="icon-button" title="恢复自动布局" onClick={layout.reset}>
               <RotateCcw size={15} />
             </button>
@@ -284,7 +261,6 @@ export function Workspace(
                   }
                   notify={notify}
                   connected={connected}
-                  focusMode={layout.focusMode}
                   result={result}
                   linkedQuestion={attentionRequest ? {
                     workspaceName: props.workspaceName || props.workspaceId,

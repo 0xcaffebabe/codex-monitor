@@ -4,6 +4,7 @@ import { ControlError, type DesktopControl } from './desktop.js';
 import type { CodexSource } from './source.js';
 import type { ReasoningEffort, SessionMessageSettings } from '../src/types.js';
 import { validateModelSettings } from './model-settings.js';
+import { sessionPermissionModes } from '../src/approval-types.js';
 
 export type ControlLane = <T>(threadId: string, operation: () => Promise<T>) => Promise<T>;
 const waitingMessage = '消息已排队，等待上下文压缩结束后自动发送。';
@@ -31,7 +32,7 @@ export class MessageQueue {
         .all()
         .map((row) => row.name),
     );
-    for (const name of ['model', 'thinking', 'channel'])
+    for (const name of ['model', 'thinking', 'channel', 'permission_mode'])
       if (!columns.has(name)) db.exec(`ALTER TABLE control_message_queue ADD COLUMN ${name} TEXT`);
     db.prepare(
       "DELETE FROM control_message_queue WHERE request_id NOT IN (SELECT id FROM control_requests WHERE state='queued')",
@@ -71,6 +72,7 @@ export class MessageQueue {
           input.prompt,
           ...(input.model ? [{ model: input.model, thinking: input.thinking }] : []),
           ...(input.channel ? [{ channel: input.channel }] : []),
+          ...(input.permissionMode ? [{ permissionMode: input.permissionMode }] : []),
         ]),
       )
       .digest('hex');
@@ -95,7 +97,7 @@ export class MessageQueue {
           );
         this.db
           .prepare(
-            'INSERT INTO control_message_queue (request_id,thread_id,prompt,ip,model,thinking,channel) VALUES(?,?,?,?,?,?,?)',
+            'INSERT INTO control_message_queue (request_id,thread_id,prompt,ip,model,thinking,channel,permission_mode) VALUES(?,?,?,?,?,?,?,?)',
           )
           .run(
             input.requestId,
@@ -105,6 +107,7 @@ export class MessageQueue {
             input.model ?? null,
             input.thinking ?? null,
             input.channel ?? null,
+            input.permissionMode ?? null,
           );
         this.db.exec('COMMIT');
       } catch (error) {
@@ -229,10 +232,19 @@ export class MessageQueue {
       return;
     }
     if (this.closed) return;
+    const permissionMode = sessionPermissionModes.find((mode) => mode === row.permission_mode);
+    if (row.permission_mode && (!permissionMode || !this.bridge.messagePermissions || row.channel === 'desktop')) {
+      this.finish(requestId, 'failed', {
+        httpStatus: 409,
+        error: '无法应用所选会话权限，消息未发送。',
+      });
+      return;
+    }
     const settings: SessionMessageSettings = {
       ...(row.model ? { model: String(row.model) } : {}),
       ...(row.thinking ? { thinking: String(row.thinking) as ReasoningEffort } : {}),
       ...(row.channel === 'desktop' ? { channel: 'desktop' as const } : {}),
+      ...(permissionMode ? { permissionMode } : {}),
     };
     if (settings.channel === 'desktop' && !this.bridge.desktopChannel) {
       this.finish(requestId, 'failed', {
@@ -276,6 +288,15 @@ export class MessageQueue {
       this.finish(requestId, 'failed', {
         httpStatus: 409,
         error: '会话已不可发送，排队消息未发送。',
+      });
+      return;
+    }
+    if (permissionMode && (state.owner === 'desktop' || state.compacting || !['idle', 'notLoaded'].includes(state.status))) {
+      this.finish(requestId, 'failed', {
+        httpStatus: 409,
+        error: state.owner === 'desktop'
+          ? '此会话由 Codex 桌面端持有，请在桌面端切换权限。'
+          : '仅可在会话空闲时切换权限，消息未发送。',
       });
       return;
     }

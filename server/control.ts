@@ -258,6 +258,10 @@ export function installControl(
       res.json({
         available: true,
         desktopChannel: !!bridge.desktopChannel,
+        messagePermissions:
+          !!bridge.messagePermissions && state.owner !== 'desktop' &&
+          (state.status === 'idle' || state.status === 'notLoaded'),
+        permissionMode: state.permissionMode,
         running: state.status === 'active',
         turnId: state.turnId,
       });
@@ -604,7 +608,11 @@ export function installControl(
   }
   app.post('/api/sessions/:id/messages', admin, async (req, res) => {
     const parsed = schema
-        .extend({ ...modelFields, channel: z.literal('desktop').optional() })
+        .extend({
+          ...modelFields,
+          channel: z.literal('desktop').optional(),
+          permissionMode: z.enum(sessionPermissionModes).optional(),
+        })
         .refine(hasModelForThinking)
         .safeParse(req.body),
       id = String(req.params.id);
@@ -620,6 +628,9 @@ export function installControl(
       return res
         .status(409)
         .json({ state: 'failed', error: '此客户端暂不支持桌面通道，请更新客户端后重试。' });
+    const permissionMode = parsed.data.permissionMode === 'inherit' ? undefined : parsed.data.permissionMode;
+    if (permissionMode && (!bridge.messagePermissions || parsed.data.channel === 'desktop'))
+      return res.status(400).json({ error: '仅 Monitor 通道支持切换会话权限。' });
     const text = parsed.data.prompt;
     if (text.startsWith('/')) {
       if (parsed.data.channel)
@@ -628,6 +639,8 @@ export function installControl(
         return res
           .status(400)
           .json({ error: '斜杠指令不能切换模型，请使用普通消息或沿用当前会话设置。' });
+      if (permissionMode)
+        return res.status(400).json({ error: '斜杠指令不能切换会话权限，请发送普通消息。' });
       if (parsed.data.attachments?.length)
         return res.status(400).json({ error: '斜杠指令不支持附件，请使用普通消息发送。' });
       let name: string | undefined, objective: string | undefined;
@@ -662,6 +675,7 @@ export function installControl(
           ...(parsed.data.model ? { model: parsed.data.model } : {}),
           ...(parsed.data.thinking ? { thinking: parsed.data.thinking } : {}),
           ...(parsed.data.channel ? { channel: parsed.data.channel } : {}),
+          ...(permissionMode ? { permissionMode } : {}),
         },
       );
       res.status(httpStatus).json(receipt);

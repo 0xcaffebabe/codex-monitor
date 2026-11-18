@@ -48,6 +48,45 @@ async function until(check: () => Promise<boolean>) {
 }
 const route = `/api/sessions/${ids.modern}/messages`;
 
+test('message permission changes require an idle Monitor turn and are deduplicated', async () => {
+  const f = fixture(), control = new FixtureDesktop(f), service = await boot(f, control);
+  const permissionMode = 'workspace-write-network';
+  const send = (settings: object = {}) => service.request(route, {
+    requestId: randomUUID(), prompt: 'change permissions', permissionMode, ...settings,
+  });
+  const controlRoute = `/api/sessions/${ids.modern}/control`;
+  try {
+    assert.equal((await send({ channel: 'desktop' })).status, 400);
+    assert.equal((await send({ permissionMode: 'never' })).status, 400);
+    assert.equal((await send({ prompt: '/compact' })).status, 400);
+    assert.equal((await (await service.request(controlRoute)).json()).messagePermissions, false);
+    assert.equal((await send()).status, 409);
+    control.owner = 'monitor';
+    f.hist.prepare("UPDATE thread_turns SET status='inProgress' WHERE thread_id=?").run(ids.modern);
+    assert.equal((await send()).status, 409);
+    f.hist.prepare("UPDATE thread_turns SET status='completed' WHERE thread_id=?").run(ids.modern);
+    control.compacting = true;
+    assert.equal((await send()).status, 409);
+    control.compacting = false;
+    assert.equal(control.sends, 0);
+    assert.equal((await (await service.request(controlRoute)).json()).messagePermissions, true);
+    const requestId = randomUUID();
+    const accepted = await send({ requestId });
+    assert.equal(accepted.status, 200);
+    assert.equal((await accepted.json()).mode, 'start');
+    assert.deepEqual(control.lastSend, { permissionMode });
+    assert.equal((await send({ requestId })).status, 200);
+    assert.equal((await send({ requestId, permissionMode: 'read-only' })).status, 409);
+    assert.equal(control.sends, 1);
+    assert.equal((await send({ permissionMode: 'inherit' })).status, 200);
+    assert.deepEqual(control.lastSend, {});
+  } finally {
+    await service.close();
+    f.close();
+    rmSync(f.root, { recursive: true, force: true });
+  }
+});
+
 test('idle sends preserve model and desktop channel through queue migration, restart and deduplication', async () => {
   const f = fixture(),
     control = new FixtureDesktop(f);

@@ -55,6 +55,7 @@ export function installWorkspaceRuntime(
         activity: (id) => source.activity(id),
         onCreated: scope.include,
         projectPath: config.projectPath,
+        permissionDb: auth.db,
       }),
     uploads,
     services.authorization,

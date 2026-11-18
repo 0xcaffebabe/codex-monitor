@@ -6,6 +6,7 @@ import type { Draft, Receipt } from './types';
 import type { ComposerAction, PromptShortcut } from './prompt-shortcuts';
 import { workspaceStorageKey } from '../../workspace-scope';
 import { appendProjectFilePaths } from '../attachments/project-file-model';
+import { sessionPermissionModes, type SessionPermissionMode } from '../../approval-types';
 
 export type PromptFormProps = {
   storageKey: string;
@@ -30,6 +31,8 @@ export type PromptFormProps = {
   allowGoal?: boolean;
   /** Omit to remove the option; false retains saved selections for unavailable clients. */
   allowDesktopChannel?: boolean;
+  allowPermissionChanges?: boolean;
+  currentPermissionMode?: Exclude<SessionPermissionMode, 'inherit'>;
   promptShortcuts?: PromptShortcut[];
   shortcutActions?: ComposerAction[];
 };
@@ -44,6 +47,7 @@ export function usePromptForm({
   allowAttachments = false,
   allowGoal = false,
   allowDesktopChannel,
+  allowPermissionChanges,
   maxLength = 12000,
 }: PromptFormProps) {
   const storageKey = workspaceStorageKey(unscopedKey);
@@ -52,12 +56,16 @@ export function usePromptForm({
       const stored = sessionStorage.getItem(storageKey);
       const saved: Draft | undefined = stored ? JSON.parse(stored) : undefined;
       if (saved && allowDesktopChannel === undefined) delete saved.desktopChannel;
+      if (saved?.permissionMode &&
+        (allowPermissionChanges === undefined || !sessionPermissionModes.includes(saved.permissionMode)))
+        delete saved.permissionMode;
       return saved &&
         (saved.prompt ||
           saved.requestId ||
           saved.attachments?.length ||
           saved.asGoal ||
-          saved.desktopChannel)
+          saved.desktopChannel ||
+          saved.permissionMode)
         ? saved
         : { prompt: initialPrompt };
     } catch {
@@ -69,6 +77,7 @@ export function usePromptForm({
     [notice, setNotice] = useState(draft.creation?.message || ''),
     [queueState, setQueueState] = useState(''),
     [uploadBusy, setUploadBusy] = useState(false);
+  const [fullAccessConfirmed, setFullAccessConfirmed] = useState(false);
   const submitting = useRef(false);
   const uploading = useRef(false);
   const attachments = draft.attachments ?? [];
@@ -77,15 +86,31 @@ export function usePromptForm({
   const objective = goalCommand ? draft.prompt.trimStart().slice(5).trim() : draft.prompt.trim();
   const characterLimit = asGoal ? 4000 : maxLength;
   const characterCount = asGoal ? objective.length : draft.prompt.length;
+  const permissionError = !draft.permissionMode
+    ? ''
+    : draft.desktopChannel
+      ? '桌面通道沿用桌面端权限，请取消桌面通道或选择沿用当前权限。'
+      : !allowPermissionChanges
+        ? '当前无法切换权限。请等待会话空闲，或选择沿用当前权限。'
+        : '';
   const validationError =
     characterCount > characterLimit
       ? `${asGoal ? '目标' : '消息'}最多 ${characterLimit} 字符，请缩短内容。`
       : draft.desktopChannel && !allowDesktopChannel && enabled
         ? '此工作空间暂不支持桌面通道，请更新客户端或取消勾选。'
-        : '';
+        : permissionError ||
+          (draft.permissionMode && draft.prompt.trimStart().startsWith('/')
+            ? '斜杠指令不能切换会话权限，请发送普通消息。'
+            : '');
+  const needsFullAccessConfirmation = draft.permissionMode === 'danger-full-access' && !fullAccessConfirmed;
   const hasContent = asGoal ? !!objective : !!draft.prompt.trim() || !!attachments.length;
-  const canSubmit = !!enabled && hasContent && !validationError;
-  const canSubmitPreset = !!enabled && (!draft.desktopChannel || !!allowDesktopChannel);
+  const canSubmit = !!enabled && hasContent && !validationError && !needsFullAccessConfirmation;
+  const canSubmitPreset = !!enabled && (!draft.desktopChannel || !!allowDesktopChannel) &&
+    !permissionError && !needsFullAccessConfirmation;
+  function setPermissionMode(mode: SessionPermissionMode) {
+    setFullAccessConfirmed(false);
+    setDraft((previous) => ({ ...previous, permissionMode: mode === 'inherit' ? undefined : mode }));
+  }
   const attachmentPicker = useAttachmentPicker({
     attachments,
     disabled: !allowAttachments || busy || !!draft.requestId || !enabled,
@@ -184,8 +209,9 @@ export function usePromptForm({
   }
   async function submitPresetPrompt(shortcut: PromptShortcut) {
     const desktopChannel = shortcut.channel === 'desktop' || !!draft.desktopChannel;
-    if (!enabled || (desktopChannel && !allowDesktopChannel)) return;
-    await sendDraft({ prompt: shortcut.prompt, desktopChannel });
+    if (!enabled || (desktopChannel && !allowDesktopChannel) || permissionError || needsFullAccessConfirmation ||
+      (desktopChannel && !!draft.permissionMode)) return;
+    await sendDraft({ prompt: shortcut.prompt, desktopChannel, permissionMode: draft.permissionMode });
   }
   async function sendDraft(submission: Draft) {
     if (submitting.current || uploading.current || draft.requestId) return;
@@ -194,6 +220,7 @@ export function usePromptForm({
     setBusy(true);
     setError('');
     setNotice('');
+    setFullAccessConfirmed(false);
     const requestId = newRequestId(),
       payload = {
         prompt: submission.prompt,
@@ -202,6 +229,7 @@ export function usePromptForm({
         // Ordinary creation must remain compatible with clients predating goal creation.
         ...(submission.asGoal ? { asGoal: true } : {}),
         ...(submission.desktopChannel ? { desktopChannel: true } : {}),
+        ...(submission.permissionMode ? { permissionMode: submission.permissionMode } : {}),
       };
     currentRequest.current = requestId;
     // Persist the ID before the request, so a reload never repeats an uncertain send.
@@ -215,6 +243,7 @@ export function usePromptForm({
           requestId: payload.requestId,
           ...(payload.asGoal ? { asGoal: true } : {}),
           ...(payload.desktopChannel ? { channel: 'desktop' } : {}),
+          ...(payload.permissionMode ? { permissionMode: payload.permissionMode } : {}),
           attachments: payload.attachments?.map((attachment) => attachment.id),
         }),
       );
@@ -277,6 +306,7 @@ export function usePromptForm({
     setError('');
     setNotice('');
     setQueueState('');
+    setFullAccessConfirmed(false);
   }
   useEffect(() => {
     if (!draft.requestId || !draft.queued) return;
@@ -343,6 +373,9 @@ export function usePromptForm({
     validationError,
     canSubmit,
     canSubmitPreset,
+    setPermissionMode,
+    fullAccessConfirmed,
+    setFullAccessConfirmed,
     retryGoal,
     reset,
     openCreated: () => draft.creation && onAccepted(draft.creation),

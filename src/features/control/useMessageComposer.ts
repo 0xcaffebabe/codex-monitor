@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { api } from '../../api';
+import type { SessionPermissionMode } from '../../approval-types';
 import type { SessionContext, SessionStatus, User } from '../../types';
 import type { Receipt, SessionGoal } from './types';
 import { useModelSettings } from './useModelSettings';
@@ -21,6 +22,8 @@ export function useMessageComposer({
   const [state, setState] = useState<{
     available: boolean;
     desktopChannel?: boolean;
+    messagePermissions?: boolean;
+    permissionMode?: Exclude<SessionPermissionMode, 'inherit'>;
     running?: boolean;
     compacting?: boolean;
     turnId?: string;

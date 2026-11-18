@@ -26,8 +26,6 @@ export function useDesktopLayout(
   const wide = useMediaQuery('(min-width: 1280px)');
   const [preferences, setPreferences] = useState(readPreferences);
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const [focused, setFocused] = useState(false);
-  const focusMode = desktop && !!selected && focused;
   const navigationCollapsed = desktop && (preferences.navigationCollapsed ?? (!!selected || !wide));
   const sessionsVisible = !desktop || (wide ? (preferences.sessionsVisible ?? true) : drawerOpen);
 
@@ -40,14 +38,9 @@ export function useDesktopLayout(
   }, [preferences]);
   useEffect(() => setDrawerOpen(false), [selected, wide, desktop]);
   useEffect(() => {
-    if (!selected || !desktop) setFocused(false);
-  }, [selected, desktop]);
-  useEffect(() => {
     let frame = 0;
     const keydown = (event: KeyboardEvent) => {
       if (!desktop || !selected || event.isComposing) return;
-      if (event.key === 'Escape' && !document.querySelector('dialog[open], [role="dialog"]'))
-        setFocused(false);
       const target = event.target as HTMLElement;
       if (
         event.key !== '/' ||
@@ -58,7 +51,6 @@ export function useDesktopLayout(
       )
         return;
       event.preventDefault();
-      setFocused(false);
       if (wide) setPreferences((previous) => ({ ...previous, sessionsVisible: true }));
       else setDrawerOpen(true);
       frame = requestAnimationFrame(() => searchRef.current?.focus());
@@ -73,29 +65,24 @@ export function useDesktopLayout(
   return {
     navigationCollapsed,
     sessionsVisible,
-    sessionDrawerOpen: desktop && !wide && sessionsVisible && !focusMode,
-    focusMode,
-    toggleFocus: () => setFocused((previous) => !previous),
+    sessionDrawerOpen: desktop && !wide && sessionsVisible,
     closeSessionDrawer: () => setDrawerOpen(false),
     toggleNavigation: () => {
-      setFocused(false);
       setPreferences((previous) => ({
         ...previous,
-        navigationCollapsed: focusMode ? false : !navigationCollapsed,
+        navigationCollapsed: !navigationCollapsed,
       }));
     },
     toggleSessions: () => {
-      setFocused(false);
       if (wide)
         setPreferences((previous) => ({
           ...previous,
-          sessionsVisible: focusMode || !sessionsVisible,
+          sessionsVisible: !sessionsVisible,
         }));
-      else setDrawerOpen((previous) => focusMode || !previous);
+      else setDrawerOpen((previous) => !previous);
     },
     reset: () => {
       setPreferences({});
-      setFocused(false);
       setDrawerOpen(false);
     },
   };

@@ -1,4 +1,5 @@
 import type { Attachment } from '../attachments/types';
+import type { SessionPermissionMode } from '../../approval-types';
 
 export type SessionGoal = {
   objective: string;
@@ -26,6 +27,7 @@ export type Draft = {
   attachments?: Attachment[];
   asGoal?: boolean;
   desktopChannel?: boolean;
+  permissionMode?: Exclude<SessionPermissionMode, 'inherit'>;
   creation?: Receipt;
 };
 export type Project = { id: string; name: string; path: string };

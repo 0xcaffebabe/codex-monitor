@@ -4,11 +4,13 @@ import path from 'node:path';
 import type { DesktopControl } from '../server/desktop.js';
 import { ControlError } from '../server/control-error.js';
 import type { CodexModel, SessionCreationSettings, SessionMessageSettings } from '../src/types.js';
+import type { SessionPermissionMode } from '../src/approval-types.js';
 import type { fixture } from './fixture.js';
 
 export const projectId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 export class FixtureDesktop implements DesktopControl {
   readonly desktopChannel = true;
+  readonly messagePermissions = true;
   sends = 0;
   creates = 0;
   lastCreation: SessionCreationSettings = {};
@@ -17,6 +19,7 @@ export class FixtureDesktop implements DesktopControl {
   interruptions = 0;
   compacting = false;
   owner: 'monitor' | 'desktop' | undefined = 'desktop';
+  private permissionModes = new Map<string, Exclude<SessionPermissionMode, 'inherit'>>();
   goals = new Map<string, any>();
   constructor(
     private f: ReturnType<typeof fixture>,
@@ -49,7 +52,10 @@ export class FixtureDesktop implements DesktopControl {
       status: this.compacting || turn?.status === 'inProgress' ? 'active' : 'idle',
       compacting: this.compacting,
       turnId: turn?.turn_id as string | undefined,
-      owner: this.owner,
+      permissionMode: this.permissionModes.get(id),
+      owner: this.f.state.prepare('SELECT source FROM threads WHERE id=?').get(id)?.source === 'cli'
+        ? 'monitor'
+        : this.owner,
     };
   }
   async send(_context: string, id: string, prompt: string, settings: SessionMessageSettings = {}) {
@@ -103,6 +109,8 @@ export class FixtureDesktop implements DesktopControl {
     this.f.state
       .prepare('UPDATE threads SET updated_at=?,updated_at_ms=? WHERE id=?')
       .run(Math.floor(Date.now() / 1000), Date.now(), id);
+    if (settings.permissionMode && settings.permissionMode !== 'inherit')
+      this.permissionModes.set(id, settings.permissionMode);
     return { threadId: id };
   }
   async create(

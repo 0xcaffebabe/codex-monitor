@@ -6,6 +6,15 @@ import { AttachmentPicker } from '../attachments/AttachmentPicker';
 import { ProjectFilePicker } from '../attachments/ProjectFilePicker';
 import { PromptFormProps, usePromptForm } from './usePromptForm';
 import { PromptShortcuts } from './PromptShortcuts';
+import { sessionPermissionModes, type SessionPermissionMode } from '../../approval-types';
+
+const permissionLabels: Record<SessionPermissionMode, string> = {
+  inherit: '沿用当前权限',
+  'read-only': '只读',
+  'workspace-write': '项目写入',
+  'workspace-write-network': '项目写入并允许联网',
+  'danger-full-access': '完全访问',
+};
 
 export function PromptForm(props: PromptFormProps) {
   const input = useRef<HTMLTextAreaElement>(null);
@@ -26,6 +35,8 @@ export function PromptForm(props: PromptFormProps) {
     submitActions,
     allowGoal = false,
     allowDesktopChannel = false,
+    allowPermissionChanges,
+    currentPermissionMode,
     promptShortcuts,
     shortcutActions,
   } = props;
@@ -51,6 +62,9 @@ export function PromptForm(props: PromptFormProps) {
     validationError,
     canSubmit,
     canSubmitPreset,
+    setPermissionMode,
+    fullAccessConfirmed,
+    setFullAccessConfirmed,
     retryGoal,
     openCreated,
     reset,
@@ -59,7 +73,8 @@ export function PromptForm(props: PromptFormProps) {
   const promptLabel = asGoal ? '目标内容' : inputLabel;
   const busyLabel = draft.creation ? '正在保存目标…' : '正在发送…';
   const enterSends = submitOnEnter && !isMobile;
-  const sendSettings = [draft.desktopChannel && '桌面通道', modelSummary]
+  const canSelectPermission = !!allowPermissionChanges && !draft.desktopChannel;
+  const sendSettings = [draft.desktopChannel && '桌面通道', modelSummary, draft.permissionMode && permissionLabels[draft.permissionMode]]
     .filter(Boolean)
     .join(' · ');
   return (
@@ -158,7 +173,7 @@ export function PromptForm(props: PromptFormProps) {
               actions={shortcutActions}
               disabled={busy || uploadBusy || !!draft.requestId || !enabled}
               canSubmit={canSubmitPreset}
-              allowDesktopChannel={allowDesktopChannel}
+              allowDesktopChannel={allowDesktopChannel && !draft.permissionMode}
               onSend={(shortcut) => void submitPresetPrompt(shortcut)}
               onInsert={(shortcut) => {
                 setDraft((previous) => ({
@@ -170,7 +185,7 @@ export function PromptForm(props: PromptFormProps) {
               }}
             />
           )}
-          {(attachmentControls || allowDesktopChannel || draft.desktopChannel) && (
+          {(attachmentControls || allowDesktopChannel || draft.desktopChannel || allowPermissionChanges || draft.permissionMode) && (
             <Popover
               label="发送设置"
               displayLabel={sendSettings || undefined}
@@ -186,6 +201,38 @@ export function PromptForm(props: PromptFormProps) {
                       <p className="composer-menu-hint">沿用当前会话的模型与思考设置。</p>
                     )}
                   </section>
+                  {(allowPermissionChanges || draft.permissionMode) && (
+                    <section>
+                      <label className="prompt-label">
+                        会话权限
+                        <select
+                          aria-label="会话权限"
+                          value={draft.permissionMode ?? 'inherit'}
+                          disabled={busy || !!draft.requestId || (!canSelectPermission && !draft.permissionMode)}
+                          onChange={(event) => setPermissionMode(event.target.value as SessionPermissionMode)}
+                        >
+                          {sessionPermissionModes.map((mode) => (
+                            <option key={mode} value={mode} disabled={mode !== 'inherit' && !canSelectPermission}>
+                              {mode === 'inherit' && currentPermissionMode && !draft.desktopChannel
+                                ? `沿用当前权限（${permissionLabels[currentPermissionMode]}）`
+                                : permissionLabels[mode]}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      {draft.permissionMode === 'danger-full-access' && canSelectPermission && (
+                        <label className="composer-desktop-channel">
+                          <input
+                            type="checkbox"
+                            checked={fullAccessConfirmed}
+                            disabled={busy || !!draft.requestId}
+                            onChange={(event) => setFullAccessConfirmed(event.target.checked)}
+                          />
+                          <span>确认此会话后续可读写本机文件及联网，无需逐次审批</span>
+                        </label>
+                      )}
+                    </section>
+                  )}
                   {(allowDesktopChannel || draft.desktopChannel) && (
                     <section>
                       <h3>发送通道</h3>

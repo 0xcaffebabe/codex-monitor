@@ -10,7 +10,6 @@ import {
   Settings2,
   Shield,
   Sun,
-  Wifi,
   X,
 } from 'lucide-react';
 import { useState } from 'react';
@@ -224,14 +223,6 @@ export function Sidebar({
         </div>
       </div>
       <div className="sidebar-bottom">
-        <div className="source-badge">
-          <span className={cx('green-dot', !overview?.source.available && 'offline')} />
-          <div>
-            {overview?.source.available ? '本机数据源已连接' : '数据源未连接'}
-            <small>{overview?.source.database ? 'SQLite + 会话记录' : 'JSONL 会话记录'}</small>
-          </div>
-          <Wifi size={14} />
-        </div>
         <button
           className="nav-item"
           title="设置与访问管理"

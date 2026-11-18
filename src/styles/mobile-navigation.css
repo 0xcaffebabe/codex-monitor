@@ -39,8 +39,7 @@
     height: 44px;
   }
   .sidebar .workspace-label,
-  .sidebar > .nav-label,
-  .sidebar .source-badge {
+  .sidebar > .nav-label {
     display: none;
   }
   .workspace-nav {

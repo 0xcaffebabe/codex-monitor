@@ -939,20 +939,67 @@ test('web controls change models when continuing completed sessions and retain s
       (await (await request.get(`/api/workspaces/local/sessions/${ids.modern}`, { headers })).json()).session.model,
     ).toBe('gpt-6-luna');
     hist.prepare("UPDATE thread_turns SET status='inProgress' WHERE thread_id=?").run(ids.modern);
-    const refresh = page.getByRole('button', { name: '刷新发送状态', exact: true });
-    await refresh.click();
+    const append = page.getByRole('button', { name: '追加消息', exact: true });
+    await expect(append).toBeVisible({ timeout: 15000 });
+    await openComposerMenu(page, '发送设置');
     await expect(model).toHaveCount(0);
+    await closeComposerMenu(page, '发送设置');
     await input.fill('append while running');
     const appended = page.waitForRequest(
       (request) => request.method() === 'POST' && request.url().endsWith('/messages'),
     );
-    await page.getByRole('button', { name: '追加消息', exact: true }).click();
+    await append.click();
     const payload = (await appended).postDataJSON();
     expect(payload).not.toHaveProperty('model');
     expect(payload).not.toHaveProperty('thinking');
   } finally {
     hist.close();
   }
+});
+
+test('web controls require confirmation before enabling full access in an existing session', async ({ page, request }) => {
+  await enter(page, request);
+  const headers = { Authorization: `Bearer ${await ownerToken(request)}` };
+  const projects = await (await request.get('/api/workspaces/local/control', { headers })).json();
+  const created = await request.post('/api/workspaces/local/sessions', {
+    headers, data: { requestId: crypto.randomUUID(), projectId: projects.projects[0].id, prompt: 'permission test seed' },
+  });
+  expect(created.ok()).toBeTruthy();
+  const { threadId } = await created.json();
+  await page.goto(`/?session=${threadId}`);
+  await expect(page.locator('.message-composer')).not.toHaveClass(/unavailable/);
+  const input = page.getByRole('textbox', { name: '发送给 Codex 的消息' });
+  await input.fill('continue with selected permissions');
+  const settings = await openComposerMenu(page, '发送设置');
+  const permission = settings.getByLabel('会话权限', { exact: true });
+  const desktop = settings.getByRole('checkbox', { name: '桌面通道', exact: true });
+  const send = page.getByRole('button', { name: '发送消息', exact: true });
+  await expect(permission).toHaveValue('inherit');
+  await desktop.check();
+  await expect(permission).toBeDisabled();
+  await desktop.uncheck();
+  await permission.selectOption('danger-full-access');
+  await expect(send).toBeDisabled();
+  await closeComposerMenu(page, '发送设置');
+  await page.reload();
+  await expect(page.locator('.message-composer')).not.toHaveClass(/unavailable/);
+  await openComposerMenu(page, '发送设置');
+  await expect(permission).toHaveValue('danger-full-access');
+  const confirm = settings.getByRole('checkbox', { name: '确认此会话后续可读写本机文件及联网，无需逐次审批' });
+  await expect(confirm).not.toBeChecked();
+  await confirm.check();
+  await closeComposerMenu(page, '发送设置');
+  const posted = page.waitForResponse((response) => response.request().method() === 'POST' &&
+    response.url().endsWith(`/sessions/${threadId}/messages`));
+  await send.click();
+  const response = await posted;
+  expect(response.request().postDataJSON()).toMatchObject({ permissionMode: 'danger-full-access' });
+  expect((await response.json()).mode).toBe('start');
+  await expect(page.locator('.timeline')).toContainText('测试回复：continue with selected permissions');
+  await openComposerMenu(page, '发送设置');
+  await expect(permission).toHaveValue('inherit');
+  await expect(permission.locator('option:checked')).toHaveText('沿用当前权限（完全访问）');
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBeTruthy();
 });
 
 test('web controls desktop channel preserves drafts, submits model settings and resets after sending', async ({

@@ -22,7 +22,6 @@ const GitDiff = lazy(() => import('../git/GitDiff'));
 
 export function Detail(
   props: DetailProps & {
-    focusMode?: boolean;
     newSession?: Omit<NewSessionProps, 'user'>;
     result?: { turn: string | null; observed: number };
     linkedQuestion?: { workspaceName: string; observed: boolean; current?: AttentionRequest };
@@ -44,7 +43,6 @@ export function Detail(
     onRetry,
     notify,
     connected,
-    focusMode,
     newSession,
   } = props;
   const model = useTimeline(props);
@@ -73,7 +71,7 @@ export function Detail(
         onBack={onBack}
         workspaceName={props.workspaceName}
         session={session}
-        mobileOutline={mobile && !focusMode && !newSession && session && (
+        mobileOutline={mobile && !newSession && session && (
           <MobileOutline
             key={session.id}
             outlineData={outlineData}
@@ -171,7 +169,7 @@ export function Detail(
               model={model}
               copied={actions.copied}
             >
-              {!mobile && !focusMode && (
+              {!mobile && (
                 <Outline
                   key={session?.id}
                   outlineData={outlineData}

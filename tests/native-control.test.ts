@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import { NativeDesktopControl } from '../server/native-control.js';
 import { ControlError } from '../server/control-error.js';
 import { EventEmitter } from 'node:events';
@@ -43,7 +44,10 @@ class AppServerProcess extends EventEmitter {
   unref() {}
 }
 
-function fixture(generateTitle: typeof generateSessionTitle = async () => undefined) {
+function fixture(
+  generateTitle: typeof generateSessionTitle = async () => undefined,
+  permissionDb?: DatabaseSync,
+) {
   const calls: { method: string; params: any }[] = [],
     ownerCalls: any[] = [],
     desktopCalls: any[] = [],
@@ -103,7 +107,7 @@ function fixture(generateTitle: typeof generateSessionTitle = async () => undefi
     },
   };
   f.control = new NativeDesktopControl(
-    { codexHome: '/tmp/codex', activity: () => f.activity },
+    { codexHome: '/tmp/codex', activity: () => f.activity, permissionDb },
     {
       native,
       generateTitle,
@@ -677,6 +681,86 @@ test('native sessions inherit permissions unless full access is explicitly reque
     assert.equal(explicit.approvalPolicy, 'never');
   } finally {
     f.control.close();
+  }
+});
+
+test('idle Monitor turns map each permission mode to the Codex sandbox and approval policy', async () => {
+  const f = fixture();
+  f.ownerError = new ControlError('no owner', false, 409, 'no_owner');
+  try {
+    for (const [permissionMode, sandboxPolicy, approvalPolicy] of [
+      ['read-only', { type: 'readOnly', networkAccess: false }, 'on-request'],
+      ['workspace-write', { type: 'workspaceWrite', networkAccess: false }, 'on-request'],
+      ['workspace-write-network', { type: 'workspaceWrite', networkAccess: true }, 'on-request'],
+      ['danger-full-access', { type: 'dangerFullAccess' }, 'never'],
+    ] as const) {
+      f.setStatus('idle');
+      await f.control.send('', 'thread', 'continue', { permissionMode });
+      assert.equal(f.calls.at(-1)?.method, 'turn/start');
+      const { sandboxPolicy: actualSandbox, approvalPolicy: actualApproval, approvalsReviewer } = f.calls.at(-1)!.params;
+      assert.deepEqual(actualSandbox, sandboxPolicy);
+      assert.equal(actualApproval, approvalPolicy);
+      assert.equal(approvalsReviewer, 'user');
+    }
+    assert.equal(f.calls.filter(({ method }) => method === 'thread/resume').length, 1);
+    assert.equal(f.ownerCalls[0][1], 'thread-follower-read-model-settings');
+    await assert.rejects(f.control.send('', 'thread', 'append', { permissionMode: 'read-only' }), /空闲/);
+    await f.control.send('', 'thread', 'append with existing permissions');
+    assert.equal(f.calls.at(-1)?.params.sandboxPolicy, undefined);
+    assert.equal(f.calls.at(-1)?.params.approvalPolicy, undefined);
+
+    await assert.rejects(f.control.send('', 'thread', 'desktop', {
+      channel: 'desktop', permissionMode: 'read-only',
+    }), /桌面通道/);
+    assert.equal(f.desktopCalls.length, 0);
+    f.ownerError = undefined;
+    const nativeCalls = f.calls.length;
+    await assert.rejects(f.control.send('', 'desktop-thread', 'wrong owner', { permissionMode: 'read-only' }), /桌面端持有/);
+    assert.equal(f.calls.length, nativeCalls);
+    assert.equal(f.ownerCalls.at(-1)[1], 'thread-follower-read-model-settings');
+  } finally {
+    f.control.close();
+  }
+});
+
+test('resuming a Monitor session restores its last confirmed permission without affecting other sessions', async () => {
+  const permissionDb = new DatabaseSync(':memory:');
+  const original = fixture(undefined, permissionDb);
+  const resumed = fixture(undefined, permissionDb);
+  const noWriter = new ControlError('no owner', false, 409, 'no_owner');
+  try {
+    original.ownerError = noWriter;
+    await original.control.send('', 'thread', 'enable network', { permissionMode: 'workspace-write-network' });
+    await assert.rejects(original.control.send('', 'thread', 'cannot change during a turn', {
+      permissionMode: 'danger-full-access',
+    }), /空闲/);
+    original.control.close();
+
+    resumed.ownerError = noWriter;
+    assert.equal((await resumed.control.state('', 'thread')).permissionMode, 'workspace-write-network');
+    await resumed.control.send('', 'thread', 'continue using saved permission');
+    await resumed.control.send('', 'other-thread', 'keep local defaults');
+    assert.deepEqual(resumed.calls.filter(({ method }) => method === 'thread/resume').map(({ params }) => params), [
+      {
+        threadId: 'thread',
+        excludeTurns: true,
+        sandbox: 'workspace-write',
+        approvalPolicy: 'on-request',
+        approvalsReviewer: 'user',
+        config: { 'sandbox_workspace_write.network_access': true },
+      },
+      { threadId: 'other-thread', excludeTurns: true },
+    ]);
+    assert.ok(resumed.calls.filter(({ method }) => method === 'turn/start').every(
+      ({ params }) => !('sandboxPolicy' in params),
+    ));
+    resumed.setStatus('idle');
+    await resumed.control.send('', 'thread', 'use desktop defaults', { channel: 'desktop' });
+    assert.deepEqual(resumed.desktopCalls.at(-1), ['thread', 'thread', 'use desktop defaults', {}]);
+  } finally {
+    original.control.close();
+    resumed.control.close();
+    permissionDb.close();
   }
 });
 

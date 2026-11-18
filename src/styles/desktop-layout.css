@@ -62,7 +62,6 @@
   .navigation-collapsed .sidebar-bottom > .nav-item > svg:last-child,
   .navigation-collapsed .project-nav > span:nth-child(2),
   .navigation-collapsed .project-nav > small,
-  .navigation-collapsed .source-badge,
   .navigation-collapsed .account-row > span {
     display: none;
   }
@@ -134,25 +133,6 @@
     font-size: var(--font-meta);
   }
 
-  .layout-focus-button {
-    display: inline-flex;
-    align-items: center;
-    gap: 7px;
-    height: 32px;
-    padding: 0 10px;
-    border: 1px solid var(--line);
-    border-radius: 7px;
-    font-size: var(--font-meta);
-    white-space: nowrap;
-    color: var(--muted);
-  }
-
-  .layout-focus-button.active {
-    color: var(--accent);
-    background: var(--accent-bg);
-    border-color: var(--accent);
-  }
-
   .content.split {
     position: relative;
   }
@@ -163,9 +143,7 @@
     background: var(--sidebar);
   }
 
-  .sessions-collapsed .split .session-panel,
-  .focus-mode .sidebar,
-  .focus-mode .split .session-panel {
+  .sessions-collapsed .split .session-panel {
     display: none;
   }
 
@@ -392,7 +370,6 @@
     gap: 10px;
   }
 
-  .layout-focus-button > span,
   .connection-interval {
     display: none;
   }

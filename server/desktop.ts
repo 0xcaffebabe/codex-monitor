@@ -9,7 +9,7 @@ import type {
   SessionMessageSettings,
   SessionCreationSettings,
 } from '../src/types.js';
-import type { ApprovalControl } from '../src/approval-types.js';
+import type { ApprovalControl, SessionPermissionMode } from '../src/approval-types.js';
 export { ControlError } from './control-error.js';
 export interface DesktopProject {
   id: string;
@@ -20,6 +20,7 @@ export interface DesktopControl {
   contextRequired?: boolean;
   approvals?: ApprovalControl;
   creationPermissions?: boolean;
+  messagePermissions?: boolean;
   desktopChannel?: boolean;
   projects(context: string): Promise<DesktopProject[]>;
   models(): Promise<CodexModel[]>;
@@ -31,6 +32,7 @@ export interface DesktopControl {
     turnId?: string;
     compacting?: boolean;
     owner?: 'monitor' | 'desktop';
+    permissionMode?: Exclude<SessionPermissionMode, 'inherit'>;
   }>;
   send(
     context: string,

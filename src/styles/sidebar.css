@@ -180,27 +180,6 @@
   padding-top: 20px;
   flex-shrink: 0;
 }
-.source-badge {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  margin: 0 3px 16px;
-  padding: 11px 10px;
-  font-size: var(--font-meta);
-  background: var(--surface);
-}
-.source-badge small {
-  display: block;
-  font-size: var(--font-meta);
-  color: var(--muted);
-  margin-top: 5px;
-}
-.source-badge > svg {
-  margin-left: auto;
-  color: var(--muted);
-}
 .sidebar-bottom > .nav-item {
   font-size: var(--font-meta);
   padding: 9px 12px;

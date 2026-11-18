@@ -1,5 +1,6 @@
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
+import type { DatabaseSync } from 'node:sqlite';
 import { DesktopBridge, type DesktopControl, type DesktopProject } from './desktop.js';
 import { ControlError } from './control-error.js';
 import {
@@ -9,6 +10,7 @@ import {
   compactOwnedThread,
 } from './native.js';
 import type { SessionMessageSettings, SessionCreationSettings } from '../src/types.js';
+import { sessionPermissionModes, type SessionPermissionMode } from '../src/approval-types.js';
 import { NativeApprovals } from './native-approvals.js';
 import { generateSessionTitle } from './session-title.js';
 
@@ -18,7 +20,9 @@ type Options = {
   activity: (id: string) => Activity | undefined;
   onCreated?: (id: string) => void;
   projectPath?: string;
+  permissionDb?: DatabaseSync;
 };
+type ExplicitPermissionMode = Exclude<SessionPermissionMode, 'inherit'>;
 type NativeControl = Pick<NativeRpc, 'request' | 'models' | 'get' | 'set' | 'clear' | 'close'> & {
   dispose?: () => Promise<void>;
 };
@@ -34,11 +38,24 @@ function projectPathKey(directory: string) {
   return process.platform === 'win32' ? path.toNamespacedPath(resolved).toLowerCase() : resolved;
 }
 
+function threadPermissionSettings(mode: ExplicitPermissionMode) {
+  const fullAccess = mode === 'danger-full-access';
+  return {
+    sandbox: mode === 'workspace-write-network' ? 'workspace-write' : mode,
+    approvalPolicy: fullAccess ? 'never' : 'on-request',
+    approvalsReviewer: 'user',
+    ...(fullAccess ? {} : {
+      config: { 'sandbox_workspace_write.network_access': mode === 'workspace-write-network' },
+    }),
+  };
+}
+
 /** Share the CLI app-server and approval callbacks across Windows and macOS,
  * while routing desktop-owned threads to their existing owner. */
 export class NativeDesktopControl implements DesktopControl {
   readonly contextRequired = false;
   readonly creationPermissions = true;
+  readonly messagePermissions = true;
   readonly desktopChannel = true;
   readonly approvals = new NativeApprovals();
   private fileChanges = new Map<string, unknown>();
@@ -62,10 +79,35 @@ export class NativeDesktopControl implements DesktopControl {
       desktop?: Pick<DesktopControl, 'projects' | 'send' | 'create' | 'close'>;
     } = {},
   ) {
+    this.options.permissionDb?.exec(`CREATE TABLE IF NOT EXISTS monitor_session_permissions (
+      thread_id TEXT PRIMARY KEY, mode TEXT NOT NULL
+    )`);
     this.native = dependencies.native ?? new NativeRpc(options.codexHome);
     this.desktop =
       dependencies.desktop ??
       new DesktopBridge({ codexHome: options.codexHome, activity: options.activity });
+  }
+
+  private savedPermission(threadId: string) {
+    const row = this.options.permissionDb
+      ?.prepare('SELECT mode FROM monitor_session_permissions WHERE thread_id=?')
+      .get(threadId);
+    if (!row) return undefined;
+    const mode = sessionPermissionModes.find(
+      (candidate) => candidate !== 'inherit' && candidate === row.mode,
+    );
+    if (!mode || mode === 'inherit')
+      throw new ControlError('无法读取已保存的会话权限，请检查后重试。', false, 409);
+    return mode;
+  }
+
+  private resume(runtime: NativeControl, threadId: string) {
+    const mode = this.savedPermission(threadId);
+    return runtime.request('thread/resume', {
+      threadId,
+      excludeTurns: true,
+      ...(mode ? threadPermissionSettings(mode) : {}),
+    });
   }
 
   private createRuntime() {
@@ -272,6 +314,7 @@ export class NativeDesktopControl implements DesktopControl {
       return {
         status: thread.status.type,
         owner: 'monitor',
+        permissionMode: this.savedPermission(threadId),
         turnId: local?.turnId,
         compacting:
           this.compacting.has(threadId) ||
@@ -285,7 +328,10 @@ export class NativeDesktopControl implements DesktopControl {
     }
     const persisted = this.options.activity(threadId);
     if (persisted && !persisted.running)
-      return { status: 'notLoaded', turnId: persisted.turnId, compacting: false };
+      return {
+        status: 'notLoaded', turnId: persisted.turnId, compacting: false,
+        permissionMode: this.savedPermission(threadId),
+      };
     try {
       // This read confirms a live owner without loading history or claiming its writer.
       await this.owner(threadId, 'thread-follower-read-model-settings', {}, 1, true);
@@ -298,7 +344,10 @@ export class NativeDesktopControl implements DesktopControl {
       };
     } catch (error) {
       if (!noOwner(error)) throw error;
-      return { status: 'notLoaded', turnId: local?.turnId, compacting: false };
+      return {
+        status: 'notLoaded', turnId: local?.turnId, compacting: false,
+        permissionMode: this.savedPermission(threadId),
+      };
     }
   }
 
@@ -346,6 +395,9 @@ export class NativeDesktopControl implements DesktopControl {
     prompt: string,
     settings: SessionMessageSettings,
   ) {
+    const permissionMode = settings.permissionMode === 'inherit' ? undefined : settings.permissionMode;
+    if (permissionMode && settings.channel === 'desktop')
+      throw new ControlError('桌面通道沿用 Codex 桌面端的权限设置。', false, 400);
     if (settings.channel === 'desktop')
       return this.sendDesktop(context, threadId, prompt, settings);
     // Desktop owner IPC retains this input for rendering before CLI defaults apply.
@@ -360,6 +412,10 @@ export class NativeDesktopControl implements DesktopControl {
     let runtime = this.runtimes.get(threadId);
     if (!runtime) {
       try {
+        if (permissionMode) {
+          await this.owner(threadId, 'thread-follower-read-model-settings', {}, 1, true);
+          throw new ControlError('此会话由 Codex 桌面端持有，请在桌面端切换权限。', false, 409);
+        }
         const receipt = await this.owner(
           threadId,
           'thread-follower-start-turn',
@@ -375,7 +431,7 @@ export class NativeDesktopControl implements DesktopControl {
       if (this.closed) throw new ControlError('客户端正在停止，消息未发送。', false, 503);
       const created = this.createRuntime();
       try {
-        await created.runtime.request('thread/resume', { threadId, excludeTurns: true });
+        await this.resume(created.runtime, threadId);
         created.register(threadId);
         runtime = created.runtime;
       } catch (error) {
@@ -383,7 +439,23 @@ export class NativeDesktopControl implements DesktopControl {
         throw error;
       }
     }
-    const { turn } = await runtime.request('turn/start', request);
+    if (permissionMode) {
+      const { thread } = await runtime.request('thread/read', { threadId, includeTurns: false });
+      if (thread?.id !== threadId || thread.status?.type !== 'idle' || this.compacting.has(threadId))
+        throw new ControlError('仅可在会话空闲时切换权限，消息未发送。', false, 409);
+    }
+    const { turn } = await runtime.request('turn/start', {
+      ...request,
+      ...(permissionMode ? {
+        sandboxPolicy: permissionMode === 'danger-full-access'
+          ? { type: 'dangerFullAccess' }
+          : permissionMode === 'read-only'
+            ? { type: 'readOnly', networkAccess: false }
+            : { type: 'workspaceWrite', networkAccess: permissionMode === 'workspace-write-network' },
+        approvalPolicy: permissionMode === 'danger-full-access' ? 'never' : 'on-request',
+        approvalsReviewer: 'user',
+      } : {}),
+    });
     if (!turn?.id) throw new ControlError('发送回执无效，请检查会话，勿重复发送。', true, 502);
     if (this.turns.get(threadId)?.turnId !== turn.id)
       this.turns.set(threadId, {
@@ -391,6 +463,14 @@ export class NativeDesktopControl implements DesktopControl {
         running: turn.status === 'inProgress',
         compacting: false,
       });
+    if (permissionMode) {
+      try {
+        this.options.permissionDb?.prepare(`INSERT INTO monitor_session_permissions (thread_id, mode)
+          VALUES (?, ?) ON CONFLICT(thread_id) DO UPDATE SET mode=excluded.mode`).run(threadId, permissionMode);
+      } catch {
+        throw new ControlError('Codex 已接收消息，但保存会话权限失败，请检查会话，勿重复发送。', true, 502);
+      }
+    }
     return { threadId };
   }
 
@@ -469,31 +549,12 @@ export class NativeDesktopControl implements DesktopControl {
     if (!project) throw new ControlError('项目不可用，请刷新项目列表。', false, 400);
     const created = this.createRuntime();
     const permissionMode = settings.permissionMode ?? 'inherit';
-    const fullAccess = permissionMode === 'danger-full-access';
     let thread: any;
     try {
       ({ thread } = await created.runtime.request('thread/start', {
         cwd: project.path,
         projectId,
-        ...(permissionMode !== 'inherit'
-          ? {
-              sandbox: fullAccess
-                ? 'danger-full-access'
-                : permissionMode === 'read-only'
-                  ? 'read-only'
-                  : 'workspace-write',
-              approvalPolicy: fullAccess ? 'never' : 'on-request',
-              approvalsReviewer: 'user',
-              ...(!fullAccess
-                ? {
-                    config: {
-                      'sandbox_workspace_write.network_access':
-                        permissionMode === 'workspace-write-network',
-                    },
-                  }
-                : {}),
-            }
-          : {}),
+        ...(permissionMode !== 'inherit' ? threadPermissionSettings(permissionMode) : {}),
         ...(settings.model ? { model: settings.model } : {}),
       }));
     } catch (error) {
@@ -507,7 +568,7 @@ export class NativeDesktopControl implements DesktopControl {
     created.register(thread.id);
     this.options.onCreated?.(thread.id);
     try {
-      await this.send(context, thread.id, prompt, settings);
+      await this.send(context, thread.id, prompt, { model: settings.model, thinking: settings.thinking });
     } catch {
       throw new ControlError(
         `会话 ${thread.id} 已创建，但首条消息结果待确认，请打开此会话检查，勿重复创建。`,
@@ -561,7 +622,7 @@ export class NativeDesktopControl implements DesktopControl {
       if (this.closed) throw new ControlError('客户端正在停止，压缩未提交。', false, 503);
       const created = this.createRuntime();
       try {
-        await created.runtime.request('thread/resume', { threadId, excludeTurns: true });
+        await this.resume(created.runtime, threadId);
         created.register(threadId);
         runtime = created.runtime;
       } catch (error) {

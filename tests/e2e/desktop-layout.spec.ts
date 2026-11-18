@@ -83,7 +83,7 @@ test.describe('PC layout', () => {
     });
   }
 
-  test('restores panel preferences and preserves drafts through focus mode', async ({
+  test('restores panel preferences and preserves drafts after panel toggles', async ({
     page,
     request,
   }) => {
@@ -96,13 +96,9 @@ test.describe('PC layout', () => {
     await sessions.click();
     await expect(page.locator('.sidebar')).toHaveCSS('width', '216px');
     await expect(page.locator('.session-panel')).toBeHidden();
-    await page.getByRole('button', { name: '专注模式', exact: true }).click();
-    await expect(page.locator('.sidebar')).toBeHidden();
-    await expect(page.locator('.outline')).toHaveCount(0);
-    await input.blur();
-    await page.keyboard.press('Escape');
-    await expect(page.locator('.sidebar')).toBeVisible();
-    await expect(page.locator('.session-panel')).toBeHidden();
+    await expect(page.getByTitle('专注模式', { exact: true })).toHaveCount(0);
+    await expect(page.getByText(/本机数据源已连接|数据源未连接/)).toHaveCount(0);
+    await expect(page.locator('.outline')).toBeVisible();
     await expect(input).toHaveValue('PC 布局草稿，保留但不发送');
     await page.reload();
     await expect(page.locator('.sidebar')).toHaveCSS('width', '216px');
@@ -182,13 +178,6 @@ test.describe('PC layout', () => {
     await expect(page.getByRole('button', { name: /会话用量/ })).toBeVisible();
     await page.getByTitle('关闭会话信息').click();
     await expect(sessionActions(page)).toBeFocused();
-    await page.getByRole('button', { name: '专注模式', exact: true }).click();
-    await expect(page.locator('.outline')).toHaveCount(0);
-    await page.getByTitle('退出专注模式（Esc）', { exact: true }).click();
-    await expect(page.getByRole('button', { name: '专注模式', exact: true })).toHaveAttribute(
-      'aria-pressed',
-      'false',
-    );
     await expect(page.locator('.outline')).toBeVisible();
     await openComposerMenu(page, '快捷操作');
     await page.getByRole('button', { name: '目标', exact: true }).click();
