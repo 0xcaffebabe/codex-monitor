@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { api } from '../../api';
-import type { SessionStatus, User } from '../../types';
+import type { SessionContext, SessionStatus, User } from '../../types';
 import type { Receipt, SessionGoal } from './types';
 import { useModelSettings } from './useModelSettings';
 
@@ -8,6 +8,7 @@ export type MessageComposerProps = {
   user: User;
   threadId: string;
   sessionStatus?: SessionStatus;
+  context?: SessionContext;
   contextControls?: ReactNode;
   onAccepted: () => void;
 };

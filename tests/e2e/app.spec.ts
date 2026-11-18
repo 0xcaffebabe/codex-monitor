@@ -2928,13 +2928,13 @@ test('message Markdown shows local images inline, opens previews and handles mis
   }
 });
 
-test('session details show recent context tokens and usage percentage', async ({
+test('the composer context ring shows current window usage and updates live', async ({
   page,
   request,
 }) => {
   const file = path.join(root, 'codex', 'sessions', `rollout-${ids.legacy}.jsonl`),
     original = readFileSync(file);
-  try {
+  const recordUsage = (used: number, limit?: number) =>
     appendFileSync(
       file,
       JSON.stringify({
@@ -2944,26 +2944,72 @@ test('session details show recent context tokens and usage percentage', async ({
           type: 'token_count',
           info: {
             total_token_usage: { total_tokens: 9000000 },
-            last_token_usage: { input_tokens: 90000, output_tokens: 10000, total_tokens: 100000 },
-            model_context_window: 200000,
+            last_token_usage: { total_tokens: used },
+            model_context_window: limit,
           },
         },
       }) + '\n',
     );
+  try {
     await enter(page, request);
     await page
       .getByTestId('session-row')
       .filter({ hasText: '检查旧版本会话解析' })
       .filter({ hasText: '本机工作空间' })
       .click();
+    const composer = page.locator('.message-composer');
+    const indicator = composer.getByRole('button', { name: '上下文用量', exact: true });
+    const dialog = page.getByRole('dialog', { name: '上下文用量', exact: true });
+    const close = dialog.getByRole('button', { name: '关闭上下文用量' });
+    await expect(indicator).toHaveAttribute('title', '上下文用量：暂无使用记录');
+    await indicator.click();
+    await expect(dialog).toContainText('暂无使用记录');
+    await expect(dialog.getByRole('meter')).toHaveCount(0);
+    await close.click();
+
+    recordUsage(100000);
+    await expect(indicator).toHaveAttribute(
+      'aria-description',
+      '上下文窗口上限未知，100,000 / 未知 tokens',
+    );
+    recordUsage(100000, 200000);
+    await expect(indicator).toHaveAttribute(
+      'aria-description',
+      '已用 50.0%，100,000 / 200,000 tokens',
+    );
+    const mobile = test.info().project.name === 'mobile';
+    if (mobile) await page.setViewportSize({ width: 440, height: 956 });
+    const input = await composer.getByRole('textbox').boundingBox();
+    const ring = await indicator.boundingBox();
+    const send = await composer.locator('button[type="submit"]').boundingBox();
+    expect(ring!.y).toBeGreaterThanOrEqual(input!.y + input!.height);
+    expect(ring!.x + ring!.width).toBeLessThanOrEqual(send!.x);
+    if (mobile) {
+      expect(ring!.width).toBeGreaterThanOrEqual(44);
+      expect(ring!.height).toBeGreaterThanOrEqual(44);
+      await indicator.tap();
+    } else {
+      await indicator.focus();
+      await indicator.press('Enter');
+    }
+    const meter = dialog.getByRole('meter', { name: '上下文使用率' });
+    await expect(meter).toHaveAttribute('aria-valuenow', '50');
+    await expect(dialog).toContainText('100,000 / 200,000 tokens');
+    if (mobile) await close.click();
+    else await page.keyboard.press('Escape');
+    await expect(dialog).toBeHidden();
+
     await openSessionAction(page, '会话信息');
-    await expect(page.locator('.context-meter')).toContainText('100K / 200K');
-    await expect(page.locator('.context-meter')).toContainText('50.0%');
-    if (test.info().project.name === 'desktop')
-      await expect(page.getByRole('meter', { name: '上下文使用率' })).toHaveAttribute(
-        'aria-valuenow',
-        '50',
-      );
+    const info = page.getByRole('dialog', { name: '会话信息', exact: true });
+    await expect(info.locator('.context-meter')).toContainText('100K / 200K');
+    await expect(info.locator('.context-meter')).toContainText('50.0%');
+    await info.getByRole('button', { name: '关闭会话信息' }).click();
+    recordUsage(190000);
+    await expect(indicator).toHaveClass(/near-limit/);
+    await expect(indicator).toHaveAttribute(
+      'aria-description',
+      '已用 95.0%，190,000 / 200,000 tokens',
+    );
   } finally {
     writeFileSync(file, original);
   }

@@ -190,6 +190,7 @@ export function Detail(
               user={user}
               threadId={session.id}
               sessionStatus={session.status}
+              context={page?.context}
               onAccepted={() => {
                 setFollow(true);
                 onMessageSent();

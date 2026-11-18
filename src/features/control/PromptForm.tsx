@@ -22,6 +22,7 @@ export function PromptForm(props: PromptFormProps) {
     projectFilesUrl,
     attachmentControls,
     modelSummary,
+    leadingActions,
     submitActions,
     allowGoal = false,
     allowDesktopChannel = false,
@@ -223,6 +224,7 @@ export function PromptForm(props: PromptFormProps) {
         >
           {characterCount.toLocaleString()} / {characterLimit.toLocaleString()}
         </span>
+        {leadingActions}
         {draft.requestId && (!busy || draft.queued) ? (
           <>
             <button

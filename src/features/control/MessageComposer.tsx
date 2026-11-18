@@ -8,9 +8,10 @@ import { ModelSettings, modelSettingsSummary } from './ModelSettings';
 import { ApprovalPanel } from './ApprovalPanel';
 import { currentWorkspace } from '../../workspace-scope';
 import { promptShortcuts } from './prompt-shortcuts';
+import { ContextUsageRing } from './ContextUsageRing';
 
 export function MessageComposer(props: MessageComposerProps) {
-  const { user, threadId, onAccepted, contextControls } = props;
+  const { user, threadId, onAccepted, context, contextControls } = props;
   const {
     state,
     canChangeModel,
@@ -186,6 +187,7 @@ export function MessageComposer(props: MessageComposerProps) {
             ),
           },
         ]}
+        leadingActions={<ContextUsageRing context={context} />}
         submitActions={
           <CommandButton
             user={user}

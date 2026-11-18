@@ -123,6 +123,34 @@
   width: 28px;
   height: 28px;
 }
+.context-ring-trigger {
+  width: 32px;
+  padding: 0;
+}
+.context-ring-track {
+  stroke: var(--line-strong);
+}
+.context-ring-trigger.elevated,
+.context-ring-trigger.elevated + .composer-popover .context-ring-value {
+  color: var(--warning);
+}
+.context-ring-trigger.near-limit,
+.context-ring-trigger.near-limit + .composer-popover .context-ring-value {
+  color: var(--danger);
+}
+.context-ring-trigger + .composer-popover {
+  width: 236px;
+}
+.context-ring-details {
+  display: grid;
+  gap: 4px;
+  padding: 0 14px 14px;
+  line-height: 1.5;
+}
+.context-ring-details > span {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
 .composer-add-options,
 .composer-settings {
   padding: 0 8px 8px;
@@ -396,6 +424,7 @@
     gap: 5px;
   }
   .composer-add-trigger,
+  .context-ring-trigger,
   .composer-settings-trigger,
   .composer-shortcuts-trigger,
   .project-file-trigger {
@@ -416,6 +445,14 @@
   }
   .message-composer .attachment-toolbar:has(.composer-settings-trigger.is-active) {
     flex-wrap: wrap;
+  }
+  .message-composer > .prompt-form:has(.context-ring-trigger) .attachment-toolbar {
+    flex-wrap: wrap;
+  }
+  .message-composer
+    > .prompt-form.accepts-attachments
+    > .prompt-actions:has(> .context-ring-trigger) {
+    align-self: end;
   }
   .composer-settings-trigger .composer-tool-dot {
     position: absolute;
@@ -445,7 +482,8 @@
   .message-composer:has(textarea:focus) .prompt-count {
     display: none;
   }
-  .composer-popover {
+  .composer-popover,
+  .context-ring-trigger + .composer-popover {
     inset: auto 12px var(--popover-bottom, 12px) !important;
     width: calc(100vw - 24px);
     max-height: var(--popover-height, 70dvh);
