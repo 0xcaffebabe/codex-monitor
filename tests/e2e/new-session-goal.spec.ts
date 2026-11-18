@@ -5,8 +5,15 @@ import path from 'node:path';
 import os from 'node:os';
 import { DatabaseSync } from 'node:sqlite';
 import { ids } from '../fixture.js';
+import { projectId } from '../control-fixture.js';
 
 const root = process.env.MONITOR_TEST_ROOT || path.join(os.tmpdir(), 'codex-monitor-e2e-01a1d7fa');
+const secondWorkspace = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+const extraProject = {
+  id: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+  name: 'extra',
+  path: 'D:/project/codex-monitor',
+};
 let previousIds: unknown[] = [];
 let authToken: string | undefined;
 const mutations = new Set<Request>();
@@ -205,7 +212,6 @@ test('new session permissions are remembered separately for each workspace', asy
   const newSession = await enter(page, request);
   const workspace = newSession.getByLabel('新会话工作空间');
   const permission = newSession.getByLabel('新会话权限');
-  const secondWorkspace = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
   await permission.selectOption('danger-full-access');
   await workspace.selectOption(secondWorkspace);
   await expect(permission).toHaveValue('inherit');
@@ -217,6 +223,91 @@ test('new session permissions are remembered separately for each workspace', asy
   await expect(permission).toHaveValue('inherit');
   await workspace.selectOption(secondWorkspace);
   await expect(permission).toHaveValue('workspace-write');
+});
+
+test('new sessions restore the last workspace and its project', async ({ page, request }) => {
+  await page.route('**/api/workspaces/*/control', async (route) => {
+    const response = await route.fetch();
+    const body = await response.json();
+    await route.fulfill({
+      json: { ...body, projects: [...body.projects, extraProject], creationPermissions: true },
+    });
+  });
+  const newSession = await enter(page, request);
+  const workspace = newSession.getByLabel('新会话工作空间');
+  const project = newSession.getByLabel('新会话项目');
+  const permission = newSession.getByLabel('新会话权限');
+  await expect(project).toHaveValue(projectId);
+  await workspace.selectOption(secondWorkspace);
+  await expect(workspace).toHaveValue(secondWorkspace);
+  await project.selectOption(extraProject.id);
+  await permission.selectOption('workspace-write');
+  await page.reload();
+  await expect(project).toHaveValue(extraProject.id);
+
+  await page.goto('/?view=all&workspace=local');
+  await expect(page.getByLabel('切换工作空间')).toHaveValue('local');
+  await page.getByRole('button', { name: '新建会话', exact: true }).click();
+  await expect(workspace).toHaveValue(secondWorkspace);
+  await expect(project).toHaveValue(extraProject.id);
+  await expect(permission).toHaveValue('workspace-write');
+
+  await page.goto('/?view=new');
+  await expect(workspace).toHaveValue(secondWorkspace);
+  await expect(project).toHaveValue(extraProject.id);
+  await page.goto('/?view=new&workspace=local');
+  await expect(workspace).toHaveValue('local');
+  await expect(project).toHaveValue(projectId);
+  await page.goto(`/?view=all&workspace=local&project=${encodeURIComponent(extraProject.path)}`);
+  await page.getByRole('button', { name: '新建会话', exact: true }).click();
+  await expect(workspace).toHaveValue('local');
+  await expect(project).toHaveValue(extraProject.id);
+});
+
+test('new sessions fall back when the saved workspace or project is unavailable', async ({
+  page,
+  request,
+}) => {
+  let offline = false;
+  let projectAvailable = true;
+  await page.route('**/api/workspaces', async (route) => {
+    const response = await route.fetch();
+    const body = await response.json();
+    if (offline) {
+      body.workspaces.find((workspace: { id: string }) => workspace.id === secondWorkspace).online =
+        false;
+    }
+    await route.fulfill({ json: body });
+  });
+  await page.route(`**/api/workspaces/${secondWorkspace}/control`, async (route) => {
+    const response = await route.fetch();
+    const body = await response.json();
+    if (projectAvailable) body.projects.push(extraProject);
+    await route.fulfill({ json: body });
+  });
+  const newSession = await enter(page, request);
+  const workspace = newSession.getByLabel('新会话工作空间');
+  const project = newSession.getByLabel('新会话项目');
+  await workspace.selectOption(secondWorkspace);
+  await project.selectOption(extraProject.id);
+  projectAvailable = false;
+  await page.reload();
+  await expect(workspace).toHaveValue(secondWorkspace);
+  await expect(project).toHaveValue(projectId);
+
+  offline = true;
+  await page.goto('/?view=all&workspace=local');
+  const create = page.getByRole('button', { name: '新建会话', exact: true });
+  await create.click();
+  await expect(workspace).toHaveValue('local');
+  await expect(project).toHaveValue(projectId);
+
+  offline = false;
+  projectAvailable = true;
+  await page.goto('/?view=all&workspace=local');
+  await create.click();
+  await expect(workspace).toHaveValue(secondWorkspace);
+  await expect(project).toHaveValue(extraProject.id);
 });
 
 test('ordinary creation omits unsupported fields even with a saved permission', async ({

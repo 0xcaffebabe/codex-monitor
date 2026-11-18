@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { User } from '../../types';
 import { useSessionDetail } from '../session/useSessionDetail';
+import { preferredNewSessionWorkspace } from '../control/new-session-preferences';
 import { sessionRows, type SessionGroup, type WorkspaceSession } from './session-list-model';
 import { useOverview } from './useOverview';
 import { useRealtime } from './useRealtime';
@@ -29,7 +30,7 @@ function tabFromParams(params: URLSearchParams) {
     : 'attention';
 }
 
-export function useWorkspace(workspaceId: string, workspaces: ManagedWorkspace[]) {
+export function useWorkspace(workspaceId: string, workspaces: ManagedWorkspace[], userId: string) {
   const [initialParams] = useState(() => new URLSearchParams(location.search));
   const [sidebarView, setSidebarView] = useState<'recent' | 'projects'>('recent'),
     [tab, setTab] = useState(() => tabFromParams(initialParams)),
@@ -170,6 +171,13 @@ export function useWorkspace(workspaceId: string, workspaces: ManagedWorkspace[]
     }
   };
   const startSession = () => {
+    if (!creating && !project) {
+      const workspace = preferredNewSessionWorkspace(userId, workspaces, workspaceId);
+      if (workspace && workspace.id !== workspaceId) {
+        navigateWorkspace(workspace.id, undefined, new URLSearchParams({ view: 'new' }));
+        return;
+      }
+    }
     setTab('all');
     setSelected(undefined);
     setCreating(true);

@@ -10,7 +10,7 @@ import { useAttention } from '../attention/useAttention';
 import { useTaskWatches } from '../attention/useTaskWatches';
 
 export function WorkspaceHost(props: WorkspaceProps) {
-  const model = useWorkspaces();
+  const model = useWorkspaces(props.user.id);
   const attention = useAttention(model.workspaces, props.user.id);
   const taskWatches = useTaskWatches(props.user.role === 'admin');
   const [accessOpen, setAccessOpen] = useState(false);

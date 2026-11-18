@@ -36,7 +36,7 @@ export function Workspace(
   },
 ) {
   const { user } = props;
-  const model = useWorkspace(props.workspaceId, props.workspaces);
+  const model = useWorkspace(props.workspaceId, props.workspaces, user.id);
   const {
     overview,
     setSidebarView,

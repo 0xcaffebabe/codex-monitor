@@ -2,6 +2,7 @@ import { RefreshCw } from 'lucide-react';
 import { PromptForm } from './PromptForm';
 import { NewSessionProps, useNewSession } from './useNewSession';
 import { ModelSettings } from './ModelSettings';
+import { writeNewSessionPreference } from './new-session-preferences';
 import type { SessionPermissionMode } from '../../approval-types';
 
 export function NewSessionComposer(props: NewSessionProps) {
@@ -10,7 +11,7 @@ export function NewSessionComposer(props: NewSessionProps) {
   const {
     projects,
     selected,
-    setSelected,
+    selectProject,
     error,
     loading,
     setRefresh,
@@ -46,7 +47,11 @@ export function NewSessionComposer(props: NewSessionProps) {
           <select
             aria-label="新会话工作空间"
             value={workspaceId}
-            onChange={(event) => onWorkspaceChange(event.target.value)}
+            onChange={(event) => {
+              const id = event.target.value;
+              writeNewSessionPreference(id, 'workspace', user.id);
+              onWorkspaceChange(id);
+            }}
           >
             {workspaces.map((workspace) => (
               <option key={workspace.id} value={workspace.id} disabled={!workspace.online}>
@@ -62,7 +67,7 @@ export function NewSessionComposer(props: NewSessionProps) {
             aria-label="新会话项目"
             value={selected}
             disabled={loading || !online}
-            onChange={(event) => setSelected(event.target.value)}
+            onChange={(event) => selectProject(event.target.value)}
           >
             {!projects.length && (
               <option value="">{loading ? '正在加载项目…' : '暂无可用项目'}</option>

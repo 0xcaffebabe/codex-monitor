@@ -3,8 +3,9 @@ import { api, post } from '../../api';
 import type { ManagedWorkspace } from '../../workspaces';
 import { initializeWorkspace, navigateWorkspace, subscribeNavigation } from '../../workspace-scope';
 import { copyText } from '../../shared/clipboard';
+import { preferredNewSessionWorkspace } from '../control/new-session-preferences';
 
-export function useWorkspaces() {
+export function useWorkspaces(userId: string) {
   const [workspaces, setWorkspaces] = useState<ManagedWorkspace[]>([]);
   const [loading, setLoading] = useState(true),
     [error, setError] = useState('');
@@ -20,10 +21,12 @@ export function useWorkspaces() {
       const result = await api<{ workspaces: ManagedWorkspace[] }>('/api/workspaces', { signal });
       if (signal?.aborted) return;
       if (!selected.current && result.workspaces.length) {
-        selected.current = (
-          result.workspaces.find((item) => item.online) || result.workspaces[0]
-        ).id;
         const params = new URLSearchParams(location.search);
+        const defaultWorkspace =
+          params.get('view') === 'new' && !params.get('session') && !params.get('project')
+            ? preferredNewSessionWorkspace(userId, result.workspaces)
+            : result.workspaces.find((item) => item.online);
+        selected.current = (defaultWorkspace ?? result.workspaces[0]).id;
         params.set('workspace', selected.current);
         history.replaceState(null, '', location.pathname + '?' + params.toString());
         setActiveId(selected.current);
@@ -36,7 +39,7 @@ export function useWorkspaces() {
     } finally {
       if (!signal?.aborted) setLoading(false);
     }
-  }, []);
+  }, [userId]);
   useEffect(() => {
     const abort = new AbortController();
     let busy = false;
