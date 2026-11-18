@@ -50,7 +50,7 @@ export function MessageComposer(props: MessageComposerProps) {
       {(!state?.available || state.compacting) && (
         <p className="control-hint">{state?.reason || '正在连接 Codex…'}</p>
       )}
-      {goal && (
+      {goal && goal.status !== 'complete' && (
         <div className="session-goal-strip" aria-label="会话目标" data-status={goal.status}>
           <button
             type="button"

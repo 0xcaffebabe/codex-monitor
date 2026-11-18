@@ -53,6 +53,7 @@ export function useMessageComposer({
         if (!stopped) {
           setGoal(data.goal);
           setGoalError('');
+          if (data.goal?.status === 'complete') setGoalNotice('');
         }
       } catch (error) {
         if (!stopped) setGoalError((error as Error).message);

@@ -69,6 +69,37 @@ test('the open conversation receives new records again after a real client disco
   await expect(session.message('重连后写入的会话记录')).toBeVisible();
 });
 
+test('a completed goal leaves the composer but remains in goal management', async ({
+  signedIn: { browserPage, session },
+  local,
+}) => {
+  await browserPage.clock.install();
+  await session.open(local.id, ids.modern);
+  const objective = '验证目标完成后的显示';
+  const goalStrip = session.detail.getByLabel('会话目标', { exact: true });
+  const notice = session.detail.getByText('目标已更新，Codex 已接收执行指令。', { exact: true });
+  const manager = await session.openGoalManager();
+  await manager.getByRole('textbox', { name: '目标内容', exact: true }).fill(objective);
+  const refreshed = browserPage.waitForResponse(
+    (response) =>
+      new URL(response.url()).pathname.endsWith(`/sessions/${ids.modern}/goal`) && response.ok(),
+  );
+  await manager.getByRole('button', { name: '设置目标并执行', exact: true }).click();
+  await manager.getByRole('button', { name: '关闭目标管理', exact: true }).click();
+  await expect(goalStrip).toHaveAttribute('data-status', 'active');
+  await expect(notice).toBeVisible();
+  await (await refreshed).finished();
+
+  local.control.goals.get(ids.modern).status = 'complete';
+  await browserPage.clock.fastForward(10000);
+  await expect(goalStrip).toHaveCount(0);
+  await expect(notice).toHaveCount(0);
+
+  const currentGoal = (await session.openGoalManager()).getByLabel('当前目标', { exact: true });
+  await expect(currentGoal).toContainText('已完成');
+  await expect(currentGoal).toContainText(objective);
+});
+
 test('creates a session and waits for one explicit approval before writing the requested file', async ({
   signedIn: { newSession, session },
   local,

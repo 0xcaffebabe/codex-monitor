@@ -51,6 +51,12 @@ export class SessionPage {
     await this.detail.getByRole('button', { name: /^(发送|追加)消息$/ }).click();
   }
 
+  async openGoalManager() {
+    await this.detail.getByRole('button', { name: '快捷操作', exact: true }).click();
+    await this.detail.getByRole('button', { name: '目标', exact: true }).click();
+    return this.detail.getByRole('dialog', { name: '目标管理' });
+  }
+
   async approveOnce() {
     await this.allowOnce.click();
   }
