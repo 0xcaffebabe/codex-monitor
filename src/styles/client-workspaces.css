@@ -192,10 +192,12 @@
   font-size: var(--font-meta);
   margin: 10px 0;
 }
-@media (max-width: 1100px) {
+@media (min-width: 761px) and (max-width: 1100px) {
   .topbar:has(.workspace-selector) {
     min-height: 76px;
   }
+}
+@media (max-width: 1100px) {
   .workspace-selector {
     flex-direction: column;
     align-items: flex-start;

@@ -203,6 +203,51 @@ test.describe('PC layout', () => {
   });
 });
 
+test('extends mobile topbar color behind the iPhone status area without moving controls into it', async ({
+  page,
+  request,
+  isMobile,
+}) => {
+  test.skip(!isMobile, 'Uses the mobile browsing context');
+  await enter(page, request, 440, 956);
+  const topbar = page.locator('.topbar');
+  const menu = page.getByTitle('打开菜单', { exact: true });
+  const refresh = page.getByTitle('刷新数据', { exact: true });
+  const dock = page.getByRole('button', { name: '查看运行中的会话', exact: true });
+  const nativeInset = await topbar.evaluate((element) =>
+    parseFloat(getComputedStyle(element).paddingTop),
+  );
+  await expect(topbar).toHaveCSS('height', `${48 + nativeInset}px`);
+  const dockBefore = await dock.boundingBox();
+
+  await page.addStyleTag({ content: '.app-shell { --workspace-safe-top: 62px; }' });
+  await expect(topbar).toHaveCSS('height', '110px');
+  expect((await topbar.boundingBox())!.y).toBe(0);
+  expect(await dock.boundingBox()).toEqual(dockBefore);
+  for (const button of [menu, refresh]) {
+    const bounds = (await button.boundingBox())!;
+    expect(bounds.y).toBeGreaterThanOrEqual(62);
+    expect(bounds.y + bounds.height).toBeLessThanOrEqual(110);
+    expect(bounds.height).toBeGreaterThanOrEqual(44);
+  }
+
+  await menu.tap();
+  const close = page.getByTitle('关闭菜单', { exact: true });
+  await expect(close).toBeVisible();
+  expect((await close.boundingBox())!.y).toBeGreaterThanOrEqual(62);
+  await close.tap();
+
+  for (const theme of ['light', 'dark']) {
+    await page.evaluate((value) => {
+      document.documentElement.dataset.theme = value;
+    }, theme);
+    const background = await page
+      .locator('html')
+      .evaluate((element) => getComputedStyle(element).backgroundColor);
+    await expect(topbar).toHaveCSS('background-color', background);
+  }
+});
+
 test('keeps the iPhone Pro Max conversation readable with tools outside the reader', async ({
   page,
   request,
