@@ -212,6 +212,12 @@
       "cacheWrite": 1.25,
       "output": 5
     },
+    "gpt-6.2-sol": {
+      "input": 2,
+      "cachedInput": 0.1,
+      "cacheWrite": 2.5,
+      "output": 10
+    },
     "o3": {
       "input": 2,
       "cachedInput": 0.5,
