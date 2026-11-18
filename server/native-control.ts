@@ -29,7 +29,9 @@ type NativeControl = Pick<NativeRpc, 'request' | 'models' | 'get' | 'set' | 'cle
 
 function noOwner(error: unknown) {
   return (
-    error instanceof ControlError && ['no_owner', 'owner_unavailable'].includes(error.code || '')
+    error instanceof ControlError &&
+    !error.uncertain &&
+    (error.code === 'no_owner' || error.code === 'owner_unavailable')
   );
 }
 
@@ -345,7 +347,10 @@ export class NativeDesktopControl implements DesktopControl {
     } catch (error) {
       if (!noOwner(error)) throw error;
       return {
-        status: 'notLoaded', turnId: local?.turnId, compacting: false,
+        status: 'notLoaded',
+        turnId: local?.turnId,
+        compacting: false,
+        canAttemptResume: true,
         permissionMode: this.savedPermission(threadId),
       };
     }

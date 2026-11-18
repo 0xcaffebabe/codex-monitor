@@ -4,7 +4,7 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 import net from 'node:net';
 import { randomUUID } from 'node:crypto';
-import { ControlError, compactingError } from './control-error.js';
+import { ControlError, activeWriterError, compactingError } from './control-error.js';
 import { reasoningEfforts, type CodexModel, type ReasoningEffort } from '../src/types.js';
 import os from 'node:os';
 import { macBundledCli, macDesktopBundle } from './macos-paths.js';
@@ -127,16 +127,14 @@ export class NativeRpc {
         if (!pending) return;
         clearTimeout(pending.timer);
         this.pending.delete(response.id);
-        if (response.error)
+        if (response.error) {
+          const message = String(response.error.message);
           pending.reject(
-            compactingError(String(response.error.message)) ??
-              new ControlError(
-                'Codex 操作失败：' + String(response.error.message).slice(0, 300),
-                false,
-                502,
-              ),
+            compactingError(message) ??
+              activeWriterError(message) ??
+              new ControlError('Codex 操作失败：' + message.slice(0, 300), false, 502),
           );
-        else pending.resolve(response.result);
+        } else pending.resolve(response.result);
       } catch {
         /* Non-response diagnostic lines cannot resolve a request. */
       }

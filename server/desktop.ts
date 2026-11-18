@@ -1,13 +1,14 @@
 import net from 'node:net';
 import { readdir } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
-import { ControlError, compactingError } from './control-error.js';
+import { ControlError, activeWriterError, compactingError } from './control-error.js';
 import { NativeRpc, compactOwnedThread, interruptOwnedThread } from './native.js';
 import type {
   CodexModel,
   SessionModelSettings,
   SessionMessageSettings,
   SessionCreationSettings,
+  SessionStatus,
 } from '../src/types.js';
 import type { ApprovalControl, SessionPermissionMode } from '../src/approval-types.js';
 export { ControlError } from './control-error.js';
@@ -16,6 +17,19 @@ export interface DesktopProject {
   name: string;
   path: string;
 }
+type DesktopThreadState = {
+  status: string;
+  turnId?: string;
+  compacting?: boolean;
+  owner?: 'monitor' | 'desktop';
+  permissionMode?: Exclude<SessionPermissionMode, 'inherit'>;
+  canAttemptResume?: boolean;
+};
+
+export function hasUnconfirmedWriter(state: DesktopThreadState, historyStatus: SessionStatus) {
+  return state.status === 'notLoaded' && !state.canAttemptResume && historyStatus === 'running';
+}
+
 export interface DesktopControl {
   contextRequired?: boolean;
   approvals?: ApprovalControl;
@@ -24,16 +38,7 @@ export interface DesktopControl {
   desktopChannel?: boolean;
   projects(context: string): Promise<DesktopProject[]>;
   models(): Promise<CodexModel[]>;
-  state(
-    context: string,
-    threadId: string,
-  ): Promise<{
-    status: string;
-    turnId?: string;
-    compacting?: boolean;
-    owner?: 'monitor' | 'desktop';
-    permissionMode?: Exclude<SessionPermissionMode, 'inherit'>;
-  }>;
+  state(context: string, threadId: string): Promise<DesktopThreadState>;
   send(
     context: string,
     threadId: string,
@@ -61,11 +66,11 @@ export interface DesktopControl {
 
 const MAX_FRAME = 8 * 1024 * 1024;
 function rejection(message: string) {
-  const compacting = compactingError(message);
-  if (compacting) return compacting;
-  if (/already has an active writer/i.test(message))
-    return new ControlError('会话正在其他客户端中使用，请在原客户端处理后重试。', false, 409);
-  return new ControlError(message.slice(0, 500), false, 502);
+  return (
+    compactingError(message) ??
+    activeWriterError(message) ??
+    new ControlError(message.slice(0, 500), false, 502)
+  );
 }
 
 /** The desktop app owns routing to the live thread, including mid-turn input. */

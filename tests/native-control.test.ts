@@ -773,7 +773,7 @@ test('existing desktop threads use the owner, and uncertain sends never fall bac
     { type: 'text', text: 'append', text_elements: [] },
   ]);
   assert.equal(f.calls.length, 0);
-  f.ownerError = new ControlError('connection lost after dispatch', true);
+  f.ownerError = new ControlError('owner disappeared after dispatch', true, 409, 'no_owner');
   await assert.rejects(f.control.send('context', 'desktop-thread', 'append'));
   assert.equal(f.calls.length, 0, 'must not replay a possibly accepted input through CLI');
   f.ownerError = undefined;
@@ -811,7 +811,9 @@ test('owner status distinguishes live turns from old persisted turn ids without 
   );
   f.activity.running = true;
   f.ownerError = new ControlError('no owner', false, 409, 'no_owner');
-  assert.equal((await f.control.state('context', 'desktop-thread')).status, 'notLoaded');
+  const unloaded = await f.control.state('context', 'desktop-thread');
+  assert.equal(unloaded.status, 'notLoaded');
+  assert.equal(unloaded.canAttemptResume, true);
   f.ownerError = new ControlError('owner timed out', false, 504);
   await assert.rejects(f.control.state('context', 'desktop-thread'), /timed out/);
 });

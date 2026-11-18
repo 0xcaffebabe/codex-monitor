@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
 import type { Express, Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
-import { DesktopBridge, ControlError, type DesktopControl } from './desktop.js';
+import { DesktopBridge, ControlError, hasUnconfirmedWriter, type DesktopControl } from './desktop.js';
 import { validId, type CodexSource } from './source.js';
 import { MessageQueue, type ControlLane } from './message-queue.js';
 import { MAX_ATTACHMENTS, type UploadStore } from './uploads.js';
@@ -250,7 +250,7 @@ export function installControl(
           turnId: state.turnId,
           reason: '正在压缩上下文，发送的消息会排队，完成后自动提交。',
         });
-      if (state.status === 'notLoaded' && session.status === 'running')
+      if (hasUnconfirmedWriter(state, session.status))
         return res.json({
           available: false,
           reason: '该会话正在其他客户端中执行，当前桌面版无法追加消息。',

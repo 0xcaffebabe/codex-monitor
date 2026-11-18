@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
-import { ControlError, type DesktopControl } from './desktop.js';
+import { ControlError, hasUnconfirmedWriter, type DesktopControl } from './desktop.js';
 import type { CodexSource } from './source.js';
 import type { ReasoningEffort, SessionMessageSettings } from '../src/types.js';
 import { validateModelSettings } from './model-settings.js';
@@ -319,7 +319,7 @@ export class MessageQueue {
       });
       return;
     }
-    if (state.status === 'notLoaded' && current.status === 'running') {
+    if (hasUnconfirmedWriter(state, current.status)) {
       this.finish(requestId, 'failed', {
         httpStatus: 409,
         error: '该会话正在其他客户端中执行，无法从当前桌面版追加消息。',

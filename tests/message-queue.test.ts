@@ -7,11 +7,12 @@ import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { setTimeout as delay } from 'node:timers/promises';
 import { createApp } from '../server/app.js';
-import { ControlError } from '../server/desktop.js';
+import { ControlError, type DesktopControl } from '../server/desktop.js';
+import { NativeDesktopControl } from '../server/native-control.js';
 import { fixture, ids } from './fixture.js';
-import { FixtureDesktop } from './control-fixture.js';
+import { FixtureDesktop, projectId } from './control-fixture.js';
 
-async function boot(f: ReturnType<typeof fixture>, control: FixtureDesktop, token?: string) {
+async function boot(f: ReturnType<typeof fixture>, control: DesktopControl, token?: string) {
   const app = createApp(f.config, { control });
   const server = app.app.listen(0, '127.0.0.1');
   await once(server, 'listening');
@@ -47,6 +48,97 @@ async function until(check: () => Promise<boolean>) {
   assert.fail('Queue did not reach the expected state');
 }
 const route = `/api/sessions/${ids.modern}/messages`;
+
+test('a new client resumes a web-created session with an unfinished turn in history', async () => {
+  const f = fixture();
+  const calls: string[] = [];
+  let writerBusy = false;
+  const client = () => {
+    let status = 'notLoaded';
+    return new NativeDesktopControl(
+      {
+        codexHome: f.home,
+        activity: () => ({ turnId: 'turn-1', running: true, compacting: true }),
+      },
+      {
+        owner: async () => {
+          throw new ControlError('No desktop owner', false, 409, 'no_owner');
+        },
+        generateTitle: async () => undefined,
+        native: {
+          async request(method, params: { threadId?: string }) {
+            if (method === 'project/list')
+              return { data: [{ id: projectId, name: 'work', roots: [{ path: f.root }] }] };
+            if (method === 'thread/start') return { thread: { id: ids.modern } };
+            assert.equal(params.threadId, ids.modern);
+            if (method === 'thread/read')
+              return { thread: { id: ids.modern, status: { type: status } } };
+            calls.push(method);
+            if (method === 'thread/resume') {
+              if (writerBusy)
+                throw new ControlError('Thread already has an active writer', false, 409);
+              status = 'idle';
+            }
+            if (method === 'turn/start') {
+              status = 'active';
+              return { turn: { id: calls.length === 1 ? 'turn-1' : 'turn-new', status: 'inProgress' } };
+            }
+          },
+          models: async () => [],
+          get: async () => null,
+          set: async () => null,
+          clear: async () => {},
+          close() {},
+        },
+      },
+    );
+  };
+  let service = await boot(f, client());
+  try {
+    const controlRoute = `/api/sessions/${ids.modern}/control`;
+    const created = await service.request('/api/sessions', {
+      projectId,
+      requestId: randomUUID(),
+      prompt: 'start from the web',
+    });
+    assert.equal(created.status, 200);
+    assert.equal((await created.json()).threadId, ids.modern);
+    assert.equal((await (await service.request(controlRoute)).json()).compacting, true);
+
+    const token = service.token;
+    await service.close();
+    service = await boot(f, client(), token);
+    assert.equal((await service.app.source.get(ids.modern))?.status, 'running');
+    const state = await (await service.request(controlRoute)).json();
+    assert.equal(state.available, true);
+    assert.equal(state.running, false);
+    assert.equal(state.compacting, undefined);
+    assert.deepEqual(calls, ['turn/start'], 'reconnect does not replay the first message');
+
+    writerBusy = true;
+    const blocked = await service.request(route, {
+      requestId: randomUUID(),
+      prompt: 'writer conflict',
+    });
+    assert.equal(blocked.status, 409);
+    assert.equal((await blocked.json()).state, 'failed');
+    assert.deepEqual(calls, ['turn/start', 'thread/resume'], 'writer conflict prevents dispatch');
+
+    writerBusy = false;
+    const input = { requestId: randomUUID(), prompt: 'continue the same session' };
+    const accepted = await service.request(route, input);
+    assert.equal(accepted.status, 200);
+    const receipt = await accepted.json();
+    assert.equal(receipt.threadId, ids.modern);
+    assert.equal(receipt.mode, 'start');
+    assert.equal((await service.request(route, input)).status, 200);
+    assert.deepEqual(calls, ['turn/start', 'thread/resume', 'thread/resume', 'turn/start']);
+  } finally {
+    await service.close();
+    f.close();
+    rmSync(f.root, { recursive: true, force: true });
+  }
+});
 
 test('message permission changes require an idle Monitor turn and are deduplicated', async () => {
   const f = fixture(), control = new FixtureDesktop(f), service = await boot(f, control);
