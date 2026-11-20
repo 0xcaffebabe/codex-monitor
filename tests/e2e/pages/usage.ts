@@ -36,11 +36,8 @@ export class UsagePage {
     return this.subscriptions.getByRole('row').filter({ hasText: name });
   }
 
-  creditsButton(accountName: string, action: '查询点数' | '刷新点数') {
-    return this.subscriptionAccount(accountName).getByRole('button', {
-      name: `${accountName} ${action}`,
-      exact: true,
-    });
+  async refreshSub2Api() {
+    await this.sub2api.getByRole('button', { name: '刷新 Sub2API 用量', exact: true }).click();
   }
 
   async selectSubscriptionType(type: 'oauth' | 'setup-token') {

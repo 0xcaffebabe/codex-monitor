@@ -17,16 +17,30 @@ test('configure Sub2API and query subscription accounts and API keys', async ({
     const backup = usage.subscriptionAccount('Codex backup');
     await expect(plus).toContainText('18.5%');
     await expect(backup).toContainText('额度暂不可用');
-    expect(upstream.calls.some(({ path }) => path.endsWith('/quota'))).toBe(false);
-    await usage.creditsButton('Codex Plus', '查询点数').click();
     await expect(plus.getByRole('status')).toHaveText('1250.50 点');
-    await usage.creditsButton('Codex backup', '查询点数').click();
     await expect(backup.getByRole('status')).toHaveText('0 点');
-    await usage.creditsButton('Codex Plus', '刷新点数').click();
-    await expect(usage.creditsButton('Codex Plus', '刷新点数')).toBeEnabled();
+    await expect(usage.subscriptions.getByRole('button')).toHaveCount(0);
+
+    upstream.behavior.rejectCredits = true;
+    await usage.refreshSub2Api();
+    await expect(plus.getByRole('alert')).toHaveText(
+      'Sub2API 拒绝查询，请检查管理员 Key 的读取权限',
+    );
+    await expect(backup.getByRole('status')).toHaveText('0 点');
+
+    upstream.behavior.rejectCredits = false;
+    await page.setViewportSize({ width: 390, height: 844 });
+    await usage.refreshSub2Api();
+    await expect(plus.getByRole('status')).toHaveText('1250.50 点');
+    await expect(backup.getByRole('status')).toHaveText('0 点');
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+      true,
+    );
 
     await usage.selectSubscriptionType('setup-token');
-    await expect(usage.subscriptionAccount('Claude subscription')).toContainText('未知');
+    const claude = usage.subscriptionAccount('Claude subscription');
+    await expect(claude).toContainText('未知');
+    await expect(claude.getByRole('status')).toHaveCount(0);
 
     await usage.showApiKeys();
     const runner = usage.apiKey('CI runner');
@@ -37,7 +51,6 @@ test('configure Sub2API and query subscription accounts and API keys', async ({
     await usage.searchKey('#99');
     await expect(usage.apiKey('#99')).toContainText('$0.0000');
 
-    await page.setViewportSize({ width: 390, height: 844 });
     await expect(usage.apiKey('#99')).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
       true,

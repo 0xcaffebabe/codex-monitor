@@ -1,4 +1,4 @@
-import { ArrowLeft, ArrowRight, Coins, RefreshCw, Search } from 'lucide-react';
+import { ArrowLeft, ArrowRight, RefreshCw, Search } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { api } from '../../api';
 import type {
@@ -12,7 +12,7 @@ import { dateKey, integer, money } from './format';
 
 type View = 'accounts' | 'keys';
 
-function useQuery<T>(url: string | undefined, revision: number) {
+function useQuery<T>(url: string | undefined, revision = 0) {
   const [result, setResult] = useState<{
     url: string;
     revision: number;
@@ -54,37 +54,24 @@ function creditBalance(credits: Sub2ApiCredits | null) {
   return credits.hasCredits ? '点数余额未知' : '无可用点数';
 }
 
-function AccountCredits({ account }: { account: Sub2ApiAccount }) {
-  const [attempt, setAttempt] = useState(0);
-  const result = useQuery<Sub2ApiCredits | null>(
-    attempt ? `/api/sub2api/account-credits?accountId=${account.id}` : undefined,
-    attempt,
+function AccountCredits({ accountId, enabled }: { accountId: number; enabled: boolean }) {
+  const { data, error } = useQuery<Sub2ApiCredits | null>(
+    enabled ? `/api/sub2api/account-credits?accountId=${accountId}` : undefined,
   );
-  const loaded = result.data !== undefined;
-  const action = loaded ? '刷新点数' : '查询点数';
+  if (error)
+    return (
+      <span className="sub2api-credits" role="alert">
+        {error}
+      </span>
+    );
   return (
-    <div className="sub2api-credits">
-      {loaded && <span role="status">{creditBalance(result.data ?? null)}</span>}
-      <button
-        type="button"
-        title={action}
-        aria-label={`${account.name} ${action}`}
-        disabled={result.busy}
-        onClick={() => setAttempt((value) => value + 1)}
-      >
-        {result.busy || loaded ? (
-          <RefreshCw size={13} className={result.busy ? 'spin' : ''} />
-        ) : (
-          <Coins size={13} />
-        )}
-        {!loaded && action}
-      </button>
-      {result.error && <small role="alert">{result.error}</small>}
-    </div>
+    <span className="sub2api-credits" role="status">
+      {data === undefined ? '正在查询点数…' : creditBalance(data)}
+    </span>
   );
 }
 
-function AccountRows({ items }: { items: Sub2ApiAccount[] }) {
+function AccountRows({ items, loadCredits }: { items: Sub2ApiAccount[]; loadCredits: boolean }) {
   const stateLabels: Record<string, string> = {
     active: '正常',
     inactive: '停用',
@@ -98,7 +85,9 @@ function AccountRows({ items }: { items: Sub2ApiAccount[] }) {
         <small>
           {account.platform} · #{account.id} · {stateLabels[account.status] ?? account.status}
         </small>
-        {account.platform === 'openai' && <AccountCredits account={account} />}
+        {account.platform === 'openai' && (
+          <AccountCredits accountId={account.id} enabled={loadCredits} />
+        )}
       </td>
       <td>
         <div className="sub2api-quotas">
@@ -357,7 +346,11 @@ export function Sub2ApiUsage({
                 </thead>
                 <tbody>
                   {view === 'accounts' ? (
-                    <AccountRows key={generation} items={accounts.data?.items ?? []} />
+                    <AccountRows
+                      key={generation}
+                      items={accounts.data?.items ?? []}
+                      loadCredits={!busy}
+                    />
                   ) : (
                     <KeyRows items={keys.data?.items ?? []} />
                   )}

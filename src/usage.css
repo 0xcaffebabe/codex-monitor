@@ -450,22 +450,10 @@
   font-size: var(--font-meta);
 }
 .sub2api-credits {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  flex-wrap: wrap;
+  display: block;
   margin-top: 6px;
 }
-.sub2api-credits button {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  color: var(--link);
-  min-height: 26px;
-  padding: 2px 3px;
-}
-.sub2api-credits small {
-  flex-basis: 100%;
+.sub2api-credits[role='alert'] {
   color: var(--danger);
 }
 .sub2api-quotas {
