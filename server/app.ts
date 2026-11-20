@@ -12,6 +12,7 @@ import { NotificationService } from './notifications/service.js';
 import { NotificationReporter } from './notifications/reporter.js';
 import type { WebhookTransport } from './notifications/lark.js';
 import { installNotificationRoutes } from './http/notification-routes.js';
+import { installSub2ApiRoutes } from './http/sub2api-routes.js';
 
 /** Local HTTP harness for capability tests; production uses server-app and client/connection. */
 export function createApp(
@@ -26,6 +27,7 @@ export function createApp(
   app.use('/api', authenticate(auth));
   installAccountRoutes(app, auth, rate);
   installUserRoutes(app, auth);
+  installSub2ApiRoutes(app, auth);
   const runtime = installWorkspaceRuntime(app, config, auth, services);
   const notifications = new NotificationService(auth.db, config.pollMs, services.webhookTransport);
   const notificationReporter = new NotificationReporter(

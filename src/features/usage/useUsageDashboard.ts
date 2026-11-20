@@ -6,6 +6,7 @@ import { useUsage } from './useUsage';
 export type UsageDashboardProps = {
   onSession: (id: string) => void;
   revision?: number;
+  openSub2ApiSettings?: () => void;
 };
 export function useUsageDashboard({ revision }: UsageDashboardProps) {
   const [range, setRange] = useState('24h'),

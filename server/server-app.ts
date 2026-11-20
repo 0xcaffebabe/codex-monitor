@@ -11,6 +11,7 @@ import { WorkspaceGateway } from './workspaces/gateway.js';
 import { NotificationService } from './notifications/service.js';
 import type { WebhookTransport } from './notifications/lark.js';
 import { installNotificationRoutes } from './http/notification-routes.js';
+import { installSub2ApiRoutes } from './http/sub2api-routes.js';
 
 /** Server owns authentication, registration and notification delivery; Codex readers live in clients. */
 export function createMonitorServer(
@@ -25,6 +26,7 @@ export function createMonitorServer(
   app.use('/api', authenticate(auth));
   installAccountRoutes(app, auth, rate);
   installUserRoutes(app, auth);
+  installSub2ApiRoutes(app, auth);
   const notifications = new NotificationService(auth.db, config.pollMs, services.webhookTransport);
   installNotificationRoutes(app, auth, notifications);
   const gateway = new WorkspaceGateway(auth, notifications);

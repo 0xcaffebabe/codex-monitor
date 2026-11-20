@@ -2,6 +2,7 @@ import { KeyRound, Monitor, Settings2, Shield, Smartphone, X } from 'lucide-reac
 import { date, relative } from '../../shared/format';
 import { SettingsProps, useSettings } from './useSettings';
 import { Notifications } from './Notifications';
+import { Sub2ApiSettings } from './Sub2ApiSettings';
 
 export function Settings(props: SettingsProps) {
   const { user, overview, onClose } = props;
@@ -53,7 +54,12 @@ export function Settings(props: SettingsProps) {
               {error}
             </div>
           )}
-          {user.role === 'admin' && <Notifications notify={props.notify} />}
+          {user.role === 'admin' && (
+            <>
+              <Sub2ApiSettings notify={props.notify} onChange={props.onSub2ApiChange} />
+              <Notifications notify={props.notify} />
+            </>
+          )}
           {props.workspaceAvailable !== false && (
             <section>
               <h3>
@@ -214,7 +220,7 @@ export function Settings(props: SettingsProps) {
         <footer>
           <span>
             <Shield size={13} />
-            凭据保存在当前浏览器
+            登录凭据保存在当前浏览器
           </span>
           <button className="secondary" onClick={onClose}>
             完成

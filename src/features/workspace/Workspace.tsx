@@ -188,6 +188,7 @@ export function Workspace(
               select(id);
             }}
             revision={usageRevision}
+            openSub2ApiSettings={user.role === 'admin' ? () => setSettings(true) : undefined}
           />
         ) : (
           <>
@@ -303,6 +304,7 @@ export function Workspace(
           overview={overview}
           onClose={() => setSettings(false)}
           notify={notify}
+          onSub2ApiChange={() => setUsageRevision((value) => value + 1)}
         />
       )}
       {toast && (

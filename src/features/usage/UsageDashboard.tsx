@@ -5,6 +5,7 @@ import { Trend } from './Trend';
 import { UsageFilters } from './UsageFilters';
 import { UsageMetrics } from './UsageMetrics';
 import { UsageRequests } from './UsageRequests';
+import { Sub2ApiUsage } from './Sub2ApiUsage';
 import { UsageDashboardProps, useUsageDashboard } from './useUsageDashboard';
 
 export function UsageDashboard(props: UsageDashboardProps) {
@@ -118,6 +119,9 @@ export function UsageDashboard(props: UsageDashboardProps) {
             ))}
           </div>
         </section>
+      )}
+      {props.openSub2ApiSettings && (
+        <Sub2ApiUsage openSettings={props.openSub2ApiSettings} revision={props.revision} />
       )}
       <UsageRequests
         data={data}

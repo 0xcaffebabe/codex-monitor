@@ -181,7 +181,8 @@
   min-height: 32px;
   padding: 7px 20px;
 }
-.notification-fields {
+.notification-fields,
+.sub2api-fields {
   border: 0;
   padding: 0;
   margin: 16px 0 0;
@@ -189,17 +190,24 @@
   display: grid;
   gap: 12px;
 }
-.notification-fields > label {
+.notification-fields > label,
+.sub2api-fields > label {
   display: grid;
   gap: 6px;
   font-size: var(--font-meta);
   color: var(--muted);
 }
-.notification-fields input:not([type='checkbox']) {
+.notification-fields input:not([type='checkbox']),
+.sub2api-fields input {
   height: 36px;
   width: 100%;
   min-width: 0;
   font-size: var(--font-meta);
+}
+.sub2api-fields input {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 0 10px;
 }
 .notification-fields > .notification-toggle {
   display: flex;
@@ -218,12 +226,14 @@
 .notification-hint {
   overflow-wrap: anywhere;
 }
-.notification-actions {
+.notification-actions,
+.sub2api-settings-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
 }
-.notification-actions button {
+.notification-actions button,
+.sub2api-settings-actions button {
   min-height: 35px;
   font-size: var(--font-meta);
 }

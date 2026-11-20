@@ -8,6 +8,7 @@ export type SettingsProps = {
   onClose: () => void;
   notify: (s: string) => void;
   workspaceAvailable?: boolean;
+  onSub2ApiChange?: () => void;
 };
 export function useSettings({ user, notify }: SettingsProps) {
   const [devices, setDevices] = useState<
