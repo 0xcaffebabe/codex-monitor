@@ -1,4 +1,5 @@
-import { readFile, writeFile } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { ids } from '../fixture.js';
 import { expect, localTitle, test } from './monitor.js';
@@ -150,6 +151,48 @@ test('a completed goal leaves the composer but remains in goal management', asyn
   const currentGoal = (await session.openGoalManager()).getByLabel('当前目标', { exact: true });
   await expect(currentGoal).toContainText('已完成');
   await expect(currentGoal).toContainText(objective);
+});
+
+test('new-session tabs preserve workspace drafts and create in the selected project', async ({
+  signedIn: { newSession, session },
+  monitor,
+  local,
+}) => {
+  const remote = await monitor.addWorkspace('远程工作空间', '远程会话');
+  const offline = await monitor.addWorkspace('离线工作空间', '离线会话');
+  await offline.stop();
+  const project = { id: randomUUID(), name: '报表项目', path: path.join(remote.data.root, 'reports') };
+  await mkdir(project.path);
+  const defaultProjects = await remote.control.projects();
+  remote.control.projects = async () => [...defaultProjects, project];
+
+  await newSession.open();
+  const localTab = newSession.workspaceTab('本机工作空间');
+  const remoteTab = newSession.workspaceTab('远程工作空间');
+  await expect(localTab).toHaveAttribute('aria-selected', 'true');
+  await expect(newSession.workspaceTab(/离线工作空间/)).toBeDisabled();
+  await expect(newSession.project('work')).toBeChecked();
+  await newSession.draft.fill('本机草稿');
+
+  await localTab.press('ArrowRight');
+  await expect(remoteTab).toBeFocused();
+  await remoteTab.press('Enter');
+  await expect(remoteTab).toHaveAttribute('aria-selected', 'true');
+  await expect(remoteTab).toBeFocused();
+  await expect(newSession.draft).toHaveValue('');
+  await newSession.project(project.name).check();
+  await localTab.click();
+  await expect(newSession.draft).toHaveValue('本机草稿');
+  await expect(newSession.project(project.name)).toHaveCount(0);
+  await remoteTab.click();
+  await expect(newSession.project(project.name)).toBeChecked();
+
+  const prompt = '在报表项目创建会话';
+  await newSession.createAndSend(prompt);
+  await expect(session.message(prompt)).toBeVisible();
+  const created = remote.data.state.prepare('SELECT cwd FROM threads WHERE id=?').get(session.currentId());
+  expect(created?.cwd).toBe(project.path);
+  expect(local.control.creates).toBe(0);
 });
 
 test('creates a session and waits for one explicit approval before writing the requested file', async ({
