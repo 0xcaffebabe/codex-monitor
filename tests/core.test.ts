@@ -691,6 +691,52 @@ test('tool titles survive history, realtime and rollout reads independently of t
   }
 });
 
+test('file change cards show paths and readable diffs for SQLite and JSONL records', () => {
+  const diff = '@@ -1 +1 @@\n-before\n+after';
+  const current = normalizeItem(
+    {
+      type: 'fileChange',
+      changes: [
+        { path: 'src/app.ts', kind: { type: 'update' }, diff },
+        {
+          path: 'src/old.ts',
+          kind: { type: 'update', move_path: 'src/new.ts' },
+          diff: '',
+        },
+      ],
+    },
+    'file-change',
+    1,
+  );
+  assert.equal(current?.name, '文件改动');
+  assert.equal(current?.text, `修改 src/app.ts\n${diff}\n\n移动 src/old.ts → src/new.ts`);
+
+  const legacy = normalizeRecord(
+    {
+      type: 'event_msg',
+      payload: {
+        type: 'item_completed',
+        item: {
+          type: 'FileChange',
+          changes: {
+            'README.md': { type: 'update', unified_diff: diff },
+            'src/new.ts': { type: 'add', content: 'export {};' },
+            'unused.txt': { type: 'delete', content: 'unused' },
+          },
+        },
+      },
+    },
+    2,
+  );
+  assert.equal(
+    legacy?.text,
+    `修改 README.md\n${diff}\n\n新增 src/new.ts\nexport {};\n\n删除 unused.txt\nunused`,
+  );
+
+  const empty = normalizeItem({ type: 'fileChange', changes: [] }, 'empty', 3);
+  assert.equal(empty?.text, '（未记录文件改动详情）');
+});
+
 test('normalizers handle Codex variants and never expose encrypted reasoning', () => {
   const unknown = normalizeItem(
     { type: 'someTool', result: 'PRIVATE_TOOL_RESULT', stdout: 'PRIVATE_TOOL_OUTPUT' },
