@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { ProjectGit, GitError, validGitBranch, validGitPath } from '../git.js';
 import { validId } from '../source/session.js';
 import type { ControlAuthorization } from '../control.js';
+import { ControlError } from '../control-error.js';
 import { admin, fail, type Identity, type WorkspaceAuth } from './access.js';
 
 const scope = z.enum(['all', 'unstaged', 'staged']).default('all');
@@ -27,33 +28,39 @@ export function installGitRoutes(
     if (!valid() || (authorization && !(await authorization.device(identity))) || !valid())
       throw new GitError('登录或分支切换权限已失效，请重新登录。', 403);
   };
-  app.get('/api/sessions/:id/git/branches', admin, async (req, res) => {
-    const id = String(req.params.id);
-    if (!validId(id) || Object.keys(req.query).length) return fail(res, 400, 'Git 查询参数无效');
-    try {
-      res.setHeader('Cache-Control', 'no-store');
-      res.json(await git.branches(id));
-    } catch (error) {
-      if (error instanceof GitError) return fail(res, error.status, error.message);
-      throw error;
-    }
-  });
-  app.post('/api/sessions/:id/git/branch', admin, async (req, res) => {
-    const id = String(req.params.id);
-    const parsed = branchBody.safeParse(req.body);
-    if (!validId(id) || !parsed.success || Object.keys(req.query).length)
-      return fail(res, 400, '分支切换参数无效');
-    try {
-      await authorize(req.identity!);
-      const result = await git.switchBranch(id, parsed.data.branch, () => authorize(req.identity!));
-      auth.log('git.switch', req.identity!.user.username, req.ip || '');
-      res.setHeader('Cache-Control', 'no-store');
-      res.json(result);
-    } catch (error) {
-      if (error instanceof GitError) return fail(res, error.status, error.message);
-      throw error;
-    }
-  });
+  for (const type of ['session', 'project'] as const) {
+    const base = type === 'session' ? '/api/sessions/:id/git' : '/api/control/projects/:id/git';
+    app.get(`${base}/branches`, admin, async (req, res) => {
+      const id = String(req.params.id);
+      if (!validId(id) || Object.keys(req.query).length) return fail(res, 400, 'Git 查询参数无效');
+      try {
+        res.setHeader('Cache-Control', 'no-store');
+        res.json(await git.branches(id, type));
+      } catch (error) {
+        if (error instanceof GitError || error instanceof ControlError)
+          return fail(res, error.status, error.message);
+        throw error;
+      }
+    });
+    app.post(`${base}/branch`, admin, async (req, res) => {
+      const id = String(req.params.id);
+      const parsed = branchBody.safeParse(req.body);
+      if (!validId(id) || !parsed.success || Object.keys(req.query).length)
+        return fail(res, 400, '分支切换参数无效');
+      try {
+        const identity = req.identity!;
+        await authorize(identity);
+        const result = await git.switchBranch(id, parsed.data.branch, () => authorize(identity), type);
+        auth.log('git.switch', identity.user.username, req.ip || '');
+        res.setHeader('Cache-Control', 'no-store');
+        res.json(result);
+      } catch (error) {
+        if (error instanceof GitError || error instanceof ControlError)
+          return fail(res, error.status, error.message);
+        throw error;
+      }
+    });
+  }
   for (const diff of [false, true]) {
     app.get(`/api/sessions/:id/git${diff ? '/diff' : ''}`, admin, async (req, res) => {
       const id = String(req.params.id);

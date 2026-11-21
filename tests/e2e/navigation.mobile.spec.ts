@@ -1,4 +1,6 @@
-import { writeFile } from 'node:fs/promises';
+import { execFileSync } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
+import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { expect, localTitle, test } from './monitor.js';
 
@@ -31,6 +33,48 @@ test('a touch viewport can open a session and return to the list without horizon
   await expect(session.detail).toBeHidden();
   await expect(workspace.sessionListHeading).toBeVisible();
   await expect(workspace.sessionRow(localTitle)).toBeVisible();
+});
+
+test('a new session shows and switches the selected project branch on mobile', async ({
+  signedIn: { browserPage, newSession, session },
+  local,
+}) => {
+  const project = { id: randomUUID(), name: '分支测试', path: path.join(local.data.root, 'branch-project') };
+  await mkdir(project.path);
+  const git = (...args: string[]) => execFileSync('git', args, { cwd: project.path, encoding: 'utf8' }).trim();
+  git('init', '-b', 'main');
+  git('-c', 'user.name=Monitor Test', '-c', 'user.email=monitor@example.test', '-c',
+    'commit.gpgsign=false', 'commit', '--allow-empty', '-m', 'Initial commit');
+  git('branch', 'feature/mobile');
+  const projects = await local.control.projects();
+  local.control.projects = async () => [...projects, project];
+
+  await newSession.open();
+  const branch = browserPage.getByRole('button', { name: /^当前分支：/ });
+  await expect(branch).toHaveText('分支不可用');
+  await newSession.project(project.name).check();
+  await expect(branch).toHaveText('main');
+  await expect(branch).toBeInViewport();
+  const branchBox = (await branch.boundingBox())!;
+  const permissionsBox = (await newSession.permissions.boundingBox())!;
+  const draftBox = (await newSession.draft.boundingBox())!;
+  expect(branchBox.y).toBeGreaterThan(permissionsBox.y + permissionsBox.height);
+  expect(branchBox.y + branchBox.height).toBeLessThan(draftBox.y);
+
+  await branch.tap();
+  const dialog = browserPage.getByRole('dialog', { name: '切换 Git 分支' });
+  await dialog.getByLabel('目标分支').selectOption('feature/mobile');
+  await dialog.getByRole('button', { name: '切换分支', exact: true }).tap();
+  await expect(dialog).toBeHidden();
+  await expect(branch).toHaveText('feature/mobile');
+  expect(git('branch', '--show-current')).toBe('feature/mobile');
+
+  const prompt = '在所选分支开始会话';
+  await newSession.createAndSend(prompt);
+  await expect(session.message(prompt)).toBeVisible();
+  await expect(branch).toHaveCount(0);
+  await session.detail.getByRole('button', { name: '更多会话操作' }).tap();
+  await expect(session.detail.getByRole('button', { name: '选择 Git 分支' })).toHaveCount(0);
 });
 
 test('a linked Markdown report has a full-screen file preview on a phone', async ({

@@ -15,7 +15,6 @@ import { Timeline } from './Timeline';
 import { useSessionActions } from './useSessionActions';
 import { DetailProps, useTimeline } from './useTimeline';
 import { ComputerUseTimeline } from './ComputerUseTimeline';
-import { ProjectBranchDialog } from '../git/GitBranchSelector';
 import type { AttentionRequest, AttentionSession } from '../../attention-types';
 import { TurnResult } from './TurnResult';
 import { useScreenWakeLock } from './useScreenWakeLock';
@@ -55,13 +54,11 @@ export function Detail(
   const [computerUseSession, setComputerUseSession] = useState('');
   const [terminalSession, setTerminalSession] = useState('');
   const [gitSession, setGitSession] = useState('');
-  const [branchSession, setBranchSession] = useState('');
   const [filePreview, setFilePreview] = useState<{ sessionId: string; itemId: string; link: SessionFileLink }>();
   const [savingWatch, setSavingWatch] = useState(false);
   useEffect(() => setComputerUseSession(''), [session?.id]);
   useEffect(() => setTerminalSession(''), [session?.id]);
   useEffect(() => setGitSession(''), [session?.id]);
-  useEffect(() => setBranchSession(''), [session?.id]);
   useEffect(() => setFilePreview(undefined), [session?.id]);
   const openFile = useCallback((itemId: string, link: SessionFileLink) => {
     if (session?.id) setFilePreview({ sessionId: session.id, itemId, link });
@@ -90,7 +87,6 @@ export function Detail(
         onComputerUse={() => setComputerUseSession(session?.id ?? '')}
         onTerminal={user.role === 'admin' ? () => setTerminalSession(session?.id ?? '') : undefined}
         onGitDiff={user.role === 'admin' ? () => setGitSession(session?.id ?? '') : undefined}
-        onBranches={user.role === 'admin' ? () => setBranchSession(session?.id ?? '') : undefined}
         taskWatch={session && props.taskWatch && {
           watched: props.taskWatch.watched,
           busy: savingWatch,
@@ -103,9 +99,6 @@ export function Detail(
           },
         }}
       />
-      {session && branchSession === session.id && (
-        <ProjectBranchDialog session={session} workspaceName={props.workspaceName} activeSessions={props.activeSessions} onClose={() => setBranchSession('')} />
-      )}
       {session && gitSession === session.id && (
         <Suspense fallback={null}>
           <GitDiff
@@ -170,7 +163,7 @@ export function Detail(
         <div className={cx('timeline-column', user.role === 'admin' && 'with-composer')}>
           {newSession ? (
             user.role === 'admin' ? (
-              <NewSessionComposer user={user} {...newSession} />
+              <NewSessionComposer user={user} {...newSession} activeSessions={props.activeSessions} />
             ) : (
               <div className="timeline-scroll new-session-projects" role="status">新建会话需要管理员权限。</div>
             )

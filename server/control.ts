@@ -129,6 +129,8 @@ export function installControl(
     return latest.sessions[0].id;
   };
   const messages = new MessageQueue(db, source, bridge, context, inLane, authorization?.user);
+  const projectPath = async (id: string) =>
+    (await bridge.projects(await context())).find((project) => project.id === id)?.path;
   installProjectFileRoutes(
     app,
     new ProjectFiles({
@@ -136,8 +138,7 @@ export function installControl(
         await source.refresh(true);
         return (await source.get(id))?.cwd;
       },
-      project: async (id) =>
-        (await bridge.projects(await context())).find((project) => project.id === id)?.path,
+      project: projectPath,
     }),
   );
   app.get('/api/control', admin, async (_req, res) => {
@@ -761,9 +762,10 @@ export function installControl(
       return asGoal ? saveCreationGoal(bridge, receipt, () => authorize(req)) : receipt;
     });
   });
-  return () => {
+  const close = () => {
     closed = true;
     messages.close();
     bridge.close?.();
   };
+  return { close, projectPath };
 }

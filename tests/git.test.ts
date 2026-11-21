@@ -36,6 +36,7 @@ function projectFixture(commit = true) {
   command('config', 'user.name', 'Git review test');
   command('config', 'user.email', 'review@example.invalid');
   command('config', 'commit.gpgsign', 'false');
+  command('config', 'core.autocrlf', 'false');
   const write = (file: string, text: string | Buffer) => writeFileSync(path.join(repo, file), text);
   if (commit) {
     write('src/app.ts', 'export const value = 1;\n');
@@ -382,7 +383,7 @@ test('branch switching preserves staged and untracked changes and refuses overwr
       .prepare('UPDATE threads SET cwd=? WHERE id=?')
       .run(path.join(f.repo, 'src'), ids.modern);
     const branches = await f.git.branches(ids.modern);
-    assert.equal(branches.root, realpathSync(f.repo));
+    assert.equal(path.normalize(branches.root), realpathSync(f.repo));
     assert.equal(branches.branch, 'review-test');
     assert.equal(branches.detached, false);
     assert.deepEqual(
@@ -440,7 +441,8 @@ test('branch discovery handles unborn and detached HEAD and branches occupied by
     const linked = (await f.git.branches(ids.modern)).branches.find(
       (branch) => branch.name === 'linked',
     );
-    assert.equal(linked?.worktree, realpathSync(worktree));
+    assert.ok(linked?.worktree);
+    assert.equal(path.normalize(linked.worktree), realpathSync(worktree));
     await assert.rejects(() => f.git.switchBranch(ids.modern, 'linked', authorize), {
       status: 409,
     });

@@ -1,16 +1,54 @@
-import { GitBranch, LoaderCircle, RefreshCw, X } from 'lucide-react';
+import { ChevronDown, GitBranch, LoaderCircle, RefreshCw, X } from 'lucide-react';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import type { Session } from '../../types';
 import type { AttentionSession } from '../../attention-types';
 import { useGitBranches } from './useGitBranches';
 
-export function ProjectBranchDialog({ session, workspaceName, activeSessions, onClose }: {
-  session: Session;
+type ProjectBranchLocation = {
+  projectPath: string;
   workspaceName?: string;
   activeSessions?: AttentionSession[];
+};
+
+export function GitBranchSelector({
+  projectId,
+  ...location
+}: ProjectBranchLocation & { projectId: string }) {
+  const model = useGitBranches(projectId);
+  const [open, setOpen] = useState(false);
+  const { data, loading } = model;
+  const branch = data
+    ? data.detached ? `分离 HEAD · ${data.branch}` : data.branch
+    : loading ? '正在读取…' : '分支不可用';
+  return (
+    <div className="new-session-branch">
+      <span>当前分支</span>
+      <button
+        type="button"
+        className="new-session-branch-trigger"
+        aria-label={`当前分支：${branch}`}
+        aria-haspopup="dialog"
+        title={model.error || branch}
+        onClick={() => setOpen(true)}
+      >
+        <GitBranch size={15} aria-hidden />
+        <span>{branch}</span>
+        <ChevronDown size={15} aria-hidden />
+      </button>
+      {open && <ProjectBranchDialog {...location} model={model} onClose={() => setOpen(false)} />}
+    </div>
+  );
+}
+
+function ProjectBranchDialog({
+  projectPath,
+  workspaceName,
+  activeSessions,
+  model,
+  onClose,
+}: ProjectBranchLocation & {
+  model: ReturnType<typeof useGitBranches>;
   onClose: () => void;
 }) {
-  const model = useGitBranches(session.id);
   const dialog = useRef<HTMLDialogElement>(null);
   const opener = useRef(
     document.activeElement instanceof HTMLElement ? document.activeElement : null,
@@ -50,7 +88,7 @@ export function ProjectBranchDialog({ session, workspaceName, activeSessions, on
         <GitBranch size={20} />
         <div>
           <h2 id="git-branch-heading">切换 Git 分支</h2>
-          <p title={data?.root || session.cwd}>{workspaceName && `${workspaceName} · `}{data?.root || session.cwd}</p>
+          <p title={data?.root || projectPath}>{workspaceName && `${workspaceName} · `}{data?.root || projectPath}</p>
         </div>
         <button
           className="icon-button"

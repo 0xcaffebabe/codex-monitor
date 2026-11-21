@@ -8,6 +8,7 @@ import type { CodexSource } from './source.js';
 const LIST_LIMIT = 2 * 1024 * 1024;
 const PATCH_LIMIT = 512 * 1024;
 const FILE_LIMIT = 1000;
+type GitTarget = 'session' | 'project';
 
 export class GitError extends Error {
   constructor(
@@ -49,13 +50,16 @@ export const validGitPath = (file: string) =>
 export const validGitBranch = (branch: string) =>
   !!branch && branch.length <= 1024 && !branch.startsWith('-') && !/[\x00-\x20\x7f]/.test(branch);
 
-/** Git commands are always rooted in a known session on this workspace client. */
+/** Git commands are always rooted in a known session or project on this workspace client. */
 export class ProjectGit {
   private children = new Set<ChildProcess>();
   private switching = new Set<string>();
   private pending = 0;
   private closed = false;
-  constructor(private source: Pick<CodexSource, 'get' | 'refresh'>) {}
+  constructor(
+    private source: Pick<CodexSource, 'get' | 'refresh'>,
+    private projectPath?: (id: string) => Promise<string | undefined>,
+  ) {}
 
   private run(cwd: string, args: string[], patch = false, allowed = [0], failureMessage?: string) {
     if (this.closed) throw new GitError('工作空间正在关闭', 503);
@@ -124,21 +128,27 @@ export class ProjectGit {
     });
   }
 
-  private async repository(id: string) {
-    await this.source.refresh(true);
-    const session = await this.source.get(id);
-    if (!session) throw new GitError('找不到此会话', 404);
-    if (!session.cwd || !path.isAbsolute(session.cwd))
-      throw new GitError('此会话没有可用的项目目录。');
+  private async repository(id: string, type: GitTarget) {
+    let directory: string | undefined;
+    if (type === 'project') {
+      directory = await this.projectPath?.(id);
+      if (!directory) throw new GitError('找不到此项目', 404);
+    } else {
+      await this.source.refresh(true);
+      const session = await this.source.get(id);
+      if (!session) throw new GitError('找不到此会话', 404);
+      directory = session.cwd;
+    }
+    if (!directory || !path.isAbsolute(directory)) throw new GitError('项目目录不可用。');
     let cwd: string;
     try {
-      cwd = await realpath(session.cwd);
+      cwd = await realpath(directory);
       if (!(await stat(cwd)).isDirectory()) throw new Error();
     } catch {
       throw new GitError('项目目录不存在或无法访问，请检查工作空间中的目录。');
     }
     const location = await this.run(cwd, ['rev-parse', '--show-toplevel'], false, [0, 128]);
-    if (location.code !== 0) throw new GitError('此会话的项目目录不是可读取的 Git 仓库。');
+    if (location.code !== 0) throw new GitError('项目目录不是可读取的 Git 仓库。');
     const root = location.text.replace(/\r?\n$/, '');
     return this.head(root);
   }
@@ -274,11 +284,12 @@ export class ProjectGit {
   private async request<T>(
     id: string,
     action: (repo: Awaited<ReturnType<ProjectGit['repository']>>) => Promise<T>,
+    type: GitTarget = 'session',
   ) {
     if (this.pending >= 4) throw new GitError('Git 请求过多，请稍后重试。', 429);
     this.pending++;
     try {
-      return await action(await this.repository(id));
+      return await action(await this.repository(id, type));
     } finally {
       this.pending--;
     }
@@ -288,11 +299,11 @@ export class ProjectGit {
     return this.request(id, (repo) => this.list(repo, scope));
   }
 
-  branches(id: string) {
-    return this.request(id, (repo) => this.listBranches(repo));
+  branches(id: string, type: GitTarget = 'session') {
+    return this.request(id, (repo) => this.listBranches(repo), type);
   }
 
-  switchBranch(id: string, branch: string, authorize: () => Promise<void>) {
+  switchBranch(id: string, branch: string, authorize: () => Promise<void>, type: GitTarget = 'session') {
     if (!validGitBranch(branch)) throw new GitError('分支名称无效', 400);
     return this.request(id, async (repo) => {
       if (this.switching.has(repo.root)) throw new GitError('正在切换此项目的分支，请稍后刷新。');
@@ -315,7 +326,7 @@ export class ProjectGit {
       } finally {
         this.switching.delete(repo.root);
       }
-    });
+    }, type);
   }
 
   diff(id: string, scope: GitScope, filePath: string) {

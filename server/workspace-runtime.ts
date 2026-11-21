@@ -46,9 +46,7 @@ export function installWorkspaceRuntime(
   installUploads(app, uploads, previews);
   const terminals = new ProjectTerminals(auth, source, services.authorization);
   installTerminalRoutes(app, terminals);
-  const git = new ProjectGit(source);
-  installGitRoutes(app, git, auth, services.authorization);
-  const closeControl = installControl(
+  const control = installControl(
     app,
     auth.db,
     source,
@@ -63,6 +61,8 @@ export function installWorkspaceRuntime(
     uploads,
     services.authorization,
   );
+  const git = new ProjectGit(source, control.projectPath);
+  installGitRoutes(app, git, auth, services.authorization);
   const recentCreation = auth.db.prepare(`SELECT 1 FROM control_requests WHERE state='succeeded'
     AND json_extract(result_json,'$.mode')='create' AND json_extract(result_json,'$.threadId')=?
     AND json_extract(result_json,'$.acceptedAt')>? LIMIT 1`);
@@ -83,7 +83,7 @@ export function installWorkspaceRuntime(
   let closing: Promise<void> | undefined;
   const close = () => {
     if (closing) return closing;
-    closeControl();
+    control.close();
     closeRealtime();
     terminals.close();
     git.close();

@@ -6,10 +6,13 @@ import { NewSessionPicker } from './NewSessionPicker';
 import { ModelSettings } from './ModelSettings';
 import { writeNewSessionPreference } from './new-session-preferences';
 import type { SessionPermissionMode } from '../../approval-types';
+import type { AttentionSession } from '../../attention-types';
+import { GitBranchSelector } from '../git/GitBranchSelector';
 
-export function NewSessionComposer(props: NewSessionProps) {
+export function NewSessionComposer(props: NewSessionProps & { activeSessions?: AttentionSession[] }) {
   const { user, workspaceId, workspaces, onWorkspaceChange, onCreated } = props;
-  const online = !!workspaces.find((workspace) => workspace.id === workspaceId)?.online;
+  const workspace = workspaces.find((item) => item.id === workspaceId);
+  const online = !!workspace?.online;
   const permissionHintId = useId();
   const {
     projects,
@@ -23,6 +26,7 @@ export function NewSessionComposer(props: NewSessionProps) {
     permissionMode,
     setPermissionMode,
   } = useNewSession(props);
+  const project = projects.find((item) => item.id === selected);
   const refresh = () => setRefresh((value) => value + 1);
   return (
     <>
@@ -77,6 +81,15 @@ export function NewSessionComposer(props: NewSessionProps) {
           <p className="control-hint" role="status">
             模型列表暂不可用，可使用默认设置创建。{modelSettings.error}
           </p>
+        )}
+        {online && project && (
+          <GitBranchSelector
+            key={project.id}
+            projectId={project.id}
+            projectPath={project.path}
+            workspaceName={workspace.name}
+            activeSessions={props.activeSessions}
+          />
         )}
         <PromptForm
           storageKey={`codex-monitor.draft.${user.id}.new`}
