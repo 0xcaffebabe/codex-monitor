@@ -70,6 +70,7 @@ export function Workspace(
     notify,
     loadList,
     loadOverview,
+    loadOverviews,
     loadDetail,
     loadOutline,
     loadOutlineEntry,
@@ -167,7 +168,7 @@ export function Workspace(
             onClick={() => {
               props.attention.refresh();
               void loadList(false, true);
-              void loadOverview();
+              loadOverviews();
               setUsageRevision((v) => v + 1);
               if (selected) void loadDetail(selected);
             }}

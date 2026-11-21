@@ -28,6 +28,55 @@ export async function sub2ApiFixture() {
     platform: 'openai',
     status: 'active',
   };
+  const usageKeys = [
+    { id: 7, name: 'CI runner', user_id: 1 },
+    { id: 8, name: 'Editor', user_id: 2 },
+    { id: 9, name: 'CI nightly', user_id: 1 },
+  ];
+  const usageRecords = [
+    ...Array.from({ length: 10 }, (_, index) => ({
+      id: 110 - index,
+      created_at: `2026-11-20T14:06:${String(24 - index).padStart(2, '0')}+08:00`,
+      user_id: 1,
+      user: { email: 'dev@example.test', password_hash: upstreamCredential },
+      api_key_id: 7,
+      api_key: { name: 'CI runner', key: upstreamCredential },
+      account_id: 41,
+      account: { name: account.name, credentials: upstreamCredential },
+      group_id: 3,
+      group: { name: 'Development' },
+      model: 'gpt-6.2-sol',
+      upstream_model: 'gpt-6.1-sol',
+      inbound_endpoint: '/v1/responses',
+      upstream_endpoint: '/v1/responses',
+      input_tokens: 12439,
+      output_tokens: 186,
+      cache_read_tokens: 82400,
+      cache_creation_tokens: 512,
+      actual_cost: 0.034981,
+      first_token_ms: 2480,
+      duration_ms: 5770,
+      ip_address: '192.0.2.21',
+      request_type: 'stream',
+      billing_type: 0,
+      billing_mode: 'token',
+      prompt: upstreamCredential,
+    })),
+    {
+      id: 100,
+      created_at: '2026-11-20T14:05:00+08:00',
+      user_id: 2,
+      api_key_id: 8,
+      api_key: { name: 'Editor', key: upstreamCredential },
+      account_id: 0,
+      group_id: null,
+      model: 'gpt-5.6-sol',
+      input_tokens: 0,
+      output_tokens: 0,
+      actual_cost: 0,
+      stream: false,
+    },
+  ];
   const server = createServer(async (req, res) => {
     const url = new URL(req.url!, 'http://127.0.0.1');
     const path = url.pathname.replace('/relay/api/v1/admin', '');
@@ -91,6 +140,49 @@ export async function sub2ApiFixture() {
             { date: '2026-11-20', api_key_id: 8, key_name: 'Editor', requests: 1, tokens: 100 },
           ],
         });
+      case '/usage/search-api-keys': {
+        const keyword = url.searchParams.get('q')?.toLowerCase() ?? '';
+        const userId = url.searchParams.get('user_id');
+        return json(
+          200,
+          usageKeys.filter(
+            (key) =>
+              key.name.toLowerCase().includes(keyword) &&
+              (!userId || String(key.user_id) === userId),
+          ),
+        );
+      }
+      case '/usage': {
+        const start = url.searchParams.get('start_date')!;
+        const end = url.searchParams.get('end_date')!;
+        const page = Number(url.searchParams.get('page'));
+        const pageSize = Number(url.searchParams.get('page_size'));
+        const matched = usageRecords.filter((record) => {
+          const day = record.created_at.slice(0, 10);
+          return (
+            day >= start &&
+            day <= end &&
+            [
+              'api_key_id',
+              'account_id',
+              'group_id',
+              'user_id',
+              'model',
+              'request_type',
+              'billing_mode',
+              'billing_type',
+            ].every((key) => {
+              const filter = url.searchParams.get(key);
+              return filter === null || String(record[key as keyof typeof record]) === filter;
+            })
+          );
+        });
+        return json(200, {
+          items: matched.slice((page - 1) * pageSize, page * pageSize),
+          total: matched.length,
+          page_size: pageSize,
+        });
+      }
       case '/usage/stats': {
         if (behavior.rejectCost) return json(403, { message: upstreamCredential });
         const totals =

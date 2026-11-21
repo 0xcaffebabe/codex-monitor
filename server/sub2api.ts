@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type {
   Sub2ApiAccount,
+  Sub2ApiCallRecord,
   Sub2ApiCredits,
   Sub2ApiKeyUsage,
   Sub2ApiPage,
@@ -102,6 +103,81 @@ const openAiQuota = z.object({
     })
     .nullish(),
 });
+const named = z.object({ name: z.string() });
+const callRecordPage = z.object({
+  items: z.array(
+    z.object({
+      id,
+      created_at: z.string(),
+      user_id: id,
+      user: z.object({ email: z.string() }).nullish(),
+      api_key_id: id,
+      api_key: named.nullish(),
+      account_id: z.number().int().nonnegative().nullish(),
+      account: named.nullish(),
+      group_id: id.nullish(),
+      group: named.nullish(),
+      model: z.string(),
+      upstream_model: z.string().nullish(),
+      inbound_endpoint: z.string().nullish(),
+      upstream_endpoint: z.string().nullish(),
+      request_type: z.string().nullish(),
+      stream: z.boolean().optional(),
+      openai_ws_mode: z.boolean().optional(),
+      billing_mode: z.string().nullish(),
+      billing_type: z.number().int().nullish(),
+      input_tokens: z.number().int().nonnegative(),
+      output_tokens: z.number().int().nonnegative(),
+      cache_read_tokens: z.number().int().nonnegative().nullish(),
+      cache_creation_tokens: z.number().int().nonnegative().nullish(),
+      actual_cost: z.number().nullish(),
+      duration_ms: z.number().nullish(),
+      first_token_ms: z.number().nullish(),
+      ip_address: z.string().nullish(),
+    }),
+  ),
+  total: z.number().int().nonnegative(),
+  page_size: id,
+});
+const keyMatches = z.array(named.extend({ id }));
+
+function requestedKeyId(value: string) {
+  const keyId = Number(value.match(/^#([1-9]\d*)$/)?.[1]);
+  return Number.isSafeInteger(keyId) ? keyId : undefined;
+}
+
+function callRecord(row: z.infer<typeof callRecordPage>['items'][number]): Sub2ApiCallRecord {
+  const legacyRequestType = row.openai_ws_mode
+    ? 'ws_v2'
+    : row.stream === undefined
+      ? null
+      : row.stream
+        ? 'stream'
+        : 'sync';
+  return {
+    id: row.id,
+    createdAt: row.created_at,
+    user: { id: row.user_id, name: row.user?.email || null },
+    apiKey: { id: row.api_key_id, name: row.api_key?.name || null },
+    account: row.account_id ? { id: row.account_id, name: row.account?.name || null } : null,
+    group: row.group_id ? { id: row.group_id, name: row.group?.name || null } : null,
+    model: row.model,
+    upstreamModel: row.upstream_model || null,
+    inboundEndpoint: row.inbound_endpoint || null,
+    upstreamEndpoint: row.upstream_endpoint || null,
+    requestType: row.request_type || legacyRequestType,
+    billingMode: row.billing_mode || null,
+    billingType: row.billing_type ?? null,
+    inputTokens: row.input_tokens,
+    outputTokens: row.output_tokens,
+    cacheReadTokens: row.cache_read_tokens ?? 0,
+    cacheCreationTokens: row.cache_creation_tokens ?? 0,
+    actualCost: row.actual_cost ?? null,
+    durationMs: row.duration_ms ?? null,
+    firstTokenMs: row.first_token_ms ?? null,
+    ipAddress: row.ip_address || null,
+  };
+}
 
 export class Sub2ApiError extends Error {
   constructor(
@@ -323,16 +399,16 @@ export class Sub2ApiClient {
     search,
   }: DateRange & { page: number; search: string }): Promise<Sub2ApiPage<Sub2ApiKeyUsage>> {
     const range = { start_date: startDate, end_date: endDate, timezone };
-    const requestedId = search.match(/^#([1-9]\d*)$/)?.[1];
-    if (requestedId && Number.isSafeInteger(Number(requestedId))) {
+    const requestedId = requestedKeyId(search);
+    if (requestedId) {
       const stats = await this.request('/usage/stats', keyStats, {
         ...range,
-        api_key_id: requestedId,
+        api_key_id: String(requestedId),
       });
       return {
         items: [
           {
-            id: Number(requestedId),
+            id: requestedId,
             name: '',
             requests: stats.total_requests,
             tokens: stats.total_tokens,
@@ -394,6 +470,80 @@ export class Sub2ApiClient {
       total: matching.length,
       pageSize,
       warning: [...warnings].join(' ') || undefined,
+    };
+  }
+
+  async callRecords({
+    page,
+    startDate,
+    endDate,
+    timezone,
+    apiKey,
+    model,
+    userId,
+    accountId,
+    groupId,
+    requestType,
+    billingType,
+    billingMode,
+  }: DateRange & {
+    page: number;
+    apiKey?: string;
+    model?: string;
+    userId?: number;
+    accountId?: number;
+    groupId?: number;
+    requestType?: string;
+    billingType?: string;
+    billingMode?: string;
+  }): Promise<Sub2ApiPage<Sub2ApiCallRecord>> {
+    let apiKeyId = apiKey ? requestedKeyId(apiKey) : undefined;
+    if (apiKey && !apiKeyId) {
+      const matches = await this.request('/usage/search-api-keys', keyMatches, {
+        q: apiKey,
+        ...(userId ? { user_id: String(userId) } : {}),
+      });
+      const exact = matches.filter(({ name }) => name.toLowerCase() === apiKey.toLowerCase());
+      const candidates = exact.length ? exact : matches;
+      if (candidates.length !== 1) {
+        return {
+          items: [],
+          total: 0,
+          pageSize,
+          warning: candidates.length
+            ? '匹配到多个 API Key，请填写完整名称或 #ID'
+            : '未找到匹配的 API Key',
+        };
+      }
+      apiKeyId = candidates[0].id;
+    }
+
+    const params: Record<string, string> = {
+      page: String(page),
+      page_size: String(pageSize),
+      start_date: startDate,
+      end_date: endDate,
+      timezone,
+      sort_by: 'created_at',
+      sort_order: 'desc',
+    };
+    for (const [key, value] of Object.entries({
+      api_key_id: apiKeyId,
+      user_id: userId,
+      account_id: accountId,
+      group_id: groupId,
+      model,
+      request_type: requestType,
+      billing_type: billingType,
+      billing_mode: billingMode,
+    })) {
+      if (value !== undefined) params[key] = String(value);
+    }
+    const records = await this.request('/usage', callRecordPage, params);
+    return {
+      items: records.items.map(callRecord),
+      total: records.total,
+      pageSize: records.page_size,
     };
   }
 }

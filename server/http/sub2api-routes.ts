@@ -21,17 +21,38 @@ const pagination = z.object({
 const accounts = pagination
   .extend({ type: z.enum(['oauth', 'setup-token']).default('oauth') })
   .strict();
-const keys = pagination
+const usageDates = {
+  startDate: z.iso.date(),
+  endDate: z.iso.date(),
+  timezone: z.string().regex(/^[A-Za-z0-9_+/-]{1,64}$/),
+};
+
+function validUsageDates({ startDate, endDate }: { startDate: string; endDate: string }) {
+  const days = (Date.parse(endDate) - Date.parse(startDate)) / 86400000;
+  return days >= 0 && days < 31;
+}
+
+const filterId = z
+  .string()
+  .regex(/^[1-9]\d*$/)
+  .pipe(z.coerce.number<string>().int().positive())
+  .optional();
+const keys = pagination.extend(usageDates).strict().refine(validUsageDates);
+const calls = pagination
+  .pick({ page: true })
   .extend({
-    startDate: z.iso.date(),
-    endDate: z.iso.date(),
-    timezone: z.string().regex(/^[A-Za-z0-9_+/-]{1,64}$/),
+    ...usageDates,
+    apiKey: z.string().trim().min(1).max(100).optional(),
+    model: z.string().trim().min(1).max(100).optional(),
+    userId: filterId,
+    accountId: filterId,
+    groupId: filterId,
+    requestType: z.enum(['sync', 'stream', 'ws_v2', 'live', 'cyber']).optional(),
+    billingMode: z.enum(['token', 'per_request', 'image', 'video']).optional(),
+    billingType: z.enum(['0', '1']).optional(),
   })
   .strict()
-  .refine(({ startDate, endDate }) => {
-    const days = (Date.parse(endDate) - Date.parse(startDate)) / 86400000;
-    return days >= 0 && days < 31;
-  });
+  .refine(validUsageDates);
 
 export function installSub2ApiRoutes(app: Express, auth: WorkspaceAuth) {
   const db = auth.db;
@@ -112,5 +133,10 @@ export function installSub2ApiRoutes(app: Express, auth: WorkspaceAuth) {
     '/api/sub2api/keys',
     admin,
     query(keys, (client, input) => client.keys(input)),
+  );
+  app.get(
+    '/api/sub2api/calls',
+    admin,
+    query(calls, (client, input) => client.callRecords(input)),
   );
 }

@@ -120,7 +120,8 @@ export class FixtureDesktop implements DesktopControl {
     prompt: string,
     settings: SessionCreationSettings = {},
   ) {
-    if (selectedProject !== projectId) throw new Error('Invalid fixture project');
+    const project = (await this.projects()).find(({ id }) => id === selectedProject);
+    if (!project) throw new Error('Invalid fixture project');
     this.creates++;
     this.lastCreation = { ...settings };
     const id = randomUUID(),
@@ -128,14 +129,14 @@ export class FixtureDesktop implements DesktopControl {
       now = Date.now();
     writeFileSync(
       file,
-      JSON.stringify({ type: 'session_meta', payload: { id, cwd: this.projectPath } }) + '\n',
+      JSON.stringify({ type: 'session_meta', payload: { id, cwd: project.path } }) + '\n',
     );
     this.f.state
       .prepare('INSERT INTO threads VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
       .run(
         id,
         prompt.slice(0, 70),
-        this.projectPath,
+        project.path,
         file,
         Math.floor(now / 1000),
         Math.floor(now / 1000),

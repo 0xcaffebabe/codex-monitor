@@ -29,6 +29,40 @@ export function toolTextOf(value: unknown, limit = 2000): string {
     tail = limit - head;
   return `${text.slice(0, head)}\n\n…（中间已省略 ${text.length - limit} 个字符）…\n\n${text.slice(-tail)}`;
 }
+type FileChange = {
+  path?: string;
+  kind?: { type?: string; move_path?: string | null };
+  type?: string;
+  move_path?: string | null;
+  diff?: string;
+  unified_diff?: string;
+  content?: string;
+};
+const fileChangeLabels = new Map([
+  ['add', '新增'],
+  ['delete', '删除'],
+  ['update', '修改'],
+]);
+function fileChangeText(changes: unknown): string | undefined {
+  if (!changes || typeof changes !== 'object') return;
+  // SQLite uses an array of changes. JSONL records key changes by file path.
+  const entries = Array.isArray(changes)
+    ? (changes as FileChange[]).map((change) => [change?.path, change] as const)
+    : Object.entries(changes as Record<string, FileChange>);
+  const details: string[] = [];
+  for (const [filePath, change] of entries) {
+    if (typeof filePath !== 'string' || !filePath || !change || typeof change !== 'object') continue;
+    const kind = change.kind?.type ?? change.type ?? '';
+    const destination = change.kind?.move_path ?? change.move_path;
+    const heading =
+      typeof destination === 'string' && destination
+        ? `移动 ${filePath} → ${destination}`
+        : `${fileChangeLabels.get(kind) ?? '改动'} ${filePath}`;
+    const diff = change.diff ?? change.unified_diff ?? change.content;
+    details.push(typeof diff === 'string' && diff ? `${heading}\n${diff}` : heading);
+  }
+  return details.join('\n\n') || undefined;
+}
 function toolTitleOf(value: unknown): string | undefined {
   if (typeof value === 'string') {
     try {
@@ -108,18 +142,19 @@ export function normalizeItem(
           : type === 'imageview'
             ? '查看图片'
             : (item.tool ?? item.tool_name ?? item.name ?? item.kind ?? item.type ?? '工具调用');
+  const changes = type === 'filechange' ? fileChangeText(item.changes) : item.changes;
   const args =
     item.command ??
     item.arguments ??
     item.input ??
     item.query ??
-    item.changes ??
+    changes ??
     item.path ??
     item.prompt ??
     item.action ??
     item.params ??
     item.code ??
-    '（无参数）';
+    (type === 'filechange' ? '（未记录文件改动详情）' : '（无参数）');
   const exit = item.exitCode ?? item.exit_code;
   const status =
     typeof exit === 'number' && exit !== 0 ? 'failed' : String(item.status ?? 'completed');

@@ -55,6 +55,9 @@
   .navigation-collapsed .sidebar .nav-label,
   .navigation-collapsed .nav-item > span,
   .navigation-collapsed .sidebar-bottom > .nav-item > svg:last-child,
+  .navigation-collapsed .project-workspace-scope,
+  .navigation-collapsed .project-group-heading,
+  .navigation-collapsed .project-list-status,
   .navigation-collapsed .project-nav > span:nth-child(2),
   .navigation-collapsed .project-nav > small,
   .navigation-collapsed .account-row > span {

@@ -1,4 +1,4 @@
-import { MessageSquare, Shield, TriangleAlert } from 'lucide-react';
+import { Shield, TriangleAlert } from 'lucide-react';
 import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
 import type { SessionFileLink } from '../../file-preview-types';
 import { cx } from '../../shared/format';
@@ -169,11 +169,11 @@ export function Detail(
       <div className="detail-layout">
         <div className={cx('timeline-column', user.role === 'admin' && 'with-composer')}>
           {newSession ? (
-            <div className="timeline-scroll new-session-empty">
-              <MessageSquare size={32} strokeWidth={1.3} aria-hidden="true" />
-              <h2>开始一个新会话</h2>
-              <p>选择工作空间和项目，输入消息或设定目标。</p>
-            </div>
+            user.role === 'admin' ? (
+              <NewSessionComposer user={user} {...newSession} />
+            ) : (
+              <div className="timeline-scroll new-session-projects" role="status">新建会话需要管理员权限。</div>
+            )
           ) : (
             <Timeline
               page={page}
@@ -196,9 +196,7 @@ export function Detail(
               )}
             </Timeline>
           )}
-          {newSession && user.role === 'admin' ? (
-            <NewSessionComposer user={user} {...newSession} />
-          ) : session ? (
+          {!newSession && session && (
             <MessageComposer
               key={session.id}
               user={user}
@@ -210,7 +208,7 @@ export function Detail(
                 onMessageSent();
               }}
             />
-          ) : null}
+          )}
         </div>
       </div>
       <footer className="detail-footer">

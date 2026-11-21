@@ -52,10 +52,18 @@ test('Sub2API uses saved server credentials and exposes only admin usage fields'
   const range = 'startDate=2026-11-18&endDate=2026-11-20&timezone=Asia%2FHong_Kong';
 
   assert.equal((await request('settings', { headers: {} })).status, 401);
-  for (const route of ['settings', 'accounts', 'account-credits?accountId=41', `keys?${range}`]) {
+  assert.equal((await request(`calls?${range}`, { headers: {} })).status, 401);
+  for (const route of [
+    'settings',
+    'accounts',
+    'account-credits?accountId=41',
+    `keys?${range}`,
+    `calls?${range}`,
+  ]) {
     assert.equal((await request(route, { headers: viewerHeaders })).status, 403);
   }
   assert.equal((await request('accounts')).status, 409);
+  assert.equal((await request(`calls?${range}`)).status, 409);
   assert.equal((await save('file:///etc/passwd', sub2ApiAdminKey)).status, 400);
   const config = await save(`${upstream.baseUrl}/api/v1/`, sub2ApiAdminKey);
   assert.equal(config.status, 200);
@@ -67,6 +75,13 @@ test('Sub2API uses saved server credentials and exposes only admin usage fields'
   assert.equal((await save(upstream.baseUrl)).status, 200);
   assert.equal((await save(`${upstream.baseUrl}/different`)).status, 400);
   assert.equal((await request('accounts?type=apikey')).status, 400);
+  assert.equal((await request(`calls?${range}&apiKey=CI&userId=0`)).status, 400);
+  assert.equal((await request(`calls?${range}&requestType=unsupported`)).status, 400);
+  assert.equal(
+    (await request('calls?startDate=2026-11-20&endDate=2026-11-19&timezone=Asia%2FHong_Kong'))
+      .status,
+    400,
+  );
   assert.equal(upstream.calls.length, 0);
 
   const accounts = await request('accounts');
@@ -137,6 +152,72 @@ test('Sub2API uses saved server credentials and exposes only admin usage fields'
   assert.equal(partial.items[0].tokens, 1000);
   assert.equal(partial.items[0].actualCost, null);
   assert.match(partial.warning, /读取权限/);
+
+  const records = await request(
+    `calls?${range}&apiKey=CI%20runner&model=gpt-6.2-sol&userId=1&accountId=41&groupId=3&requestType=stream&billingMode=token&billingType=0`,
+  );
+  assert.equal(records.status, 200);
+  const recordsJson = await records.text();
+  assert.ok(!recordsJson.includes(upstreamCredential));
+  const { items: callItems, total } = JSON.parse(recordsJson);
+  assert.equal(total, 10);
+  assert.deepEqual(callItems[0], {
+    id: 110,
+    createdAt: '2026-11-20T14:06:24+08:00',
+    user: { id: 1, name: 'dev@example.test' },
+    apiKey: { id: 7, name: 'CI runner' },
+    account: { id: 41, name: 'Codex Plus' },
+    group: { id: 3, name: 'Development' },
+    model: 'gpt-6.2-sol',
+    upstreamModel: 'gpt-6.1-sol',
+    inboundEndpoint: '/v1/responses',
+    upstreamEndpoint: '/v1/responses',
+    requestType: 'stream',
+    billingMode: 'token',
+    billingType: 0,
+    inputTokens: 12439,
+    outputTokens: 186,
+    cacheReadTokens: 82400,
+    cacheCreationTokens: 512,
+    actualCost: 0.034981,
+    durationMs: 5770,
+    firstTokenMs: 2480,
+    ipAddress: '192.0.2.21',
+  });
+  const [lookup, list] = upstream.calls.slice(-2);
+  assert.equal(lookup.path, '/usage/search-api-keys');
+  assert.equal(lookup.query.get('q'), 'CI runner');
+  assert.deepEqual(Object.fromEntries(list.query), {
+    page: '1',
+    page_size: '10',
+    start_date: '2026-11-18',
+    end_date: '2026-11-20',
+    timezone: 'Asia/Hong_Kong',
+    sort_by: 'created_at',
+    sort_order: 'desc',
+    api_key_id: '7',
+    user_id: '1',
+    account_id: '41',
+    group_id: '3',
+    model: 'gpt-6.2-sol',
+    request_type: 'stream',
+    billing_mode: 'token',
+    billing_type: '0',
+  });
+  const page2 = await (await request(`calls?${range}&page=2`)).json();
+  assert.equal(upstream.calls.at(-1)?.query.get('page'), '2');
+  assert.equal(page2.total, 11);
+  assert.equal(page2.items.length, 1);
+  assert.equal(page2.items[0].account, null);
+  assert.equal(page2.items[0].requestType, 'sync');
+  assert.equal(page2.items[0].actualCost, 0);
+  const beforeId = upstream.calls.length;
+  const byId = await (await request(`calls?${range}&apiKey=%238`)).json();
+  assert.equal(byId.items[0].apiKey.name, 'Editor');
+  assert.equal(upstream.calls.length, beforeId + 1);
+  const ambiguous = await (await request(`calls?${range}&apiKey=CI`)).json();
+  assert.match(ambiguous.warning, /多个 API Key/);
+  assert.equal(upstream.calls.at(-1)?.path, '/usage/search-api-keys');
 
   upstream.behavior.redirect = true;
   assert.equal((await request('accounts')).status, 502);

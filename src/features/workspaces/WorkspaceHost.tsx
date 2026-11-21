@@ -21,7 +21,15 @@ export function WorkspaceHost(props: WorkspaceProps) {
         <select
           aria-label="切换工作空间"
           value={model.activeId}
-          onChange={(event) => model.select(event.target.value, undefined, new URLSearchParams(location.search))}
+          onChange={(event) => {
+            const id = event.target.value;
+            const params = new URLSearchParams(location.search);
+            if (params.has('project')) {
+              params.delete('project');
+              params.set('scope', id);
+            }
+            model.select(id, undefined, params);
+          }}
         >
           {!model.active && <option value={model.activeId}>选择工作空间</option>}
           {model.workspaces.map((workspace) => (

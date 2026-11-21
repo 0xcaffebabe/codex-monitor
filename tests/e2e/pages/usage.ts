@@ -7,6 +7,8 @@ export class UsagePage {
   readonly relayAdminKey;
   readonly subscriptions;
   readonly apiKeys;
+  readonly callRecords;
+  readonly callFilters;
 
   constructor(private readonly page: Page) {
     this.sub2api = page.getByRole('region', { name: 'Sub2API 用量', exact: true });
@@ -15,6 +17,8 @@ export class UsagePage {
     this.relayAdminKey = this.settings.getByLabel('管理员 Key', { exact: true });
     this.subscriptions = this.sub2api.getByRole('table', { name: '订阅账号用量', exact: true });
     this.apiKeys = this.sub2api.getByRole('table', { name: 'API Key 用量', exact: true });
+    this.callRecords = this.sub2api.getByRole('table', { name: 'Sub2API 调用记录', exact: true });
+    this.callFilters = this.sub2api.getByRole('form', { name: '筛选 Sub2API 调用记录' });
   }
 
   async open() {
@@ -46,6 +50,14 @@ export class UsagePage {
 
   async showApiKeys() {
     await this.sub2api.getByRole('button', { name: 'API Key', exact: true }).click();
+  }
+
+  async showCallRecords() {
+    await this.sub2api.getByRole('button', { name: '调用记录', exact: true }).click();
+  }
+
+  async queryCallRecords() {
+    await this.callFilters.getByRole('button', { name: '查询记录', exact: true }).click();
   }
 
   apiKey(name: string) {

@@ -62,3 +62,70 @@ test('configure Sub2API and query subscription accounts and API keys', async ({
     await upstream.close();
   }
 });
+
+test('query Sub2API call records by date, API Key and model', async ({
+  signedIn: { usage },
+  page,
+}) => {
+  const upstream = await sub2ApiFixture();
+  try {
+    await usage.open();
+    await usage.configureSub2Api(upstream.baseUrl, sub2ApiAdminKey);
+    await usage.closeSettings();
+
+    await usage.showCallRecords();
+    await expect.poll(() => upstream.calls.some(({ path }) => path === '/usage')).toBe(true);
+    const startDate = usage.callFilters.getByLabel('开始日期');
+    const endDate = usage.callFilters.getByLabel('结束日期');
+    const today = await startDate.inputValue();
+    await startDate.fill('2026-11-20');
+    await endDate.fill('2026-11-19');
+    await usage.queryCallRecords();
+    await expect(usage.callFilters.getByRole('alert')).toContainText('结束日期不能早于开始日期');
+    await endDate.fill('2026-11-20');
+    await usage.queryCallRecords();
+
+    const first = usage.callRecords.getByRole('row').nth(1);
+    await expect(first).toContainText('CI runner #7');
+    await expect(first).toContainText('gpt-6.1-sol');
+    await expect(first).toContainText('缓存读取 82,400');
+    await expect(first).toContainText('$0.034981');
+    await expect(first).toContainText('首字 2.48s');
+    await expect(first).toContainText('192.0.2.21');
+
+    await usage.sub2api.getByRole('button', { name: 'Sub2API 下一页', exact: true }).click();
+    await expect(first).toContainText('Editor #8');
+    await expect(first).toContainText('$0.000000');
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    await usage.callFilters
+      .getByRole('searchbox', { name: 'API Key', exact: true })
+      .fill('CI runner');
+    const model = usage.callFilters.getByRole('searchbox', { name: '模型', exact: true });
+    await model.fill('gpt-6.2-sol');
+    await usage.callFilters.getByText('更多筛选', { exact: true }).click();
+    await usage.callFilters.getByLabel('请求类型').selectOption('stream');
+    await usage.queryCallRecords();
+    await expect(usage.callRecords.getByRole('row')).toHaveCount(11);
+    await expect(usage.callRecords.getByText('Editor #8')).toHaveCount(0);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+      true,
+    );
+    expect(
+      await usage.callRecords.evaluate((el) => {
+        const container = el.parentElement!;
+        return container.scrollWidth > container.clientWidth;
+      }),
+    ).toBe(true);
+
+    await model.fill('missing-model');
+    await usage.queryCallRecords();
+    await expect(usage.sub2api.getByText('所选条件下暂无调用记录')).toBeVisible();
+    await usage.callFilters.getByRole('button', { name: '重置调用记录筛选' }).click();
+    await expect(startDate).toHaveValue(today);
+    await expect(model).toHaveValue('');
+    await expect(usage.callFilters.getByLabel('请求类型')).toHaveValue('');
+  } finally {
+    await upstream.close();
+  }
+});

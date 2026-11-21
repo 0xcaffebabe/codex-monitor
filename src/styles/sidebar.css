@@ -79,6 +79,7 @@
 }
 .projects-label {
   display: flex;
+  flex-shrink: 0;
   justify-content: space-between;
   margin-top: 30px;
 }
@@ -92,12 +93,48 @@
 .projects-label span {
   font-size: var(--font-meta);
 }
+.project-workspace-scope {
+  flex-shrink: 0;
+  margin: 0 2px 8px;
+}
+.project-workspace-scope select {
+  font-size: var(--font-meta);
+}
 .projects-nav {
   overflow-y: auto;
+  overscroll-behavior: contain;
   min-height: 90px;
   scrollbar-width: thin;
   padding: 0 2px;
   flex: 1;
+}
+.project-group + .project-group {
+  border-top: 1px solid var(--line);
+  margin-top: 8px;
+  padding-top: 8px;
+}
+.project-group-heading {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  color: var(--muted);
+  font-size: var(--font-meta);
+}
+.project-group-heading > span {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+.project-group-heading > small {
+  font-size: inherit;
+}
+.project-list-status {
+  margin: 8px 10px;
+  font-size: var(--font-meta);
+  color: var(--muted);
 }
 .project-nav {
   display: flex;
