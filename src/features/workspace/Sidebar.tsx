@@ -32,8 +32,10 @@ export function Sidebar({
   setDark,
   model,
   workspaces,
+  collapsed,
 }: WorkspaceProps & {
   workspaces: ManagedWorkspace[];
+  collapsed: boolean;
   model: Pick<
     WorkspaceModel,
     | 'overviews'
@@ -180,7 +182,7 @@ export function Sidebar({
             </button>;
           })}
         </nav>
-        <SidebarProjects workspaces={workspaces} model={model} />
+        <SidebarProjects workspaces={workspaces} model={model} collapsed={collapsed} />
       </div>
       <div className="sidebar-bottom">
         <button

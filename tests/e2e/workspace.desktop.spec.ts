@@ -67,6 +67,20 @@ test('sidebar projects browse all workspaces and open the selected workspace for
   await expect(workspace.workspaceSelector).toHaveValue(local.id);
   await workspace.projectScope.selectOption('');
 
+  const toggleNavigation = page.getByRole('button', { name: '切换导航' });
+  const preview = page.getByRole('tooltip');
+  await toggleNavigation.click();
+  await remoteProject.hover();
+  await expect(preview).toContainText(remoteName);
+  await expect(preview).toContainText(/\d+ 个会话/);
+  await preview.getByText(projectPath, { exact: true }).hover();
+  await expect(preview).toBeVisible();
+
+  await localProject.hover();
+  await expect(preview).toContainText('本机工作空间');
+  await page.keyboard.press('Escape');
+  await expect(preview).toBeHidden();
+
   await remoteProject.click();
   await expect(workspace.workspaceSelector).toHaveValue(remote.id);
   await expect(workspace.sessionScope).toHaveValue(remote.id);
@@ -74,6 +88,8 @@ test('sidebar projects browse all workspaces and open the selected workspace for
   await expect(localProject).not.toHaveAttribute('aria-current', 'page');
   await expect(workspace.sessionRow(remoteTitle)).toBeVisible();
   await expect(workspace.sessionRow(localTitle)).toHaveCount(0);
+  await expect(preview).toBeHidden();
+  await toggleNavigation.click();
 
   await workspace.showArchivedSessions();
   await expect(page.getByRole('heading', { name: 'project', exact: true })).toBeVisible();
