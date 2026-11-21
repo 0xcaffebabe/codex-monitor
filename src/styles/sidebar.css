@@ -180,6 +180,46 @@
 .color-4 {
   background: #c5a092;
 }
+.project-preview {
+  position: fixed;
+  z-index: 31;
+  width: max-content;
+  max-width: min(21rem, calc(100vw - 76px));
+  padding-left: 16px;
+}
+.project-preview-content {
+  display: grid;
+  gap: 7px;
+  padding: 10px 12px;
+  max-height: calc(100dvh - 16px);
+  overflow-y: auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  line-height: 1.45;
+}
+.project-preview-heading,
+.project-preview-meta {
+  display: flex;
+  gap: 8px;
+  overflow-wrap: anywhere;
+}
+.project-preview-heading {
+  align-items: baseline;
+  justify-content: space-between;
+}
+.project-preview-heading > span,
+.project-preview-meta {
+  color: var(--muted);
+  font-size: var(--font-meta);
+}
+.project-preview-heading > span {
+  flex-shrink: 0;
+}
+.project-preview-meta > svg {
+  margin-top: 2px;
+}
 .sidebar-bottom {
   padding-top: 20px;
   flex-shrink: 0;

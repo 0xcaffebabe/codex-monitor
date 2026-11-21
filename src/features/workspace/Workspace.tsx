@@ -94,7 +94,7 @@ export function Workspace(
       )}
     >
       {menu && <div className="scrim" onClick={() => setMenu(false)} />}
-      <Sidebar {...props} model={model} />
+      <Sidebar {...props} model={model} collapsed={layout.navigationCollapsed} />
       <main className="main">
         <header className="topbar">
           <div className="desktop-only desktop-panel-controls">
