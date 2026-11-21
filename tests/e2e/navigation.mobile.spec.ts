@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import { writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { expect, localTitle, test } from './monitor.js';
@@ -31,6 +32,27 @@ test('a touch viewport can open a session and return to the list without horizon
   await expect(session.detail).toBeHidden();
   await expect(workspace.sessionListHeading).toBeVisible();
   await expect(workspace.sessionRow(localTitle)).toBeVisible();
+});
+
+test('a loaded session can open workspace changes when further scripts are unavailable', async ({
+  signedIn: { browserPage, session, workspace },
+  local,
+}) => {
+  const project = path.join(local.data.root, 'project');
+  const change = 'Mobile Git diff regression check';
+  execFileSync('git', ['init', '-q'], { cwd: project });
+  await writeFile(path.join(project, 'example.txt'), `${change}\n`);
+  await workspace.tapSession(localTitle);
+  await expect(session.heading(localTitle)).toBeVisible();
+  await browserPage.route('**/assets/*.js', (route) => route.abort());
+
+  await session.detail.getByRole('button', { name: '更多会话操作' }).tap();
+  await session.detail.getByRole('button', { name: '查看工作区变更' }).tap();
+  const dialog = browserPage.getByRole('dialog', { name: '工作区变更', exact: true });
+  await expect(dialog.getByRole('table', { name: '逐行代码差异' }).getByText(change)).toBeVisible();
+  await dialog.getByRole('button', { name: '关闭代码变更' }).tap();
+  await expect(dialog).toBeHidden();
+  await expect(session.heading(localTitle)).toBeVisible();
 });
 
 test('a linked Markdown report has a full-screen file preview on a phone', async ({

@@ -7,6 +7,7 @@ import { useMediaQuery } from '../../shared/useMediaQuery';
 import { MessageComposer } from '../control/MessageComposer';
 import { NewSessionComposer } from '../control/NewSessionComposer';
 import type { NewSessionProps } from '../control/useNewSession';
+import GitDiff from '../git/GitDiff';
 import { DetailHeader } from './DetailHeader';
 import { FilePreviewDialog } from './FilePreviewDialog';
 import { MobileOutline } from './MobileOutline';
@@ -20,7 +21,6 @@ import type { AttentionRequest, AttentionSession } from '../../attention-types';
 import { TurnResult } from './TurnResult';
 import { useScreenWakeLock } from './useScreenWakeLock';
 const ProjectTerminal = lazy(() => import('../terminal/ProjectTerminal'));
-const GitDiff = lazy(() => import('../git/GitDiff'));
 
 export function Detail(
   props: DetailProps & {
@@ -107,20 +107,18 @@ export function Detail(
         <ProjectBranchDialog session={session} workspaceName={props.workspaceName} activeSessions={props.activeSessions} onClose={() => setBranchSession('')} />
       )}
       {session && gitSession === session.id && (
-        <Suspense fallback={null}>
-          <GitDiff
-            key={session.id}
-            session={session}
-            user={user}
-            onClose={() => setGitSession('')}
-            onReviewSent={() => {
-              setGitSession('');
-              setFollow(true);
-              onMessageSent();
-              notify('审查请求已发送，请在当前会话中查看结果');
-            }}
-          />
-        </Suspense>
+        <GitDiff
+          key={session.id}
+          session={session}
+          user={user}
+          onClose={() => setGitSession('')}
+          onReviewSent={() => {
+            setGitSession('');
+            setFollow(true);
+            onMessageSent();
+            notify('审查请求已发送，请在当前会话中查看结果');
+          }}
+        />
       )}
       {session && terminalSession === session.id && (
         <Suspense fallback={null}>
