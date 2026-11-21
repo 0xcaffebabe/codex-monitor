@@ -55,7 +55,7 @@ export function useWorkspace(workspaceId: string, workspaces: ManagedWorkspace[]
       initialParams.get('group') === 'project' ? 'project' : 'time',
     );
   const workspaceScope = workspaces.some((workspace) => workspace.id === scope) ? scope : '';
-  const { sessions, total, error, listWarning, listBusy, loadList } = useSessionList({
+  const { sessions, total, error, listWarning, listWarningLabels, listBusy, loadList } = useSessionList({
     query,
     project,
     tab,
@@ -243,6 +243,7 @@ export function useWorkspace(workspaceId: string, workspaces: ManagedWorkspace[]
     detailSyncing,
     error,
     listWarning,
+    listWarningLabels,
     detailError,
     connected,
     menu,

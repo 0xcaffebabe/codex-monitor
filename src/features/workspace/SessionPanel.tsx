@@ -50,6 +50,7 @@ export function SessionPanel({
     | 'setProject'
     | 'error'
     | 'listWarning'
+    | 'listWarningLabels'
     | 'loadList'
     | 'rows'
     | 'listBusy'
@@ -80,6 +81,7 @@ export function SessionPanel({
     setProject,
     error,
     listWarning,
+    listWarningLabels,
     loadList,
     rows,
     listBusy,
@@ -208,9 +210,20 @@ export function SessionPanel({
         </div>
       )}
       {listWarning && (
-        <div className="alert warning session-list-warning" role="status">
-          <TriangleAlert size={16} />
-          {listWarning}
+        <div className="session-list-warning" role="status">
+          <details>
+            <summary>
+              <TriangleAlert size={13} aria-hidden="true" />
+              <span className="session-list-warning-label">
+                {listWarningLabels.length === 1
+                  ? listWarningLabels[0]
+                  : `${listWarningLabels.length} 个工作空间不可用`}
+              </span>
+              <span>· 自动重试</span>
+              <ChevronDown size={12} aria-hidden="true" />
+            </summary>
+            <p>{listWarning}</p>
+          </details>
         </div>
       )}
       <div className="session-list">

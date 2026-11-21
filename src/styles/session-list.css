@@ -348,13 +348,54 @@
 }
 .session-list-warning {
   flex-shrink: 0;
+  margin: 0 21px 4px;
+  border-radius: 5px;
+  background: var(--warning-bg);
+  color: var(--warning);
   font-size: var(--font-meta);
+  line-height: 1.5;
+}
+.session-list-warning summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border-radius: 5px;
+  outline-offset: -2px;
+  cursor: pointer;
+  list-style: none;
+  white-space: nowrap;
+}
+.session-list-warning summary::-webkit-details-marker {
+  display: none;
+}
+.session-list-warning summary > svg {
+  flex-shrink: 0;
+}
+.session-list-warning summary > svg:last-child {
+  margin-inline-start: auto;
+}
+.session-list-warning details[open] summary > svg:last-child {
+  transform: rotate(180deg);
+}
+.session-list-warning-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.session-list-warning p {
+  max-height: 8rem;
+  overflow-y: auto;
+  overflow-wrap: anywhere;
+  margin: 0;
+  padding: 0 8px 6px;
 }
 .session-list-scope {
   margin: -4px 21px 10px;
   flex-shrink: 0;
 }
-.compact .session-list-scope {
+.compact .session-list-scope,
+.compact .session-list-warning {
   margin-inline: 12px;
 }
 .session-scope {
@@ -413,7 +454,8 @@
   display: none;
 }
 @media (max-width: 760px) {
-  .session-list-scope {
+  .session-list-scope,
+  .session-list-warning {
     margin-inline: 14px;
   }
   .session-scope select {

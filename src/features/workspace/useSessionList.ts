@@ -31,7 +31,7 @@ export function useSessionList({
   const [sessions, setSessions] = useState<WorkspaceSession[]>([]),
     [total, setTotal] = useState(0),
     [error, setError] = useState(''),
-    [listWarning, setListWarning] = useState(''),
+    [listWarningLabels, setListWarningLabels] = useState<string[]>([]),
     [listBusy, setListBusy] = useState(true);
   const workspaceRef = useRef(workspaces);
   workspaceRef.current = workspaces;
@@ -111,9 +111,7 @@ export function useSessionList({
           // Each workspace's first N rows contain every candidate for the global first N rows.
           setSessions(mergeWorkspaceSessions(available, sort).slice(0, target));
           setTotal(count);
-          setListWarning(
-            unavailable.length ? `暂不可查询：${unavailable.join('、')}。将自动重试。` : '',
-          );
+          setListWarningLabels(unavailable);
           setError(
             results.length && results.every((result) => result.status === 'rejected')
               ? '暂时无法查询工作空间中的会话，请重试。'
@@ -143,7 +141,7 @@ export function useSessionList({
     setSessions([]);
     setTotal(0);
     setError('');
-    setListWarning('');
+    setListWarningLabels([]);
     void loadList();
     const timer = setInterval(() => void loadList(false, true), 3000);
     return () => {
@@ -152,5 +150,8 @@ export function useSessionList({
       activeRequest.current = null;
     };
   }, [query, project, tab, subagents, workspaceKey, archived, sort, pageSize, enabled, loadList]);
-  return { sessions, total, error, listWarning, listBusy, loadList };
+  const listWarning = listWarningLabels.length
+    ? `暂不可查询：${listWarningLabels.join('、')}。将自动重试。`
+    : '';
+  return { sessions, total, error, listWarning, listWarningLabels, listBusy, loadList };
 }
