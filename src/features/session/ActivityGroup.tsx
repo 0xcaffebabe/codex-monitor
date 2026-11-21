@@ -1,4 +1,5 @@
 import { Activity, ChevronRight, LoaderCircle } from 'lucide-react';
+import type { SessionFileLink } from '../../file-preview-types';
 import type { TimelineEvent } from '../../types';
 import { EventCard } from './EventCard';
 import { isToolRunning } from './session-model';
@@ -7,10 +8,12 @@ export function ActivityGroup({
   events,
   onCopy,
   sessionId,
+  onOpenFile,
 }: {
   events: TimelineEvent[];
   onCopy: (s: string) => void;
   sessionId?: string;
+  onOpenFile?: (itemId: string, file: SessionFileLink) => void;
 }) {
   const tools = events.filter((event) => event.kind === 'tool'),
     failed = tools.filter((event) => event.status === 'failed').length,
@@ -55,6 +58,7 @@ export function ActivityGroup({
             sessionId={sessionId}
             event={event}
             onCopy={onCopy}
+            onOpenFile={onOpenFile}
           />
         ))}
       </div>

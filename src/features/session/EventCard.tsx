@@ -5,11 +5,13 @@ import {
   ChevronRight,
   Code2,
   Copy,
+  FileText,
   LoaderCircle,
   SquareTerminal,
   XCircle,
 } from 'lucide-react';
-import React from 'react';
+import React, { type ReactNode } from 'react';
+import type { SessionFileLink } from '../../file-preview-types';
 import { cx, time } from '../../shared/format';
 import { Markdown } from '../../shared/ui/Markdown';
 import type { TimelineEvent } from '../../types';
@@ -20,10 +22,12 @@ export const EventCard = React.memo(function EventCard({
   event: e,
   sessionId,
   onCopy,
+  onOpenFile,
 }: {
   event: TimelineEvent;
   sessionId?: string;
   onCopy: (s: string) => void;
+  onOpenFile?: (itemId: string, file: SessionFileLink) => void;
 }) {
   const renderImage = (offset: number | undefined, alt: string) => {
     const image =
@@ -88,6 +92,19 @@ export const EventCard = React.memo(function EventCard({
         <small>{time(e.timestamp)}</small>
       </div>
     );
+  const renderFile = (offset: number | undefined, children: ReactNode) => {
+    const file = e.files?.find((link) => link.offset === offset);
+    if (!file) return null;
+    if (!onOpenFile)
+      return <span title="文件预览需要管理员权限">{children || file.path}</span>;
+    return (
+      <button type="button" className="markdown-file-link" aria-haspopup="dialog" title={file.path}
+        onClick={() => onOpenFile(e.id, file)}>
+        {children || file.path}<FileText size={12} aria-hidden="true" />
+      </button>
+    );
+  };
+  const markdown = <Markdown text={e.text} renderImage={renderImage} renderFile={e.files ? renderFile : undefined} />;
   if (e.kind === 'reasoning')
     return (
       <details className="reasoning-card" id={'event-' + e.id}>
@@ -96,7 +113,7 @@ export const EventCard = React.memo(function EventCard({
           思考摘要
           <ChevronRight size={13} />
         </summary>
-        <Markdown text={e.text} renderImage={renderImage} />
+        {markdown}
       </details>
     );
   return (
@@ -120,7 +137,7 @@ export const EventCard = React.memo(function EventCard({
         </button>
       </div>
       <div className="message-content">
-        <Markdown text={e.text} renderImage={renderImage} />
+        {markdown}
       </div>
     </article>
   );

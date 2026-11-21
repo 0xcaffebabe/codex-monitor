@@ -4,10 +4,11 @@ import ReactMarkdown, { type Components, type ExtraProps } from 'react-markdown'
 import remarkGfm from 'remark-gfm';
 
 type ImageRenderer = (offset: number | undefined, alt: string) => ReactNode;
-const ImageRendererContext = createContext<ImageRenderer | undefined>(undefined);
+type FileRenderer = (offset: number | undefined, children: ReactNode) => ReactNode;
+const MarkdownRenderers = createContext<{ renderImage?: ImageRenderer; renderFile?: FileRenderer }>({});
 
 function MarkdownImage({ node, alt }: ExtraProps & { alt?: string }) {
-  const renderImage = useContext(ImageRendererContext);
+  const { renderImage } = useContext(MarkdownRenderers);
   return (
     renderImage?.(node?.position?.start.offset, alt || '') ?? (
       <span className="image-placeholder">
@@ -18,14 +19,19 @@ function MarkdownImage({ node, alt }: ExtraProps & { alt?: string }) {
   );
 }
 
-// Keep component identities stable so session refreshes preserve loaded image URLs.
-const components: Components = {
-  a: ({ href, children }) => (
+function MarkdownLink({ href, node, children }: ExtraProps & { href?: string; children?: ReactNode }) {
+  const { renderFile } = useContext(MarkdownRenderers);
+  return renderFile?.(node?.position?.start.offset, children) ?? (
     <a href={href} target="_blank" rel="noreferrer noopener">
       {children}
       <ArrowUpRight size={11} />
     </a>
-  ),
+  );
+}
+
+// Keep component identities stable so session refreshes preserve loaded image URLs.
+const components: Components = {
+  a: MarkdownLink,
   img: MarkdownImage,
   pre: ({ children }) => <pre tabIndex={0}>{children}</pre>,
   table: ({ children }) => (
@@ -35,14 +41,18 @@ const components: Components = {
   ),
 };
 
-export function Markdown({ text, renderImage }: { text: string; renderImage?: ImageRenderer }) {
+export function Markdown({ text, renderImage, renderFile }: {
+  text: string;
+  renderImage?: ImageRenderer;
+  renderFile?: FileRenderer;
+}) {
   return (
     <div className="markdown">
-      <ImageRendererContext.Provider value={renderImage}>
+      <MarkdownRenderers.Provider value={{ renderImage, renderFile }}>
         <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
           {text}
         </ReactMarkdown>
-      </ImageRendererContext.Provider>
+      </MarkdownRenderers.Provider>
     </div>
   );
 }

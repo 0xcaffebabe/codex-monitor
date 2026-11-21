@@ -399,9 +399,10 @@ export class WorkspaceGateway {
     if (!peer?.ready) return fail(res, 503, '工作空间已离线，等待 client 重新连接');
     const route = '/api' + req.url;
     if (!workspacePath(req.method, route)) return fail(res, 404, '工作空间接口不存在');
+    const filePreview = /^\/api\/sessions\/[A-Za-z0-9_-]+\/file-preview(?:[/?]|$)/.test(route);
     if (
       req.identity!.user.role !== 'admin' &&
-      (req.method !== 'GET' || /^\/api\/(?:control|uploads)(?:[/?]|$)/.test(route))
+      (req.method !== 'GET' || filePreview || /^\/api\/(?:control|uploads)(?:[/?]|$)/.test(route))
     )
       return fail(res, 403, '此操作需要管理员权限');
     if (peer.pending.size >= MAX_REQUESTS) return fail(res, 429, '工作空间请求过多，请稍后重试');

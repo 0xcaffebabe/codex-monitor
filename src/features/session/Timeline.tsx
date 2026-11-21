@@ -1,5 +1,6 @@
 import { ArrowDown, Clock, Code2, LoaderCircle, MessageSquare } from 'lucide-react';
 import type { ReactNode } from 'react';
+import type { SessionFileLink } from '../../file-preview-types';
 import { date, time } from '../../shared/format';
 import { ActivityGroup } from './ActivityGroup';
 import { EventCard } from './EventCard';
@@ -15,10 +16,12 @@ export function Timeline({
   connected,
   model,
   copied,
+  onOpenFile,
   children,
 }: Pick<DetailProps, 'page' | 'loading' | 'syncing' | 'error' | 'connected'> & {
   model: TimelineModel;
   copied: (text: string) => void;
+  onOpenFile?: (itemId: string, file: SessionFileLink) => void;
   children?: ReactNode;
 }) {
   const {
@@ -86,6 +89,7 @@ export function Timeline({
                     sessionId={session?.id}
                     events={block.events}
                     onCopy={copied}
+                    onOpenFile={onOpenFile}
                   />
                 ) : block.kind === 'images' && session ? (
                   <SessionImages key={block.id} sessionId={session.id} events={block.events} />
@@ -95,6 +99,7 @@ export function Timeline({
                     sessionId={session?.id}
                     event={block.event}
                     onCopy={copied}
+                    onOpenFile={onOpenFile}
                   />
                 ) : null,
               )}

@@ -1,4 +1,4 @@
-import { readFile } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { ids } from '../fixture.js';
 import { expect, localTitle, test } from './monitor.js';
@@ -21,6 +21,58 @@ test('reads archived history and renders untrusted conversation Markdown without
   await expect(session.markdownCell('通过')).toBeVisible();
   await expect(session.forbiddenMarkdownElements(externalHost)).toHaveCount(0);
   expect(externalImages).toEqual([]);
+});
+
+test('opens a linked file outside the selected workspace project and downloads its workbook', async ({
+  signedIn: { browserPage, session },
+  monitor,
+  local,
+}) => {
+  const remote = await monitor.addWorkspace('报告主机', '验证报告文件引用');
+  const filename = '结果 日志.txt';
+  const workbook = '结果 表.xlsx';
+  const workbookData = Buffer.from([0x50, 0x4b, 3, 4, 0, 0]);
+  const message = [
+    '| 内容 | 项目文件 |',
+    '| --- | --- |',
+    `| 验证结果 | [外部日志](<../${filename}#L3-L4>) |`,
+    '',
+    '[验收表格][result]',
+    '',
+    `[result]: <../${workbook}>`,
+    '',
+    '[网页](https://example.com/docs)',
+  ].join('\n');
+  await writeFile(path.join(local.data.root, filename), '本机文件');
+  await writeFile(path.join(remote.data.root, filename), '报告文件\n记录开始\n报告主机的第 3 行\n报告主机的第 4 行\n');
+  await writeFile(path.join(remote.data.root, workbook), workbookData);
+  local.data.append(message);
+  remote.data.append(message);
+  await session.open(remote.id, ids.modern);
+  const link = session.detail.getByRole('button', { name: '外部日志', exact: true });
+  let opened = 0;
+  browserPage.on('request', (request) => {
+    if (new URL(request.url()).pathname.includes('/file-preview/')) opened++;
+  });
+  await expect(link).toBeVisible();
+  expect(opened).toBe(0);
+  await expect(session.detail.getByRole('link', { name: '网页', exact: true })).toHaveAttribute('href', 'https://example.com/docs');
+  await link.click();
+  const dialog = browserPage.getByRole('dialog', { name: '文件预览' });
+  await expect(dialog.getByRole('heading', { name: filename })).toBeVisible();
+  await expect(dialog).toContainText('报告主机 · 第 3–4 行');
+  await expect(dialog.locator('.file-preview-line.highlighted')).toHaveCount(2);
+  await expect(dialog.locator('[data-target-line]')).toContainText('报告主机的第 3 行');
+  await browserPage.keyboard.press('Escape');
+  await expect(dialog).toBeHidden();
+  await expect(link).toBeFocused();
+
+  await session.detail.getByRole('button', { name: '验收表格', exact: true }).click();
+  const downloading = browserPage.waitForEvent('download');
+  await dialog.getByRole('button', { name: '下载文件' }).click();
+  const downloaded = await downloading;
+  expect(downloaded.suggestedFilename()).toBe(workbook);
+  expect(await readFile(await downloaded.path())).toEqual(workbookData);
 });
 
 test('a submitted message reaches a second tab via the real session stream', async ({

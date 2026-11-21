@@ -1,3 +1,5 @@
+import type { SessionFileLink } from './file-preview-types.js';
+
 export type SessionStatus =
   'running' | 'waiting' | 'completed' | 'interrupted' | 'failed' | 'idle' | 'stale';
 export const reasoningEfforts = [
@@ -64,6 +66,7 @@ export interface TimelineEvent {
   transient?: boolean;
   image?: SessionImageRef;
   images?: SessionImageRef[];
+  files?: SessionFileLink[];
   computerUse?: boolean;
 }
 export interface ComputerUseStep {

@@ -11,11 +11,12 @@ import { normalizeItem } from './normalize.js';
 import type { SourceDatabases } from './source/databases.js';
 import { openCodexDatabases } from './source/databases.js';
 import { savedImage } from './source/images.js';
+import { messageFiles, withMessageFiles } from './source/message-files.js';
 import { messageImagePath, messageImages, withMessageImages } from './source/message-images.js';
 import { SessionOutlineReader } from './source/outline.js';
 import { RolloutStore } from './source/rollouts.js';
 import { SessionIndex } from './source/session-index.js';
-import { publicSession, validId } from './source/session.js';
+import { publicSession, validId, type InternalSession } from './source/session.js';
 import { displayItemSql } from './source/sql.js';
 import { CompletionReader, type SessionCompletion } from './source/completions.js';
 import { InputRequestReader } from './source/input-requests.js';
@@ -210,7 +211,7 @@ export class CodexSource {
     const version = await this.version(id);
     return {
       session: publicSession(s),
-      events: events.map(withMessageImages),
+      events: events.map((event) => withMessageFiles(withMessageImages(event))),
       total,
       before: next,
       version,
@@ -247,48 +248,54 @@ export class CodexSource {
       ? this.computerUseReader.image(session, await this.version(id), itemId, index)
       : null;
   }
-  async image(id: string, itemId: string, imageIndex?: number) {
-    const session = await this.get(id);
-    if (!session) return null;
-    let file: string | undefined;
-    let event: TimelineEvent | null = null;
-    if (this.databases.history) {
-      let row = this.databases.history
-        .prepare(
-          `SELECT ${displayItemSql('item_json')} AS item_json FROM thread_items WHERE thread_id=? AND item_id=? LIMIT 1`,
-        )
-        .get(id, itemId);
-      if (!row) {
+  private async message(session: InternalSession, itemId: string, preferRealtime = false) {
+    const id = session.id;
+    const { history } = this.databases;
+    if (history) {
+      const saved = () =>
+        history
+          .prepare(`SELECT ${displayItemSql('item_json')} AS item_json FROM thread_items WHERE thread_id=? AND item_id=? LIMIT 1`)
+          .get(id, itemId);
+      const live = () => {
         try {
-          row = this.databases.history
-            .prepare(
-              `SELECT ${displayItemSql('item_json')} AS item_json FROM thread_realtime_items WHERE thread_id=? AND item_id=? LIMIT 1`,
-            )
+          return history
+            .prepare(`SELECT ${displayItemSql('item_json')} AS item_json FROM thread_realtime_items WHERE thread_id=? AND item_id=? LIMIT 1`)
             .get(id, itemId);
         } catch {
           // Older history databases have no realtime table.
         }
-      }
+      };
+      const row = preferRealtime ? live() ?? saved() : saved() ?? live();
       if (row) {
         try {
-          event = normalizeItem(JSON.parse(String(row.item_json)), itemId, 0);
+          const event = normalizeItem(JSON.parse(String(row.item_json)), itemId, 0);
+          if (event) return event;
         } catch {
           return null;
         }
       } else if (session.historyMode !== 'legacy') return null;
     }
-    if (!event) {
-      const parsed = await this.rollouts.read(session);
-      event = parsed.events.find((event) => event.id === itemId) ?? null;
-    }
+    const parsed = await this.rollouts.read(session);
+    return parsed.events.find((event) => event.id === itemId) ?? null;
+  }
+  async fileLink(id: string, itemId: string, linkId: string) {
+    const session = await this.get(id);
+    if (!session) return null;
+    const event = await this.message(session, itemId, true);
+    const link = event && messageFiles(event).find((file) => file.id === linkId);
+    return link ? { cwd: session.cwd, link } : null;
+  }
+  async image(id: string, itemId: string, imageIndex?: number) {
+    const session = await this.get(id);
+    if (!session) return null;
+    const event = await this.message(session, itemId);
     if (!event) return null;
     if (imageIndex !== undefined) {
       const image = messageImages(event)[imageIndex];
       return image?.source ? localImage(messageImagePath(image.source)) : null;
     }
-    if (event.image) file = event.text;
-    if (!file) return null;
-    file = normalizeImagePath(file);
+    if (!event.image || !event.text) return null;
+    const file = normalizeImagePath(event.text);
     if (existsSync(file)) return localImage(file);
     const saved = await savedImage(this.rollouts.safeFile(session.file), itemId);
     if (saved) return saved;

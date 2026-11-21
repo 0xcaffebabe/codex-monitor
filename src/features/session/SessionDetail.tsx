@@ -1,5 +1,6 @@
 import { MessageSquare, Shield, TriangleAlert } from 'lucide-react';
-import { lazy, Suspense, useEffect, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
+import type { SessionFileLink } from '../../file-preview-types';
 import { cx } from '../../shared/format';
 import { markdownExcerpt } from '../../shared/ui/markdown-excerpt';
 import { useMediaQuery } from '../../shared/useMediaQuery';
@@ -7,6 +8,7 @@ import { MessageComposer } from '../control/MessageComposer';
 import { NewSessionComposer } from '../control/NewSessionComposer';
 import type { NewSessionProps } from '../control/useNewSession';
 import { DetailHeader } from './DetailHeader';
+import { FilePreviewDialog } from './FilePreviewDialog';
 import { MobileOutline } from './MobileOutline';
 import { Outline } from './Outline';
 import { Timeline } from './Timeline';
@@ -54,11 +56,16 @@ export function Detail(
   const [terminalSession, setTerminalSession] = useState('');
   const [gitSession, setGitSession] = useState('');
   const [branchSession, setBranchSession] = useState('');
+  const [filePreview, setFilePreview] = useState<{ sessionId: string; itemId: string; link: SessionFileLink }>();
   const [savingWatch, setSavingWatch] = useState(false);
   useEffect(() => setComputerUseSession(''), [session?.id]);
   useEffect(() => setTerminalSession(''), [session?.id]);
   useEffect(() => setGitSession(''), [session?.id]);
   useEffect(() => setBranchSession(''), [session?.id]);
+  useEffect(() => setFilePreview(undefined), [session?.id]);
+  const openFile = useCallback((itemId: string, link: SessionFileLink) => {
+    if (session?.id) setFilePreview({ sessionId: session.id, itemId, link });
+  }, [session?.id]);
   return (
     <section
       className={cx('detail-panel', !!newSession && 'new-session-detail')}
@@ -132,6 +139,14 @@ export function Detail(
           onClose={() => setComputerUseSession('')}
         />
       )}
+      {filePreview && filePreview.sessionId === session?.id && user.role === 'admin' && (
+        <FilePreviewDialog
+          key={`${filePreview.sessionId}:${filePreview.itemId}:${filePreview.link.id}`}
+          {...filePreview}
+          workspaceName={props.workspaceName}
+          onClose={() => setFilePreview(undefined)}
+        />
+      )}
       {error && (
         <div className="alert error" role="alert">
           <TriangleAlert size={16} />
@@ -168,6 +183,7 @@ export function Detail(
               connected={connected}
               model={model}
               copied={actions.copied}
+              onOpenFile={user.role === 'admin' ? openFile : undefined}
             >
               {!mobile && (
                 <Outline

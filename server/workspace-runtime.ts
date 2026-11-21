@@ -18,6 +18,8 @@ import { installTerminalRoutes } from './http/terminal-routes.js';
 import { SessionScope } from './session-scope.js';
 import { ProjectGit } from './git.js';
 import { installGitRoutes } from './http/git-routes.js';
+import { SessionFilePreviews } from './file-preview.js';
+import { installFilePreviewRoutes } from './http/file-preview-routes.js';
 
 export type WorkspaceServices = {
   control?: DesktopControl;
@@ -40,6 +42,7 @@ export function installWorkspaceRuntime(
   );
   const uploads = new UploadStore(auth.db, config.dataDir);
   const previews = new ImagePreviews();
+  installFilePreviewRoutes(app, new SessionFilePreviews(source, config), previews);
   installUploads(app, uploads, previews);
   const terminals = new ProjectTerminals(auth, source, services.authorization);
   installTerminalRoutes(app, terminals);
