@@ -3,7 +3,6 @@ import { useRef } from 'react';
 import { Popover } from '../../shared/ui/Popover';
 import { useMediaQuery } from '../../shared/useMediaQuery';
 import { AttachmentPicker } from '../attachments/AttachmentPicker';
-import { ProjectFilePicker } from '../attachments/ProjectFilePicker';
 import { PromptFormProps, usePromptForm } from './usePromptForm';
 import { PromptShortcuts } from './PromptShortcuts';
 import { sessionPermissionModes, type SessionPermissionMode } from '../../approval-types';
@@ -158,15 +157,10 @@ export function PromptForm(props: PromptFormProps) {
           attachments={attachments}
           disabled={busy || !!draft.requestId || !enabled}
           picker={attachmentPicker}
+          projectFiles={
+            projectFilesUrl ? { url: projectFilesUrl, onInsert: insertProjectFiles } : undefined
+          }
         >
-          {projectFilesUrl && (
-            <ProjectFilePicker
-              key={projectFilesUrl}
-              url={projectFilesUrl}
-              disabled={busy || !!draft.requestId || !enabled}
-              onInsert={insertProjectFiles}
-            />
-          )}
           {(!!promptShortcuts?.length || !!shortcutActions?.length) && (
             <PromptShortcuts
               shortcuts={promptShortcuts ?? []}

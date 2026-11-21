@@ -2,6 +2,7 @@ import { LoaderCircle, MessageSquareQuote, Paperclip, Plus, X } from 'lucide-rea
 import { useState, type ReactNode } from 'react';
 import { Popover } from '../../shared/ui/Popover';
 import { maxAttachments, sizeLabel } from './attachment-model';
+import { ProjectFilePicker, type ProjectFileOptions } from './ProjectFilePicker';
 import { Thumbnail } from './Thumbnail';
 import type { Attachment } from './types';
 import type { useAttachmentPicker } from './useAttachmentPicker';
@@ -11,15 +12,18 @@ export function AttachmentPicker({
   attachments,
   disabled,
   picker,
+  projectFiles,
   children,
 }: {
   attachments: Attachment[];
   disabled: boolean;
   picker: ReturnType<typeof useAttachmentPicker>;
+  projectFiles?: ProjectFileOptions;
   children?: ReactNode;
 }) {
   const { input, progress, upload, remove } = picker;
   const [referencing, setReferencing] = useState(false);
+  const attachmentsDisabled = disabled || !!progress || attachments.length >= maxAttachments;
   return (
     <div className="attachment-picker">
       <div className={'attachment-toolbar' + (children ? ' has-controls' : '')}>
@@ -27,7 +31,7 @@ export function AttachmentPicker({
           label="添加内容"
           icon={<Plus size={17} />}
           className="composer-add-trigger"
-          disabled={disabled || !!progress || attachments.length >= maxAttachments}
+          disabled={projectFiles ? disabled : attachmentsDisabled}
         >
           {(close) => (
             <div className="composer-add-options">
@@ -35,6 +39,7 @@ export function AttachmentPicker({
                 type="button"
                 className="composer-option"
                 aria-label="添加附件"
+                disabled={attachmentsDisabled}
                 onClick={() => {
                   close();
                   input.current?.click();
@@ -46,10 +51,19 @@ export function AttachmentPicker({
                   <small>上传图片或文件，也可直接粘贴、拖入</small>
                 </span>
               </button>
+              {projectFiles && (
+                <ProjectFilePicker
+                  key={projectFiles.url}
+                  {...projectFiles}
+                  disabled={disabled}
+                  closeMenu={close}
+                />
+              )}
               <button
                 type="button"
                 className="composer-option attachment-reference"
                 aria-label="引用会话"
+                disabled={attachmentsDisabled}
                 onClick={() => {
                   close();
                   setReferencing(true);

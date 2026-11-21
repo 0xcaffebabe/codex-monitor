@@ -426,8 +426,7 @@
   .composer-add-trigger,
   .context-ring-trigger,
   .composer-settings-trigger,
-  .composer-shortcuts-trigger,
-  .project-file-trigger {
+  .composer-shortcuts-trigger {
     width: 44px;
     padding: 0;
   }

@@ -15,28 +15,31 @@ import { createPortal } from 'react-dom';
 import type { ProjectFileEntry, ProjectFileListing } from '../../project-file-types';
 import { useProjectFiles } from './useProjectFiles';
 
-type PickerProps = {
+export type ProjectFileOptions = {
   url: string;
-  disabled: boolean;
   onInsert: (paths: string[]) => string | undefined;
 };
 
-export function ProjectFilePicker(props: PickerProps) {
+type PickerProps = ProjectFileOptions & { disabled: boolean };
+
+export function ProjectFilePicker({ closeMenu, ...props }: PickerProps & { closeMenu: () => void }) {
   const [open, setOpen] = useState(false);
   return (
     <>
       <button
         type="button"
-        className="composer-tool project-file-trigger"
-        aria-label="选择项目文件"
+        className="composer-option"
         aria-haspopup="dialog"
-        aria-expanded={open}
-        title="选择项目文件"
         disabled={props.disabled}
-        onClick={() => setOpen(true)}
+        onClick={() => {
+          closeMenu();
+          setOpen(true);
+        }}
       >
-        <FolderTree size={16} />
-        <span className="project-file-trigger-label">项目文件</span>
+        <FolderTree size={18} />
+        <span>
+          <strong>项目文件</strong>
+        </span>
       </button>
       {open && <ProjectFileDialog {...props} onClose={() => setOpen(false)} />}
     </>
