@@ -1,6 +1,7 @@
 import { ChevronDown, GitBranch, LoaderCircle, RefreshCw, X } from 'lucide-react';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { AttentionSession } from '../../attention-types';
+import type { Session } from '../../types';
 import { useGitBranches } from './useGitBranches';
 
 type ProjectBranchLocation = {
@@ -13,7 +14,7 @@ export function GitBranchSelector({
   projectId,
   ...location
 }: ProjectBranchLocation & { projectId: string }) {
-  const model = useGitBranches(projectId);
+  const model = useGitBranches(`/api/control/projects/${projectId}/git`);
   const [open, setOpen] = useState(false);
   const { data, loading } = model;
   const branch = data
@@ -37,6 +38,17 @@ export function GitBranchSelector({
       {open && <ProjectBranchDialog {...location} model={model} onClose={() => setOpen(false)} />}
     </div>
   );
+}
+
+export function SessionBranchDialog({
+  session,
+  ...props
+}: Omit<ProjectBranchLocation, 'projectPath'> & {
+  session: Pick<Session, 'id' | 'cwd'>;
+  onClose: () => void;
+}) {
+  const model = useGitBranches(`/api/sessions/${session.id}/git`);
+  return <ProjectBranchDialog {...props} projectPath={session.cwd} model={model} />;
 }
 
 function ProjectBranchDialog({

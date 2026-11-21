@@ -7,6 +7,7 @@ import { useMediaQuery } from '../../shared/useMediaQuery';
 import { MessageComposer } from '../control/MessageComposer';
 import { NewSessionComposer } from '../control/NewSessionComposer';
 import type { NewSessionProps } from '../control/useNewSession';
+import { SessionBranchDialog } from '../git/GitBranchSelector';
 import GitDiff from '../git/GitDiff';
 import { DetailHeader } from './DetailHeader';
 import { FilePreviewDialog } from './FilePreviewDialog';
@@ -54,11 +55,13 @@ export function Detail(
   const [computerUseSession, setComputerUseSession] = useState('');
   const [terminalSession, setTerminalSession] = useState('');
   const [gitSession, setGitSession] = useState('');
+  const [branchSession, setBranchSession] = useState('');
   const [filePreview, setFilePreview] = useState<{ sessionId: string; itemId: string; link: SessionFileLink }>();
   const [savingWatch, setSavingWatch] = useState(false);
   useEffect(() => setComputerUseSession(''), [session?.id]);
   useEffect(() => setTerminalSession(''), [session?.id]);
   useEffect(() => setGitSession(''), [session?.id]);
+  useEffect(() => setBranchSession(''), [session?.id]);
   useEffect(() => setFilePreview(undefined), [session?.id]);
   const openFile = useCallback((itemId: string, link: SessionFileLink) => {
     if (session?.id) setFilePreview({ sessionId: session.id, itemId, link });
@@ -87,6 +90,7 @@ export function Detail(
         onComputerUse={() => setComputerUseSession(session?.id ?? '')}
         onTerminal={user.role === 'admin' ? () => setTerminalSession(session?.id ?? '') : undefined}
         onGitDiff={user.role === 'admin' ? () => setGitSession(session?.id ?? '') : undefined}
+        onBranches={user.role === 'admin' ? () => setBranchSession(session?.id ?? '') : undefined}
         taskWatch={session && props.taskWatch && {
           watched: props.taskWatch.watched,
           busy: savingWatch,
@@ -99,6 +103,15 @@ export function Detail(
           },
         }}
       />
+      {session && branchSession === session.id && (
+        <SessionBranchDialog
+          key={session.id}
+          session={session}
+          workspaceName={props.workspaceName}
+          activeSessions={props.activeSessions}
+          onClose={() => setBranchSession('')}
+        />
+      )}
       {session && gitSession === session.id && (
         <GitDiff
           key={session.id}

@@ -35,7 +35,7 @@ test('a touch viewport can open a session and return to the list without horizon
   await expect(workspace.sessionRow(localTitle)).toBeVisible();
 });
 
-test('a new session shows and switches the selected project branch on mobile', async ({
+test('branch switching is available from the new session composer and existing session menu on mobile', async ({
   signedIn: { browserPage, newSession, session },
   local,
 }) => {
@@ -74,7 +74,12 @@ test('a new session shows and switches the selected project branch on mobile', a
   await expect(session.message(prompt)).toBeVisible();
   await expect(branch).toHaveCount(0);
   await session.detail.getByRole('button', { name: '更多会话操作' }).tap();
-  await expect(session.detail.getByRole('button', { name: '选择 Git 分支' })).toHaveCount(0);
+  await session.detail.getByRole('button', { name: '选择 Git 分支' }).tap();
+  await expect(dialog.getByText('当前分支 feature/mobile', { exact: true })).toBeVisible();
+  await dialog.getByLabel('目标分支').selectOption('main');
+  await dialog.getByRole('button', { name: '切换分支', exact: true }).tap();
+  await expect(dialog).toBeHidden();
+  expect(git('branch', '--show-current')).toBe('main');
 });
 
 test('a loaded session can open workspace changes when further scripts are unavailable', async ({

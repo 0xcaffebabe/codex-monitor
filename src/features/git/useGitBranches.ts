@@ -2,8 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '../../api';
 import type { GitBranches } from '../../git-types';
 
-export function useGitBranches(projectId: string) {
-  const base = `/api/control/projects/${projectId}/git`;
+export function useGitBranches(base: string) {
   const [data, setData] = useState<GitBranches>();
   const [loading, setLoading] = useState(true);
   const [switching, setSwitching] = useState(false);

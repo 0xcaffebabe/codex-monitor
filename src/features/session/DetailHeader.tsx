@@ -4,6 +4,7 @@ import {
   BellRing,
   Ellipsis,
   FileDiff,
+  GitBranch,
   Info,
   Monitor,
   TerminalSquare,
@@ -23,6 +24,7 @@ export function DetailHeader({
   onComputerUse,
   onTerminal,
   onGitDiff,
+  onBranches,
   taskWatch,
   mobileOutline,
   workspaceName,
@@ -32,6 +34,7 @@ export function DetailHeader({
   onComputerUse: () => void;
   onTerminal?: () => void;
   onGitDiff?: () => void;
+  onBranches?: () => void;
   taskWatch?: { watched: boolean; busy: boolean; toggle: () => void };
   mobileOutline?: ReactNode;
   workspaceName?: string;
@@ -98,12 +101,18 @@ export function DetailHeader({
                         操作回放
                       </button>
                     )}
-                    {session.cwd && (onGitDiff || onTerminal) && (
+                    {session.cwd && (onGitDiff || onBranches || onTerminal) && (
                       <div className="session-project-actions" role="group" aria-label="项目工具">
                         {onGitDiff && (
                           <button onClick={run(onGitDiff)}>
                             <FileDiff size={16} />
                             查看工作区变更
+                          </button>
+                        )}
+                        {onBranches && (
+                          <button onClick={run(onBranches)}>
+                            <GitBranch size={16} />
+                            选择 Git 分支
                           </button>
                         )}
                         {onTerminal && (
