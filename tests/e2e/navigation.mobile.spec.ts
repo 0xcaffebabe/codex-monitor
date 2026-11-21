@@ -2,6 +2,24 @@ import { writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { expect, localTitle, test } from './monitor.js';
 
+test('the mobile project drawer can browse and open projects from another workspace', async ({
+  signedIn: { workspace },
+  monitor,
+}) => {
+  const remoteName = '手机测试工作空间';
+  const remoteTitle = '远程工作空间项目会话';
+  const remote = await monitor.addWorkspace(remoteName, remoteTitle);
+  await workspace.showMobileProjects();
+  await expect(workspace.projectScope).toHaveValue('');
+  await workspace.projectScope.selectOption(remote.id);
+  await workspace.projectGroup(remoteName).getByRole('button', { name: '项目：project' }).tap();
+
+  await expect(workspace.navigation).not.toBeInViewport();
+  await expect(workspace.sessionScope).toHaveValue(remote.id);
+  await expect(workspace.sessionRow(remoteTitle)).toBeVisible();
+  await expect(workspace.sessionRow(localTitle)).toHaveCount(0);
+});
+
 test('a touch viewport can open a session and return to the list without horizontal overflow', async ({
   signedIn: { session, workspace },
 }) => {

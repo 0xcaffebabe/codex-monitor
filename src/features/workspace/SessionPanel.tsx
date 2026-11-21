@@ -43,7 +43,6 @@ export function SessionPanel({
     | 'setQ'
     | 'tab'
     | 'setTab'
-    | 'changeTab'
     | 'scope'
     | 'setScope'
     | 'project'
@@ -74,7 +73,6 @@ export function SessionPanel({
     setQ,
     tab,
     setTab,
-    changeTab,
     scope,
     setScope,
     project,
@@ -166,13 +164,21 @@ export function SessionPanel({
       </div>
       {workspaces.length > 1 && (
         <div className="session-list-scope">
-          <SessionScope value={scope} onChange={setScope} workspaces={workspaces} label="筛选会话工作空间" />
+          <SessionScope
+            value={scope}
+            onChange={(id) => {
+              setProject('');
+              setScope(id);
+            }}
+            workspaces={workspaces}
+            label="筛选会话工作空间"
+          />
         </div>
       )}
       {hasDetail && (project || tab === 'running' || tab === 'archived') && (
         <div className="compact-session-filters" aria-label="当前会话筛选">
           {project && <button type="button" title={project} aria-label="清除项目筛选" onClick={() => setProject('')}>
-            <span>{title === '项目会话' ? project.split(/[\\/]/).filter(Boolean).at(-1) || title : title}</span><X size={12} />
+            <span>{title}</span><X size={12} />
           </button>}
           {(tab === 'running' || tab === 'archived') && <button type="button" aria-label="清除状态筛选" onClick={() => setTab('all')}>
             <span>{tab === 'archived' ? '已归档' : '进行中'}</span><X size={12} />
@@ -182,19 +188,19 @@ export function SessionPanel({
       {!hasDetail && (
         <div className="filter-row">
           <div className="filter-tabs">
-            <button className={cx(tab === 'all' && 'active')} onClick={() => changeTab('all')}>
+            <button className={cx(tab === 'all' && 'active')} onClick={() => setTab('all')}>
               全部
             </button>
             <button
               className={cx(tab === 'running' && 'active')}
-              onClick={() => changeTab('running')}
+              onClick={() => setTab('running')}
             >
               <span className="green-dot" />
               进行中
             </button>
             <button
               className={cx(tab === 'archived' && 'active')}
-              onClick={() => changeTab('archived')}
+              onClick={() => setTab('archived')}
             >
               已归档
             </button>

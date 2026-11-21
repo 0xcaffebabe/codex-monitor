@@ -1,5 +1,56 @@
+import path from 'node:path';
 import { ids } from '../fixture.js';
 import { expect, localTitle, test } from './monitor.js';
+
+test('sidebar projects browse all workspaces and open the selected workspace for an identical path', async ({
+  signedIn: { browserPage: page, workspace },
+  monitor,
+  local,
+}) => {
+  const projectPath = path.join(local.data.root, 'project');
+  const remoteTitle = '远程项目会话';
+  const remoteName = '远程工作空间';
+  const remote = await monitor.addWorkspace(remoteName, remoteTitle, undefined, projectPath);
+  const remoteGroup = workspace.projectGroup(remoteName);
+  const remoteProject = remoteGroup.getByRole('button', { name: '项目：project' });
+  const localProject = workspace.projectGroup('本机工作空间').getByRole('button', { name: '项目：project' });
+
+  await expect(workspace.projectScope).toHaveValue('');
+  await expect(localProject).toBeVisible();
+  await expect(remoteProject).toBeVisible();
+  await workspace.projectScope.selectOption(remote.id);
+  await expect(localProject).toHaveCount(0);
+  await expect(workspace.workspaceSelector).toHaveValue(local.id);
+  await workspace.projectScope.selectOption('');
+
+  await remoteProject.click();
+  await expect(workspace.workspaceSelector).toHaveValue(remote.id);
+  await expect(workspace.sessionScope).toHaveValue(remote.id);
+  await expect(remoteProject).toHaveAttribute('aria-current', 'page');
+  await expect(localProject).not.toHaveAttribute('aria-current', 'page');
+  await expect(workspace.sessionRow(remoteTitle)).toBeVisible();
+  await expect(workspace.sessionRow(localTitle)).toHaveCount(0);
+
+  await workspace.showArchivedSessions();
+  await expect(page.getByRole('heading', { name: 'project', exact: true })).toBeVisible();
+  await expect(workspace.sessionRow('已归档的历史会话')).toHaveCount(1);
+  expect(Object.fromEntries(new URL(page.url()).searchParams)).toMatchObject({
+    workspace: remote.id,
+    scope: remote.id,
+    project: projectPath,
+    status: 'archived',
+  });
+  await page.goBack();
+  await expect(workspace.workspaceSelector).toHaveValue(local.id);
+  await expect(workspace.sessionListHeading).toBeVisible();
+
+  await remote.stop();
+  await expect(remoteGroup.getByText('离线', { exact: true })).toBeVisible();
+  await expect(localProject).toBeVisible();
+  await remote.start();
+  await expect(remoteGroup.getByText('离线', { exact: true })).toBeHidden();
+  await expect(remoteProject).toBeVisible();
+});
 
 test('two clients with the same session ID isolate draft, history and message delivery', async ({
   signedIn: { session, workspace },

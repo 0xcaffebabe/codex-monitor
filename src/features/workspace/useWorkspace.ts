@@ -54,7 +54,9 @@ export function useWorkspace(workspaceId: string, workspaces: ManagedWorkspace[]
     [group, setGroup] = useState<SessionGroup>(
       initialParams.get('group') === 'project' ? 'project' : 'time',
     );
-  const workspaceScope = workspaces.some((workspace) => workspace.id === scope) ? scope : '';
+  const workspaceScope = project
+    ? workspaceId
+    : workspaces.some((workspace) => workspace.id === scope) ? scope : '';
   const { sessions, total, error, listWarning, listWarningLabels, listBusy, loadList } = useSessionList({
     query,
     project,
@@ -63,7 +65,9 @@ export function useWorkspace(workspaceId: string, workspaces: ManagedWorkspace[]
     workspaces: workspaceScope ? workspaces.filter((workspace) => workspace.id === workspaceScope) : workspaces,
     enabled: !!selected || creating || (tab !== 'attention' && tab !== 'usage'),
   });
-  const { overview, loadOverview } = useOverview(workspaceId);
+  const { overviews, loadOverviews } = useOverview(workspaces);
+  const overview = overviews[workspaceId]?.summary;
+  const loadOverview = () => loadOverviews(workspaceId);
   const {
     page,
     outlineData,
@@ -147,14 +151,11 @@ export function useWorkspace(workspaceId: string, workspaces: ManagedWorkspace[]
     }
     history.replaceState(null, '', location.pathname + (params.size ? '?' + params : ''));
   }, [workspaceId, selected, tab, q, project, workspaceScope, subagents, group, creating, result.turn, attentionRequest]);
-  const reconcile = () => {
-    void loadOverview();
-  };
   const refreshDetail = () => {
-    reconcile();
+    loadOverview();
     if (selected && !navigatingOutline.current) void loadDetail(selected);
   };
-  const connected = useRealtime(selected, refreshDetail, reconcile, workspaceId);
+  const connected = useRealtime(selected, refreshDetail, loadOverviews, workspaceId);
   const select = (id: string) => {
     setAttentionRequest(null);
     setResult({ turn: null, observed: 0 });
@@ -169,6 +170,13 @@ export function useWorkspace(workspaceId: string, workspaces: ManagedWorkspace[]
       for (const key of ['result', 'observed', 'request']) params.delete(key);
       navigateWorkspace(session.workspaceId, session.id, params);
     }
+  };
+  const selectProject = (id: string, path: string) => {
+    const params = new URLSearchParams({ view: 'all', project: path, scope: id });
+    if (q) params.set('q', q);
+    if (subagents) params.set('subagents', 'true');
+    if (group === 'project') params.set('group', group);
+    navigateWorkspace(id, undefined, params);
   };
   const startSession = () => {
     if (!creating && !project) {
@@ -205,18 +213,20 @@ export function useWorkspace(workspaceId: string, workspaces: ManagedWorkspace[]
       ? '任务动态'
       : tab === 'usage'
       ? '用量统计'
-      : tab === 'running'
-        ? '正在进行'
-        : tab === 'archived'
-          ? '已归档会话'
-          : project
-            ? overview?.projects.find((p) => p.path === project)?.name || '项目会话'
+      : project
+        ? overview?.projects.find((p) => p.path === project)?.name ||
+          project.split(/[\\/]/).filter(Boolean).at(-1) || project
+        : tab === 'running'
+          ? '正在进行'
+          : tab === 'archived'
+            ? '已归档会话'
             : '全部会话';
   const rows = sessionRows(sessions, group);
 
   return {
     workspaceId,
     overview,
+    overviews,
     sidebarView,
     setSidebarView,
     sessions,
@@ -262,10 +272,12 @@ export function useWorkspace(workspaceId: string, workspaces: ManagedWorkspace[]
     notify,
     loadList,
     loadOverview,
+    loadOverviews,
     loadDetail,
     loadOutline,
     loadOutlineEntry,
     select,
+    selectProject,
     selectSession,
     changeTab,
     title,

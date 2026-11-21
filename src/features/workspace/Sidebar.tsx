@@ -20,6 +20,7 @@ import { Status } from '../../shared/ui/Status';
 import { navigateWorkspace } from '../../workspace-scope';
 import type { ManagedWorkspace } from '../../workspaces';
 import { SessionScope } from './SessionScope';
+import { SidebarProjects } from './SidebarProjects';
 import { workspaceSessionKey } from './session-list-model';
 import { useSessionList } from './useSessionList';
 import type { WorkspaceModel } from './useWorkspace';
@@ -37,7 +38,7 @@ export function Sidebar({
   workspaces: ManagedWorkspace[];
   model: Pick<
     WorkspaceModel,
-    | 'overview'
+    | 'overviews'
     | 'menu'
     | 'setMenu'
     | 'tab'
@@ -47,15 +48,11 @@ export function Sidebar({
     | 'setSidebarView'
     | 'workspaceId'
     | 'selected'
-    | 'setProject'
-    | 'setScope'
-    | 'setTab'
-    | 'closeDetail'
+    | 'selectProject'
     | 'setSettings'
   >;
 }) {
   const {
-    overview,
     menu,
     setMenu,
     tab,
@@ -65,10 +62,6 @@ export function Sidebar({
     setSidebarView,
     workspaceId,
     selected,
-    setProject,
-    setScope,
-    setTab,
-    closeDetail,
     setSettings,
   } = model;
   const mobile = useMediaQuery('(max-width: 760px)');
@@ -197,30 +190,7 @@ export function Sidebar({
             </button>;
           })}
         </nav>
-        <div className="nav-label projects-label">
-          项目<span>{overview?.projects.length ?? 0}</span>
-        </div>
-        <div className="projects-nav" id="sidebar-projects">
-          {overview?.projects.map((p, i) => (
-            <button
-              key={p.path}
-              title={`${p.name} · ${p.path}`}
-              aria-label={`项目：${p.name}`}
-              className={cx('project-nav', project === p.path && 'active')}
-              onClick={() => {
-                setProject(p.path);
-                setScope(workspaceId);
-                setTab('all');
-                closeDetail();
-                setMenu(false);
-              }}
-            >
-              <span className={'project-dot color-' + (i % 5)} />
-              <span>{p.name}</span>
-              <small>{p.count}</small>
-            </button>
-          ))}
-        </div>
+        <SidebarProjects workspaces={workspaces} model={model} />
       </div>
       <div className="sidebar-bottom">
         <button

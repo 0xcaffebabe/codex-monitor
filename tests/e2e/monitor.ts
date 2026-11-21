@@ -55,13 +55,13 @@ async function startMonitor(defer: Cleanup) {
   const setupKey = monitor.auth.setupKey!;
   const credentials = { username: 'owner', password: randomUUID() };
 
-  async function addWorkspace(name: string, title: string, id?: string) {
+  async function addWorkspace(name: string, title: string, id?: string, projectPath?: string) {
     const registration = monitor.gateway.store.create(name, id);
     const workspaceId = registration.workspace.id;
     const data = fixture(path.join(root, workspaceId));
     defer(() => data.close());
-    const project = path.join(data.root, 'project');
-    await mkdir(project);
+    const project = projectPath ?? path.join(data.root, 'project');
+    await mkdir(project, { recursive: true });
     data.state.prepare('UPDATE threads SET cwd=?').run(project);
     data.state.prepare('UPDATE threads SET title=? WHERE id=?').run(title, ids.modern);
     let active: MonitorClient | undefined;

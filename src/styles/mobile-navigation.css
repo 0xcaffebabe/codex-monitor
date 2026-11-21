@@ -163,8 +163,12 @@
   }
   .sidebar .projects-label,
   .sidebar .projects-nav,
+  .sidebar-browse:not(.show-projects) .project-workspace-scope,
   .sidebar-browse.show-projects .recent-sessions-nav {
     display: none;
+  }
+  .sidebar .project-workspace-scope {
+    margin: 8px 2px 0;
   }
   .sidebar-browse.show-projects .projects-nav {
     display: block;
@@ -173,6 +177,7 @@
   }
   .sidebar .project-nav {
     font-size: var(--font-meta);
+    min-height: 44px;
     padding: 11px 12px;
   }
   .sidebar .account-row {
