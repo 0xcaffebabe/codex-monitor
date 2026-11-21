@@ -216,7 +216,7 @@ export class NativeDesktopControl implements DesktopControl {
         limit: 100,
         ...(cursor ? { cursor } : {}),
       });
-      if (!Array.isArray(result.data))
+      if (!Array.isArray(result?.data))
         throw new ControlError('Codex 项目列表无效，请升级桌面版后重试。', false, 502);
       for (const entry of result.data) {
         const root = this.options.projectPath

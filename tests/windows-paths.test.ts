@@ -6,7 +6,7 @@ import path from 'node:path';
 import { windowsBundledCli } from '../server/windows-paths.js';
 
 function findCli(env: NodeJS.ProcessEnv) {
-  return windowsBundledCli(env, () => []);
+  return windowsBundledCli(env, { storePackages: async () => [] });
 }
 
 function fixture(t: test.TestContext) {
@@ -22,13 +22,13 @@ function fixture(t: test.TestContext) {
   return { root, file };
 }
 
-test('Windows uses the configured desktop runtime before a different cached version', (t) => {
+test('Windows uses the configured desktop runtime before a different cached version', async (t) => {
   const f = fixture(t);
   const desktop = f.file('custom/ChatGPT.exe');
   const cli = f.file('custom/resources/codex.exe');
   f.file('local/OpenAI/Codex/bin/new/codex.exe', 200);
   assert.equal(
-    findCli({
+    await findCli({
       MONITOR_CODEX_DESKTOP: desktop,
       LOCALAPPDATA: path.join(f.root, 'local'),
     }),
@@ -36,24 +36,24 @@ test('Windows uses the configured desktop runtime before a different cached vers
   );
 });
 
-test('Windows keeps cached CLI discovery and chooses the newest valid executable', (t) => {
+test('Windows keeps cached CLI discovery and chooses the newest valid executable', async (t) => {
   const f = fixture(t);
   f.file('local/OpenAI/Codex/bin/old/codex.exe');
   const cli = f.file('local/OpenAI/Codex/bin/new/codex.exe', 200);
   f.file('local/OpenAI/Codex/bin/incomplete/download.tmp', 300);
   mkdirSync(path.join(f.root, 'local/OpenAI/Codex/bin/not-a-file/codex.exe'), { recursive: true });
-  assert.equal(findCli({ LOCALAPPDATA: path.join(f.root, 'local') }), cli);
+  assert.equal(await findCli({ LOCALAPPDATA: path.join(f.root, 'local') }), cli);
 });
 
-test('Windows discovers the CLI in a standalone desktop installation without launching its GUI', (t) => {
+test('Windows discovers the CLI in a standalone desktop installation without launching its GUI', async (t) => {
   const f = fixture(t);
   f.file('local/Programs/Codex/ChatGPT.exe', 300);
   const cli = f.file('local/Programs/Codex/resources/codex.exe');
   f.file('local/OpenAI/Codex/bin/stale-cache/codex.exe', 400);
-  assert.equal(findCli({ LOCALAPPDATA: path.join(f.root, 'local') }), cli);
+  assert.equal(await findCli({ LOCALAPPDATA: path.join(f.root, 'local') }), cli);
 });
 
-test('Windows discovers Store runtimes while excluding other packages and GUI executables', (t) => {
+test('Windows discovers Store runtimes while excluding other packages and GUI executables', async (t) => {
   const f = fixture(t);
   f.file('programs/WindowsApps/OpenAI.Codex_old/app/resources/codex.exe');
   const cli = f.file('programs/WindowsApps/OpenAI.Codex_new/app/resources/codex.exe', 200);
@@ -61,7 +61,7 @@ test('Windows discovers Store runtimes while excluding other packages and GUI ex
   f.file('programs/WindowsApps/OpenAI.Codex_gui/app/Codex.exe', 400);
   f.file('local/OpenAI/Codex/bin/stale-cache/codex.exe', 500);
   assert.equal(
-    findCli({
+    await findCli({
       ProgramFiles: path.join(f.root, 'programs'),
       LOCALAPPDATA: path.join(f.root, 'local'),
     }),
@@ -69,31 +69,31 @@ test('Windows discovers Store runtimes while excluding other packages and GUI ex
   );
 });
 
-test('Windows returns no CLI for missing or GUI-only installations', (t) => {
+test('Windows returns no CLI for missing or GUI-only installations', async (t) => {
   const f = fixture(t);
   const desktop = f.file('custom/Codex.exe');
   assert.equal(
-    findCli({
+    await findCli({
       MONITOR_CODEX_DESKTOP: desktop,
       LOCALAPPDATA: path.join(f.root, 'missing-local'),
       ProgramFiles: path.join(f.root, 'missing-programs'),
     }),
     undefined,
   );
-  assert.equal(findCli({}), undefined);
+  assert.equal(await findCli({}), undefined);
 });
 
-test('Windows uses registered Store package metadata when WindowsApps cannot be enumerated', (t) => {
+test('Windows uses registered Store package metadata when WindowsApps cannot be enumerated', async (t) => {
   const f = fixture(t);
   const cli = f.file('registered-package/app/resources/codex.exe');
   f.file('local/OpenAI/Codex/bin/stale-cache/codex.exe', 500);
   assert.equal(
-    windowsBundledCli(
+    await windowsBundledCli(
       {
         LOCALAPPDATA: path.join(f.root, 'local'),
         ProgramFiles: path.join(f.root, 'inaccessible-programs'),
       },
-      () => [path.join(f.root, 'registered-package')],
+      { storePackages: async () => [path.join(f.root, 'registered-package')] },
     ),
     cli,
   );

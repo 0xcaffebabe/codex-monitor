@@ -21,7 +21,7 @@ const readMethods = new Set([
   'project/read',
 ]);
 
-function cliPath() {
+async function cliPath(signal: AbortSignal) {
   const explicit = process.env.MONITOR_CODEX_CLI || process.env.CODEX_APP_RUNTIME_CLI_PATH;
   if (explicit) {
     if (!existsSync(explicit))
@@ -33,15 +33,21 @@ function cliPath() {
     if (bundle) return macBundledCli(bundle)!;
   }
   if (process.platform !== 'win32') return 'codex';
-  const executable = windowsBundledCli();
-  if (!executable) throw new ControlError('找不到 Codex 命令行，请在本机配置 MONITOR_CODEX_CLI。');
-  return executable;
+  return windowsBundledCli(process.env, { signal });
+}
+
+function launchError(error: unknown) {
+  const code = (error as NodeJS.ErrnoException | undefined)?.code;
+  return new ControlError(
+    `无法启动 Codex 服务${code ? `（${code}）` : ''}，请检查本机 Codex CLI。`,
+  );
 }
 
 /** CLI app-server connection with separate client calls and server approval callbacks. */
 export class NativeRpc {
   private process?: ChildProcessWithoutNullStreams;
-  private ready?: Promise<void>;
+  private startup?: AbortController;
+  private ready?: Promise<ChildProcessWithoutNullStreams>;
   private disposed = false;
   private nextId = 1;
   private serverRequests = new Map<string, AbortController>();
@@ -50,7 +56,7 @@ export class NativeRpc {
     {
       resolve: (value: any) => void;
       reject: (error: Error) => void;
-      readOnly: boolean;
+      method: string;
       timer: ReturnType<typeof setTimeout>;
     }
   >();
@@ -67,13 +73,32 @@ export class NativeRpc {
     if (this.disposed)
       return Promise.reject(new ControlError('会话运行时已释放，请重新连接。', false, 503));
     if (this.ready) return this.ready;
-    const child =
-      this.launch?.() ??
-      spawn(cliPath(), ['app-server', '--listen', 'stdio://'], {
-        windowsHide: true,
-        stdio: ['pipe', 'pipe', 'pipe'],
-        env: { ...process.env, ...(this.codexHome ? { CODEX_HOME: this.codexHome } : {}) },
-      });
+    const startup = new AbortController();
+    this.startup = startup;
+    this.ready = this.initialize(startup.signal).catch((error) => {
+      if (this.startup === startup) this.close();
+      throw error;
+    });
+    return this.ready;
+  }
+  private async initialize(signal: AbortSignal) {
+    let child: ChildProcessWithoutNullStreams;
+    try {
+      if (this.launch) child = this.launch();
+      else {
+        const executable = await cliPath(signal);
+        if (signal.aborted) throw new ControlError('Codex 服务启动已取消，请重试。');
+        if (!executable)
+          throw new ControlError('找不到 Codex 命令行，请在本机配置 MONITOR_CODEX_CLI。');
+        child = spawn(executable, ['app-server', '--listen', 'stdio://'], {
+          windowsHide: true,
+          stdio: ['pipe', 'pipe', 'pipe'],
+          env: { ...process.env, ...(this.codexHome ? { CODEX_HOME: this.codexHome } : {}) },
+        });
+      }
+    } catch (error) {
+      throw error instanceof ControlError ? error : launchError(error);
+    }
     this.process = child;
     const lines = createInterface({ input: child.stdout });
     child.stderr.resume();
@@ -139,79 +164,91 @@ export class NativeRpc {
         /* Non-response diagnostic lines cannot resolve a request. */
       }
     });
-    const disconnected = () => {
+    const disconnected = (initializationError: ControlError) => {
       lines.close();
       // A previous process can emit exit after its replacement has started.
-      if (this.process === child) this.close();
+      if (this.process === child) this.close(initializationError);
     };
-    child.stdin.on('error', disconnected);
-    child.on('error', disconnected);
-    child.on('exit', disconnected);
-    this.ready = this.requestRaw('initialize', {
+    child.stdin.on('error', (error) => disconnected(launchError(error)));
+    child.on('error', (error) => disconnected(launchError(error)));
+    child.on('exit', (code, signal) =>
+      disconnected(
+        new ControlError(
+          `Codex 服务在启动时退出（${signal ?? `退出码 ${code ?? '未知'}`}），请检查本机 Codex CLI。`,
+        ),
+      ),
+    );
+    await this.requestRaw(child, 'initialize', {
       clientInfo: { name: 'codex_monitor', version: '1.1.0' },
       capabilities: {
         experimentalApi: true,
         ...(this.events?.request ? { requiredHumanApproval: true } : {}),
       },
-    })
-      .then(() => {
-        child.stdin.write(JSON.stringify({ method: 'initialized' }) + '\n');
-      })
-      .catch((error) => {
-        if (this.process === child) this.close();
-        throw error;
-      });
-    return this.ready;
+    });
+    if (this.process !== child) throw new ControlError('Codex 服务在启动时断开，请重试。');
+    child.stdin.write(JSON.stringify({ method: 'initialized' }) + '\n');
+    this.startup = undefined;
+    return child;
   }
   async request(method: string, params: object): Promise<any> {
-    await this.start();
-    return this.requestRaw(method, params);
+    return this.requestRaw(await this.start(), method, params);
   }
-  private requestRaw(method: string, params: unknown): Promise<any> {
+  private requestRaw(
+    child: ChildProcessWithoutNullStreams,
+    method: string,
+    params: object,
+  ): Promise<any> {
     return new Promise((resolve, reject) => {
-      const child = this.process;
-      if (!child) {
+      if (this.process !== child) {
         reject(new ControlError('Codex 服务连接已关闭，请重试。', false, 503));
         return;
       }
+      const initializing = method === 'initialize';
+      const readOnly = readMethods.has(method);
       const id = this.nextId++,
         timer = setTimeout(
           () => {
             this.pending.delete(id);
             reject(
               new ControlError(
-                readMethods.has(method)
-                  ? '读取 Codex 超时，请重试。'
-                  : '操作结果待确认，请查询后再操作。',
-                !readMethods.has(method),
+                initializing
+                  ? 'Codex 服务启动超时，请重试。'
+                  : readOnly
+                    ? '读取 Codex 超时，请重试。'
+                    : '操作结果待确认，请查询后再操作。',
+                !readOnly,
                 504,
               ),
             );
           },
-          method === 'thread/compact/start' ? 90000 : 30000,
+          initializing ? 60_000 : method === 'thread/compact/start' ? 90_000 : 30_000,
         );
-      this.pending.set(id, { resolve, reject, timer, readOnly: readMethods.has(method) });
+      this.pending.set(id, { resolve, reject, timer, method });
       child.stdin.write(JSON.stringify({ id, method, params }) + '\n', (error) => {
         if (error) {
           clearTimeout(timer);
           this.pending.delete(id);
-          reject(new ControlError('Codex 服务连接中断，请查询后重试。', !readMethods.has(method)));
+          reject(
+            initializing
+              ? launchError(error)
+              : new ControlError('Codex 服务连接中断，请查询后重试。', !readOnly),
+          );
         }
       });
     });
   }
   async models(): Promise<CodexModel[]> {
-    await this.start();
+    const child = await this.start();
     const models = new Map<string, CodexModel>(),
       cursors = new Set<string>();
     let cursor: string | undefined;
     do {
-      const result = await this.requestRaw('model/list', {
+      const result = await this.requestRaw(child, 'model/list', {
         includeHidden: false,
         limit: 100,
         ...(cursor ? { cursor } : {}),
       });
-      if (!Array.isArray(result.data)) throw new ControlError('Codex 模型列表无效，请重试。');
+      if (!Array.isArray(result?.data)) throw new ControlError('Codex 模型列表无效，请重试。');
       for (const entry of result.data) {
         if (!entry || entry.hidden || typeof entry.model !== 'string' || !entry.model.trim())
           continue;
@@ -237,18 +274,15 @@ export class NativeRpc {
     return [...models.values()];
   }
   async get(threadId: string) {
-    await this.start();
-    return (await this.requestRaw('thread/goal/get', { threadId })).goal;
+    return (await this.request('thread/goal/get', { threadId })).goal;
   }
   async set(threadId: string, input: { objective?: string; status?: string }) {
-    await this.start();
     // Human input is recorded by the desktop owner; this helper must not acquire
     // that thread's live writer to append an origin:user instruction.
-    return (await this.requestRaw('thread/goal/set', { threadId, ...input })).goal;
+    return (await this.request('thread/goal/set', { threadId, ...input })).goal;
   }
   async clear(threadId: string) {
-    await this.start();
-    return this.requestRaw('thread/goal/clear', { threadId });
+    return this.request('thread/goal/clear', { threadId });
   }
   /** Permanently release an idle runtime and wait until its writer process exits. */
   async dispose() {
@@ -277,16 +311,22 @@ export class NativeRpc {
       this.close();
     });
   }
-  close() {
+  close(initializationError?: ControlError) {
     const child = this.process;
     this.process = undefined;
     this.ready = undefined;
+    this.startup?.abort();
+    this.startup = undefined;
     for (const controller of this.serverRequests.values()) controller.abort();
     this.serverRequests.clear();
     this.events?.disconnected?.();
     for (const pending of this.pending.values()) {
       clearTimeout(pending.timer);
-      pending.reject(new ControlError('Codex 服务连接中断，请查询后重试。', !pending.readOnly));
+      const startupFailure = pending.method === 'initialize' ? initializationError : undefined;
+      pending.reject(
+        startupFailure ??
+          new ControlError('Codex 服务连接中断，请查询后重试。', !readMethods.has(pending.method)),
+      );
     }
     this.pending.clear();
     if (child) {

@@ -39,6 +39,101 @@ class GoalProcess extends EventEmitter {
   unref() {}
 }
 
+test('project and model reads share a cold start that takes more than 30 seconds', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const child = new GoalProcess();
+  child.respond = false;
+  child.result = () => ({ data: [] });
+  let launches = 0;
+  const rpc = new NativeRpc(undefined, () => {
+    launches++;
+    return child as unknown as ChildProcessWithoutNullStreams;
+  });
+  try {
+    const loading = Promise.allSettled([rpc.request('project/list', {}), rpc.models()]);
+    await nextTick();
+    assert.equal(launches, 1);
+    assert.deepEqual(
+      child.requests.map(({ method }) => method),
+      ['initialize'],
+    );
+    t.mock.timers.tick(35_000);
+    child.respond = true;
+    child.stdout.write(JSON.stringify({ id: child.requests[0].id, result: {} }) + '\n');
+    assert.deepEqual(await loading, [
+      { status: 'fulfilled', value: { data: [] } },
+      { status: 'fulfilled', value: [] },
+    ]);
+    assert.deepEqual(
+      child.requests.map(({ method }) => method),
+      ['initialize', 'initialized', 'project/list', 'model/list'],
+    );
+    assert.equal(child.killed, false);
+  } finally {
+    rpc.close();
+  }
+});
+
+test('a timed-out initialization is released and the next read can start a new process', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const slow = new GoalProcess(),
+    ready = new GoalProcess();
+  slow.respond = false;
+  ready.result = () => ({ data: [] });
+  const children = [slow, ready];
+  const rpc = new NativeRpc(
+    undefined,
+    () => children.shift() as unknown as ChildProcessWithoutNullStreams,
+  );
+  try {
+    const rejected = assert.rejects(
+      rpc.models(),
+      (error: unknown) =>
+        error instanceof ControlError &&
+        error.status === 504 &&
+        !error.uncertain &&
+        /启动超时/.test(error.message),
+    );
+    await nextTick();
+    t.mock.timers.tick(60_000);
+    await rejected;
+    assert.equal(slow.killed, true);
+    assert.deepEqual(await rpc.models(), []);
+    assert.equal(ready.killed, false);
+  } finally {
+    rpc.close();
+  }
+});
+
+test('synchronous and asynchronous process launch errors report the OS code and allow retry', async () => {
+  const child = new GoalProcess();
+  child.respond = false;
+  let launches = 0;
+  const rpc = new NativeRpc(undefined, () => {
+    if (++launches === 1) throw Object.assign(new Error('spawn failed'), { code: 'EAGAIN' });
+    if (launches === 2) {
+      queueMicrotask(() =>
+        child.emit('error', Object.assign(new Error('spawn failed'), { code: 'EACCES' })),
+      );
+      return child as unknown as ChildProcessWithoutNullStreams;
+    }
+    return new GoalProcess() as unknown as ChildProcessWithoutNullStreams;
+  });
+  const failedWith = (code: string) => (error: unknown) =>
+    error instanceof ControlError && !error.uncertain && error.message.includes(code);
+  try {
+    await Promise.all([
+      assert.rejects(rpc.request('project/list', {}), failedWith('EAGAIN')),
+      assert.rejects(rpc.models(), failedWith('EAGAIN')),
+    ]);
+    await assert.rejects(rpc.models(), failedWith('EACCES'));
+    assert.equal(child.killed, true);
+    assert.equal((await rpc.get('test-thread')).status, 'active');
+  } finally {
+    rpc.close();
+  }
+});
+
 test('late exits from an old goal process cannot kill its replacement and stdin errors reject pending work', async () => {
   const children: GoalProcess[] = [];
   const rpc = new NativeRpc(undefined, () => {
