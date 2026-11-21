@@ -2,6 +2,50 @@ import path from 'node:path';
 import { ids } from '../fixture.js';
 import { expect, localTitle, test } from './monitor.js';
 
+test('a slow workspace leaves other session lists visible and refreshing', async ({
+  app: { browserPage: page, account, workspace },
+  monitor,
+  local,
+}) => {
+  const remoteName = '响应缓慢的工作空间';
+  const remoteTitle = '远程工作空间会话';
+  const remote = await monitor.addWorkspace(remoteName, remoteTitle);
+  let requested = false;
+  let respond!: () => void;
+  const waiting = new Promise<void>((resolve) => {
+    respond = resolve;
+  });
+  await page.route(
+    (url) => url.pathname === `/api/workspaces/${remote.id}/sessions`,
+    async (route) => {
+      requested = true;
+      await waiting;
+      await route.fulfill({ status: 503, json: { error: '工作空间已离线' } });
+    },
+    { times: 1 },
+  );
+
+  try {
+    await account.setUpOwner(monitor.setupKey, monitor.credentials, `/?workspace=${local.id}&view=all`);
+    await expect.poll(() => requested).toBe(true);
+    await expect(workspace.sessionRow(localTitle)).toBeVisible({ timeout: 4000 });
+    await expect(workspace.sessionRow(remoteTitle)).toHaveCount(0);
+
+    const updatedTitle = '本机工作空间更新后的会话';
+    local.data.state.prepare('UPDATE threads SET title=? WHERE id=?').run(updatedTitle, ids.modern);
+    await expect(workspace.sessionRow(updatedTitle)).toBeVisible({ timeout: 5000 });
+
+    respond();
+    const warning = page.getByText(`${remoteName}（加载失败）`, { exact: true });
+    await expect(warning).toBeVisible();
+    await expect(workspace.sessionRow(updatedTitle)).toBeVisible();
+    await expect(workspace.sessionRow(remoteTitle)).toBeVisible();
+    await expect(warning).toHaveCount(0);
+  } finally {
+    respond();
+  }
+});
+
 test('sidebar projects browse all workspaces and open the selected workspace for an identical path', async ({
   signedIn: { browserPage: page, workspace },
   monitor,
