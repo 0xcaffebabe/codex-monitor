@@ -9,29 +9,6 @@
   color: var(--muted);
   margin-left: auto;
 }
-.detail-footer {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: var(--font-meta);
-  color: var(--muted);
-  padding: 12px 25px;
-  border-top: 1px solid var(--line);
-  flex-shrink: 0;
-  background: var(--surface);
-}
-.detail-footer .green-dot {
-  height: 4px;
-  width: 4px;
-}
-.detail-footer-count {
-  margin-left: auto;
-  color: var(--muted);
-  font-size: var(--font-meta);
-}
-.detail-footer > svg {
-  margin-left: 9px;
-}
 .jump-latest {
   position: absolute;
   right: 25px;

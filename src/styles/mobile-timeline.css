@@ -56,15 +56,6 @@
     font-size: var(--font-meta);
     margin-top: 8px;
   }
-  .detail-footer {
-    display: none;
-  }
-  .detail-footer-count {
-    font-size: var(--font-meta);
-  }
-  .detail-footer > svg {
-    display: none;
-  }
   .detail-panel > .alert {
     margin: 10px 16px;
     font-size: var(--font-meta);

@@ -1,4 +1,4 @@
-import { Shield, TriangleAlert } from 'lucide-react';
+import { TriangleAlert } from 'lucide-react';
 import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
 import type { SessionFileLink } from '../../file-preview-types';
 import { cx } from '../../shared/format';
@@ -211,14 +211,6 @@ export function Detail(
           )}
         </div>
       </div>
-      <footer className="detail-footer">
-        <span className={cx('green-dot', !connected && 'offline')} />
-        {connected ? '执行记录实时同步' : '连接中断，自动重试中'}
-        {!newSession && (
-          <span className="detail-footer-count">已显示 {page?.events.length ?? 0} 条记录</span>
-        )}
-        <Shield size={12} />
-      </footer>
     </section>
   );
 }

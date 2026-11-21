@@ -521,23 +521,6 @@
 .row-arrow {
   color: var(--muted);
 }
-.list-footer {
-  font-size: var(--font-meta);
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 10px;
-  padding: 12px 21px;
-  color: var(--muted);
-  border-top: 1px solid var(--line);
-  background: var(--surface);
-  flex-shrink: 0;
-}
-.list-footer > span:first-child {
-  display: flex;
-  gap: 5px;
-  align-items: center;
-}
 .workspace-footer {
   display: flex;
   justify-content: space-between;

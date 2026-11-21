@@ -6,7 +6,6 @@ import {
   MessageSquare,
   Plus,
   Search,
-  Shield,
   TriangleAlert,
   X,
 } from 'lucide-react';
@@ -298,15 +297,6 @@ export function SessionPanel({
           </button>
         )}
       </div>
-      <footer className="list-footer">
-        <span>
-          <Shield size={12} />
-          {user.role === 'admin' ? '会话监控与交互' : '只读监控'}
-        </span>
-        <span>
-          {sessions.length} / {total} 个会话
-        </span>
-      </footer>
     </section>
   );
 }

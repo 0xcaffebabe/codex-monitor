@@ -173,8 +173,4 @@
   .row-arrow {
     display: none;
   }
-  .list-footer {
-    font-size: var(--font-meta);
-    padding: 11px 15px;
-  }
 }
