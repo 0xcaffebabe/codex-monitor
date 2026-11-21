@@ -5,6 +5,15 @@ import { initializeWorkspace, navigateWorkspace, subscribeNavigation } from '../
 import { copyText } from '../../shared/clipboard';
 import { preferredNewSessionWorkspace } from '../control/new-session-preferences';
 
+type ConnectionCopy =
+  | { id: string; status: 'copying' | 'copied' }
+  | { id: string; status: 'error'; message: string };
+
+function clientCommand(id: string, key: string) {
+  const serverUrl = location.origin.replace(/^http/, 'ws');
+  return `npm run client -- --server-url "${serverUrl}" --workspace-id "${id}" --client-key "${key}"`;
+}
+
 export function useWorkspaces(userId: string) {
   const [workspaces, setWorkspaces] = useState<ManagedWorkspace[]>([]);
   const [loading, setLoading] = useState(true),
@@ -16,6 +25,8 @@ export function useWorkspaces(userId: string) {
     [pending, setPending] = useState('');
   const [connectionCommand, setConnectionCommand] = useState(''),
     [copied, setCopied] = useState(false);
+  const [connectionCopy, setConnectionCopy] = useState<ConnectionCopy | null>(null);
+  const copyRequest = useRef<AbortController | null>(null);
   const load = useCallback(async (signal?: AbortSignal) => {
     try {
       const result = await api<{ workspaces: ManagedWorkspace[] }>('/api/workspaces', { signal });
@@ -63,20 +74,19 @@ export function useWorkspaces(userId: string) {
     });
     return () => {
       abort.abort();
+      copyRequest.current?.abort();
       clearInterval(timer);
       unsubscribe();
     };
   }, [load]);
   const showCommand = (id: string, key: string) => {
-    const serverUrl = location.origin.replace(/^http/, 'ws');
-    setConnectionCommand(
-      `npm run client -- --server-url "${serverUrl}" --workspace-id "${id}" --client-key "${key}"`,
-    );
+    setConnectionCommand(clientCommand(id, key));
     setCopied(false);
   };
   const action = async (id: string, operation: () => Promise<void>) => {
     setPending(id);
     setError('');
+    setConnectionCopy(null);
     try {
       await operation();
       await load();
@@ -108,11 +118,38 @@ export function useWorkspaces(userId: string) {
       await api(`/api/workspaces/${id}`, { method: 'PATCH', body: JSON.stringify({ name }) });
     });
   const copy = async () => {
+    setConnectionCopy(null);
     try {
       await copyText(connectionCommand);
       setCopied(true);
     } catch (error) {
       setError((error as Error).message);
+    }
+  };
+  const copyWorkspaceCommand = async (id: string) => {
+    const request = new AbortController();
+    copyRequest.current = request;
+    setPending(id);
+    setCopied(false);
+    setConnectionCopy({ id, status: 'copying' });
+    try {
+      const command = api<{ key: string }>(
+        `/api/workspaces/${encodeURIComponent(id)}/connection-key`,
+        { signal: request.signal },
+      ).then(({ key }) => clientCommand(id, key));
+      await copyText(command);
+      if (!request.signal.aborted) setConnectionCopy({ id, status: 'copied' });
+    } catch (error) {
+      if (!request.signal.aborted) {
+        setConnectionCopy({
+          id,
+          status: 'error',
+          message: (error as Error).message || '无法复制连接命令，请重试',
+        });
+      }
+    } finally {
+      copyRequest.current = null;
+      setPending('');
     }
   };
   return {
@@ -128,14 +165,18 @@ export function useWorkspaces(userId: string) {
     pending,
     connectionCommand,
     copied,
+    connectionCopy,
     create,
     rotate,
     remove,
     rename,
     copy,
+    copyWorkspaceCommand,
     close: () => {
+      copyRequest.current?.abort();
       setManaging(false);
       setConnectionCommand('');
+      setConnectionCopy(null);
     },
     select: navigateWorkspace,
   };

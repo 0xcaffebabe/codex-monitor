@@ -372,6 +372,13 @@ export class WorkspaceGateway {
         return fail(res, 404, '找不到工作空间');
       res.json({ ok: true });
     });
+    app.get('/api/workspaces/:workspace/connection-key', admin, (req, res) => {
+      const id = String(req.params.workspace);
+      if (id === 'local') return fail(res, 409, '本机工作空间密钥由一体启动配置管理');
+      const key = this.store.key(id);
+      if (!key) return fail(res, 404, '找不到工作空间');
+      res.json({ key });
+    });
     app.post('/api/workspaces/:workspace/rotate-key', admin, (req, res) => {
       const id = String(req.params.workspace);
       if (id === 'local') return fail(res, 409, '本机工作空间密钥由一体启动配置管理');

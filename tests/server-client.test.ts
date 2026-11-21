@@ -112,6 +112,17 @@ test('two clients over encrypted ws isolate reads, writes, uploads and receipts,
     );
     assert.equal((await fetch(`${base}/api/workspaces`)).status, 401);
     assert.equal((await get(wa.workspace.id, '/auth/me')).status, 404);
+    const connectionKey = await get(wa.workspace.id, '/connection-key');
+    assert.equal(connectionKey.status, 200);
+    assert.equal(connectionKey.headers.get('cache-control'), 'no-store');
+    assert.deepEqual(await connectionKey.json(), { key: wa.key });
+    assert.equal(
+      service.gateway.list().find((workspace) => workspace.id === wa.workspace.id)?.online,
+      true,
+    );
+    assert.equal((await get(wa.workspace.id, '/connection-key', '')).status, 401);
+    assert.equal((await get('missing', '/connection-key')).status, 404);
+    assert.equal((await get('local', '/connection-key')).status, 409);
     const uploadBytes = randomBytes(MAX_BODY);
     const upload = await fetch(`${base}/api/workspaces/${wa.workspace.id}/uploads?name=test.bin`, {
       method: 'POST',
@@ -166,6 +177,11 @@ test('two clients over encrypted ws isolate reads, writes, uploads and receipts,
       'viewer',
     );
     assert.equal((await get(wa.workspace.id, `/sessions/${ids.modern}`, viewer.token)).status, 200);
+    assert.equal((await get(wa.workspace.id, '/connection-key', viewer.token)).status, 403);
+    const listedWorkspaces = await fetch(`${base}/api/workspaces`, {
+      headers: { Authorization: `Bearer ${viewer.token}` },
+    });
+    assert.equal((await listedWorkspaces.text()).includes(wa.key), false);
     assert.equal(
       (
         await fetch(`${base}/api/workspaces/${wa.workspace.id}/sessions/${ids.modern}/messages`, {
@@ -262,6 +278,9 @@ test('two clients over encrypted ws isolate reads, writes, uploads and receipts,
     assert.equal((await get(wb.workspace.id, '/overview', fresh.token)).status, 503);
     const replacementKey = service.gateway.store.rotate(wb.workspace.id)!;
     assert.notEqual(replacementKey, wb.key);
+    const offlineConnectionKey = await get(wb.workspace.id, '/connection-key', fresh.token);
+    assert.equal(offlineConnectionKey.status, 200);
+    assert.deepEqual(await offlineConnectionKey.json(), { key: replacementKey });
     const wrong = await MonitorClient.start({
       config: b.config,
       serverUrl: base,

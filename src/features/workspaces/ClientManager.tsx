@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Copy, Monitor, Plus, X } from 'lucide-react';
+import { Check, Copy, Monitor, Plus, X } from 'lucide-react';
 import type { WorkspacesModel } from './useWorkspaces';
 import type { ManagedWorkspace } from '../../workspaces';
 import { relative } from '../../shared/format';
@@ -8,6 +8,7 @@ import { ResourceMetrics } from './ResourceMetrics';
 function ClientRow({ workspace, model }: { workspace: ManagedWorkspace; model: WorkspacesModel }) {
   const [name, setName] = useState(workspace.name);
   const [confirming, setConfirming] = useState<'rotate' | 'remove' | ''>('');
+  const copy = model.connectionCopy?.id === workspace.id ? model.connectionCopy : null;
   return (
     <article className="client-row">
       <div className="client-heading">
@@ -39,6 +40,21 @@ function ClientRow({ workspace, model }: { workspace: ManagedWorkspace; model: W
         </button>
         {workspace.id !== 'local' && (
           <>
+            <button
+              type="button"
+              className="client-copy"
+              disabled={!!model.pending}
+              onClick={() => void model.copyWorkspaceCommand(workspace.id)}
+            >
+              {copy?.status === 'copied' ? <Check size={15} /> : <Copy size={15} />}
+              <span aria-live="polite">
+                {copy?.status === 'copied'
+                  ? '已复制'
+                  : copy?.status === 'copying'
+                    ? '复制中…'
+                    : '复制连接命令'}
+              </span>
+            </button>
             <button disabled={!!model.pending} onClick={() => setConfirming('rotate')}>
               轮换密钥
             </button>
@@ -52,6 +68,11 @@ function ClientRow({ workspace, model }: { workspace: ManagedWorkspace; model: W
           </>
         )}
       </div>
+      {copy?.status === 'error' && (
+        <p className="alert error" role="alert">
+          {copy.message}
+        </p>
+      )}
       {confirming && (
         <div className="client-confirm">
           <span>
@@ -139,7 +160,7 @@ export function ClientManager({ model }: { model: WorkspacesModel }) {
                 rows={5}
                 spellCheck={false}
               />
-              <button onClick={() => void model.copy()}>
+              <button disabled={!!model.pending} onClick={() => void model.copy()}>
                 <Copy size={15} />
                 {model.copied ? '已复制' : '复制 client 启动命令'}
               </button>

@@ -66,11 +66,15 @@
   flex: 1;
 }
 .client-create button,
-.client-config button {
+.client-config button,
+.client-copy {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
+}
+.client-copy {
+  min-inline-size: calc(6em + 33px);
 }
 .client-row {
   border-top: 1px solid var(--line);
