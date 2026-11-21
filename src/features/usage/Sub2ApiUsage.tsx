@@ -3,14 +3,25 @@ import { useEffect, useState } from 'react';
 import { api } from '../../api';
 import type {
   Sub2ApiAccount,
+  Sub2ApiCallRecord,
   Sub2ApiCredits,
   Sub2ApiKeyUsage,
   Sub2ApiPage,
   Sub2ApiSettings,
 } from '../../sub2api-types';
 import { dateKey, integer, money } from './format';
+import {
+  defaultCallRecordFilters,
+  Sub2ApiCallFilters,
+  Sub2ApiCallRecords,
+} from './Sub2ApiCallRecords';
 
-type View = 'accounts' | 'keys';
+type View = 'accounts' | 'keys' | 'calls';
+const emptyMessage: Record<View, string> = {
+  accounts: '未找到订阅账号',
+  keys: '所选区间未找到有调用记录的 Key',
+  calls: '所选条件下暂无调用记录',
+};
 
 const tokenCount = new Intl.NumberFormat('en-US', {
   notation: 'compact',
@@ -28,7 +39,9 @@ function useQuery<T>(url: string | undefined, revision = 0) {
     if (!url) return;
     const abort = new AbortController();
     void api<T>(url, { signal: abort.signal })
-      .then((data) => setResult({ url, revision, data }))
+      .then((data) => {
+        if (!abort.signal.aborted) setResult({ url, revision, data });
+      })
       .catch((e: Error) => {
         if (!abort.signal.aborted) setResult({ url, revision, error: e.message });
       });
@@ -170,20 +183,27 @@ export function Sub2ApiUsage({
   const [search, setSearch] = useState('');
   const [accountType, setAccountType] = useState('oauth');
   const [days, setDays] = useState('7');
+  const [callFilters, setCallFilters] = useState(defaultCallRecordFilters);
   const [refresh, setRefresh] = useState(0);
   const generation = revision + refresh;
   const settings = useQuery<Sub2ApiSettings>('/api/sub2api/settings', generation);
   const configured = settings.data?.configured;
-  const params = new URLSearchParams({ page: String(page), search });
+  const params = new URLSearchParams({ page: String(page) });
+  if (view === 'calls') {
+    for (const [key, value] of Object.entries(callFilters)) {
+      if (value) params.set(key, value);
+    }
+  } else params.set('search', search);
+
   if (view === 'accounts') params.set('type', accountType);
-  else {
+  if (view === 'keys') {
     const end = new Date();
     const start = new Date(end);
     start.setDate(end.getDate() - Number(days) + 1);
     params.set('startDate', dateKey(start));
     params.set('endDate', dateKey(end));
-    params.set('timezone', Intl.DateTimeFormat().resolvedOptions().timeZone);
   }
+  if (view !== 'accounts') params.set('timezone', Intl.DateTimeFormat().resolvedOptions().timeZone);
   const query = configured ? `/api/sub2api/${view}?${params}` : undefined;
   const accounts = useQuery<Sub2ApiPage<Sub2ApiAccount>>(
     view === 'accounts' ? query : undefined,
@@ -193,7 +213,11 @@ export function Sub2ApiUsage({
     view === 'keys' ? query : undefined,
     generation,
   );
-  const result = view === 'accounts' ? accounts : keys;
+  const calls = useQuery<Sub2ApiPage<Sub2ApiCallRecord>>(
+    view === 'calls' ? query : undefined,
+    generation,
+  );
+  const result = { accounts, keys, calls }[view];
   const busy = settings.busy || result.busy;
   const error = settings.error || result.error;
   const nextPage = !!result.data && page * result.data.pageSize < result.data.total;
@@ -256,63 +280,78 @@ export function Sub2ApiUsage({
               <button type="button" aria-pressed={view === 'keys'} onClick={() => show('keys')}>
                 API Key
               </button>
-            </div>
-            <form
-              className="sub2api-filters"
-              onSubmit={(event) => {
-                event.preventDefault();
-                const nextSearch = draftSearch.trim();
-                if (page === 1 && search === nextSearch && result.error) {
-                  setRefresh((value) => value + 1);
-                  return;
-                }
-                setPage(1);
-                setSearch(nextSearch);
-              }}
-            >
-              {view === 'accounts' ? (
-                <select
-                  aria-label="订阅账号类型"
-                  value={accountType}
-                  onChange={(event) => {
-                    setPage(1);
-                    setAccountType(event.target.value);
-                  }}
-                >
-                  <option value="oauth">OAuth</option>
-                  <option value="setup-token">Setup Token</option>
-                </select>
-              ) : (
-                <select
-                  aria-label="Sub2API Key 统计时间范围"
-                  value={days}
-                  onChange={(event) => {
-                    setPage(1);
-                    setDays(event.target.value);
-                  }}
-                >
-                  <option value="1">今天</option>
-                  <option value="7">近 7 天</option>
-                  <option value="30">近 30 天</option>
-                </select>
-              )}
-              <input
-                type="search"
-                aria-label={view === 'accounts' ? '订阅账号名称' : 'Key 名称或 #ID'}
-                placeholder={view === 'accounts' ? '订阅账号名称' : 'Key 名称或 #ID'}
-                value={draftSearch}
-                maxLength={100}
-                onChange={(event) => setDraftSearch(event.target.value)}
-              />
-              <button
-                className="icon-button"
-                title="查询 Sub2API 用量"
-                aria-label="查询 Sub2API 用量"
-              >
-                <Search size={16} />
+              <button type="button" aria-pressed={view === 'calls'} onClick={() => show('calls')}>
+                调用记录
               </button>
-            </form>
+            </div>
+            {view !== 'calls' && (
+              <form
+                className="sub2api-filters"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  const nextSearch = draftSearch.trim();
+                  if (page === 1 && search === nextSearch && result.error) {
+                    setRefresh((value) => value + 1);
+                    return;
+                  }
+                  setPage(1);
+                  setSearch(nextSearch);
+                }}
+              >
+                {view === 'accounts' ? (
+                  <select
+                    aria-label="订阅账号类型"
+                    value={accountType}
+                    onChange={(event) => {
+                      setPage(1);
+                      setAccountType(event.target.value);
+                    }}
+                  >
+                    <option value="oauth">OAuth</option>
+                    <option value="setup-token">Setup Token</option>
+                  </select>
+                ) : (
+                  <select
+                    aria-label="Sub2API Key 统计时间范围"
+                    value={days}
+                    onChange={(event) => {
+                      setPage(1);
+                      setDays(event.target.value);
+                    }}
+                  >
+                    <option value="1">今天</option>
+                    <option value="7">近 7 天</option>
+                    <option value="30">近 30 天</option>
+                  </select>
+                )}
+                <input
+                  type="search"
+                  aria-label={view === 'accounts' ? '订阅账号名称' : 'Key 名称或 #ID'}
+                  placeholder={view === 'accounts' ? '订阅账号名称' : 'Key 名称或 #ID'}
+                  value={draftSearch}
+                  maxLength={100}
+                  onChange={(event) => setDraftSearch(event.target.value)}
+                />
+                <button
+                  className="icon-button"
+                  title="查询 Sub2API 用量"
+                  aria-label="查询 Sub2API 用量"
+                >
+                  <Search size={16} />
+                </button>
+              </form>
+            )}
           </div>
+          {view === 'calls' && (
+            <Sub2ApiCallFilters
+              filters={callFilters}
+              onApply={(filters) => {
+                setCallFilters(filters);
+                setPage(1);
+                setRefresh((value) => value + 1);
+              }}
+            />
+          )}
           {result.data?.warning && (
             <p className="usage-warning sub2api-message" role="status">
               {result.data.warning}
@@ -323,12 +362,15 @@ export function Sub2ApiUsage({
               正在查询 Sub2API…
             </p>
           )}
-          {result.data && !result.data.items.length && (
-            <p className="sub2api-message muted">
-              {view === 'accounts' ? '未找到订阅账号' : '所选区间未找到有调用记录的 Key'}
-            </p>
+          {result.data &&
+            !result.data.items.length &&
+            (view !== 'calls' || !result.data.warning) && (
+              <p className="sub2api-message muted">{emptyMessage[view]}</p>
+            )}
+          {view === 'calls' && !!calls.data?.items.length && (
+            <Sub2ApiCallRecords items={calls.data.items} />
           )}
-          {!!result.data?.items.length && (
+          {view !== 'calls' && !!result.data?.items.length && (
             <div className="usage-table-scroll">
               <table
                 className="sub2api-table"
@@ -367,7 +409,8 @@ export function Sub2ApiUsage({
           {(page > 1 || nextPage) && (
             <div className="usage-pagination">
               <span>
-                第 {page} 页{result.data ? ` · ${integer(result.data.total)} 条` : ''}
+                第 {page} 页
+                {result.data && view !== 'calls' ? ` · ${integer(result.data.total)} 条` : ''}
               </span>
               <button
                 className="icon-button"
