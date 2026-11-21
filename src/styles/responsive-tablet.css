@@ -10,9 +10,6 @@
     width: 27px;
     height: 28px;
   }
-  .workspace-label {
-    padding: 8px;
-  }
   .sidebar .nav-item {
     font-size: var(--font-meta);
   }

@@ -8,7 +8,6 @@ import {
   ListTodo,
   Monitor,
   Settings2,
-  Shield,
   Sun,
   X,
 } from 'lucide-react';
@@ -31,7 +30,6 @@ export function Sidebar({
   dark,
   setDark,
   model,
-  workspaceName,
   workspaces,
 }: WorkspaceProps & {
   workspaces: ManagedWorkspace[];
@@ -96,14 +94,6 @@ export function Sidebar({
         <button className="icon-button mobile-only" title="关闭菜单" onClick={() => setMenu(false)}>
           <X size={19} />
         </button>
-      </div>
-      <div className="workspace-label">
-        <span className="workspace-avatar">W</span>
-        <span>
-          {workspaceName || '本机工作空间'}
-          <small>Codex workspace</small>
-        </span>
-        <Shield size={14} />
       </div>
       <div className="nav-label">工作空间</div>
       <nav className="workspace-nav">
