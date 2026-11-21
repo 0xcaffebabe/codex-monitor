@@ -36,6 +36,7 @@ test(
     const project = path.join(f.root, 'launcher project');
     const directData = path.join(project, 'direct client data');
     const backgroundData = path.join(project, 'background client data');
+    const clientBuildCommitAt = Date.UTC(2026, 0, 2, 3, 4, 5);
     mkdirSync(path.join(project, 'dist'), { recursive: true });
     symlinkSync(
       path.resolve('node_modules'),
@@ -49,6 +50,7 @@ test(
       platform: 'node',
       format: 'esm',
       packages: 'external',
+      define: { __MONITOR_BUILD_COMMIT_AT__: JSON.stringify(clientBuildCommitAt) },
     });
     const service = createMonitorServer({
       ...f.config,
@@ -65,6 +67,9 @@ test(
       await service.auth.setup('owner', 'cli-startup-password'),
       'test',
     );
+    const headers = { Authorization: `Bearer ${auth.token}` };
+    const current = () =>
+      service.gateway.list().find((item) => item.id === registration.workspace.id);
     const args = [
       '--mode',
       'client',
@@ -146,13 +151,15 @@ test(
       child.stderr!.on('data', (data) => {
         output += data;
       });
-      await until(
-        () =>
-          !!service.gateway.list().find((item) => item.id === registration.workspace.id)?.online,
-      );
+      await until(() => !!current()?.online);
+      const list = await fetch(`${base}/api/workspaces`, { headers });
+      assert.equal(list.status, 200);
+      const versions = await list.json();
+      assert.equal(versions.serverBuildCommitAt, null);
+      assert.equal(versions.workspaces[0].buildCommitAt, clientBuildCommitAt);
       const session = await fetch(
         `${base}/api/workspaces/${registration.workspace.id}/sessions/${ids.modern}`,
-        { headers: { Authorization: `Bearer ${auth.token}` } },
+        { headers },
       );
       assert.equal(session.status, 200);
       assert.equal((await session.json()).session.id, ids.modern);
@@ -162,6 +169,8 @@ test(
       child.kill();
       await exited;
       child = undefined;
+      await until(() => !current()?.online);
+      assert.equal(current()?.buildCommitAt, clientBuildCommitAt);
 
       if (process.platform === 'win32') {
         for (const script of ['start.ps1', 'start.cmd', 'stop.ps1', 'stop.cmd'])
@@ -209,18 +218,11 @@ test(
           { env: { ...cleanEnv, MONITOR_CLIENT_KEY: registration.key } },
         );
         assert.match(inheritedCheck.stdout, /Configuration valid \(client\)/);
-        await until(
-          () =>
-            !service.gateway.list().find((item) => item.id === registration.workspace.id)?.online,
-        );
         const started = await batch(
           `start.cmd ${parameters.map((value) => `"${value}"`).join(' ')}`,
         );
         assert.match(started.stdout, /client started/);
-        await until(
-          () =>
-            !!service.gateway.list().find((item) => item.id === registration.workspace.id)?.online,
-        );
+        await until(() => !!current()?.online);
         const stateFile = path.join(backgroundData, 'server-process.json');
         const state = JSON.parse(readFileSync(stateFile, 'utf8'));
         assert.ok(state.settingsHash);
@@ -249,10 +251,7 @@ test(
         const rebuilt = await ps('start.ps1', [...parameters, '-Build']);
         assert.match(rebuilt.stdout, /Restarting Codex Monitor to apply the current build/);
         assert.notEqual(JSON.parse(readFileSync(stateFile, 'utf8')).pid, updatedState.pid);
-        await until(
-          () =>
-            !!service.gateway.list().find((item) => item.id === registration.workspace.id)?.online,
-        );
+        await until(() => !!current()?.online);
         await assert.rejects(
           ps('start.ps1', [...parameters, '-PollMs', '2000']),
           (error: Error & { stderr: string }) => {

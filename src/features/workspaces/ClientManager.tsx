@@ -5,6 +5,21 @@ import type { ManagedWorkspace } from '../../workspaces';
 import { relative } from '../../shared/format';
 import { ResourceMetrics } from './ResourceMetrics';
 
+const buildTime = new Intl.DateTimeFormat('zh-CN', {
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+  second: '2-digit',
+  hourCycle: 'h23',
+});
+
+function BuildTime({ commitAt }: { commitAt?: number | null }) {
+  if (commitAt == null) return '未知';
+  return <time dateTime={new Date(commitAt).toISOString()}>{buildTime.format(commitAt)}</time>;
+}
+
 function ClientRow({ workspace, model }: { workspace: ManagedWorkspace; model: WorkspacesModel }) {
   const [name, setName] = useState(workspace.name);
   const [confirming, setConfirming] = useState<'rotate' | 'remove' | ''>('');
@@ -18,10 +33,17 @@ function ClientRow({ workspace, model }: { workspace: ManagedWorkspace; model: W
           {workspace.online ? '在线' : '离线'}
         </span>
       </div>
-      <p className="help">
-        {workspace.hostname || '等待 client 首次连接'}
-        {workspace.platform && ` · ${workspace.platform}`}
-        {!workspace.online && workspace.lastSeen && ` · 最后连接 ${relative(workspace.lastSeen)}`}
+      <p className="help client-details">
+        <span>
+          {workspace.hostname || '等待 client 首次连接'}
+          {workspace.platform && ` · ${workspace.platform}`}
+        </span>
+        <span>
+          客户端版本 <BuildTime commitAt={workspace.buildCommitAt} />
+        </span>
+        {!workspace.online && workspace.lastSeen && (
+          <span>最后连接 {relative(workspace.lastSeen)}</span>
+        )}
       </p>
       <ResourceMetrics workspace={workspace} unavailable={!!model.error} />
       <code className="client-id">{workspace.id}</code>
@@ -112,6 +134,9 @@ export function ClientManager({ model }: { model: WorkspacesModel }) {
           <Monitor size={24} />
           <div>
             <h2 id="client-manager-title">管理工作空间</h2>
+            <p>
+              服务端版本 <BuildTime commitAt={model.serverBuildCommitAt} />
+            </p>
             <p>一个 client 对应一个工作空间</p>
           </div>
           <button className="icon-button" aria-label="关闭工作空间管理" onClick={model.close}>

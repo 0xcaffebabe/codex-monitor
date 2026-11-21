@@ -3,7 +3,8 @@ import type { DatabaseSync, SQLOutputValue } from 'node:sqlite';
 import type { ManagedWorkspace } from '../../src/workspaces.js';
 import { connectionProof } from '../transport/protocol.js';
 
-const workspaceColumns = `id,name,created_at AS createdAt,last_seen AS lastSeen,hostname,platform`;
+const workspaceColumns = `id,name,created_at AS createdAt,last_seen AS lastSeen,hostname,platform,
+  build_commit_at AS buildCommitAt`;
 function workspaceFromRow(row: Record<string, SQLOutputValue>): ManagedWorkspace {
   return {
     id: String(row.id),
@@ -12,6 +13,7 @@ function workspaceFromRow(row: Record<string, SQLOutputValue>): ManagedWorkspace
     lastSeen: row.lastSeen == null ? null : Number(row.lastSeen),
     hostname: String(row.hostname || ''),
     platform: String(row.platform || ''),
+    buildCommitAt: row.buildCommitAt == null ? null : Number(row.buildCommitAt),
     online: false,
   };
 }
@@ -19,27 +21,29 @@ function workspaceFromRow(row: Record<string, SQLOutputValue>): ManagedWorkspace
 export class WorkspaceStore {
   private proofs = new Map<string, number>();
   constructor(private db: DatabaseSync) {
-    db.exec(`CREATE TABLE IF NOT EXISTS monitor_workspaces (
-      id TEXT PRIMARY KEY, name TEXT NOT NULL, aes_key TEXT NOT NULL, created_at INTEGER NOT NULL,
-      last_seen INTEGER, hostname TEXT, platform TEXT
-    )`);
-    const columns = db
-      .prepare('PRAGMA table_info(monitor_workspaces)')
-      .all()
-      .map((row) => row.name);
-    if (!columns.includes('aes_key') && columns.includes('token_hash')) {
-      // Preserve existing registrations when upgrading the earlier token-only schema.
-      db.exec('BEGIN IMMEDIATE');
-      try {
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      db.exec(`CREATE TABLE IF NOT EXISTS monitor_workspaces (
+        id TEXT PRIMARY KEY, name TEXT NOT NULL, aes_key TEXT NOT NULL, created_at INTEGER NOT NULL,
+        last_seen INTEGER, hostname TEXT, platform TEXT, build_commit_at INTEGER
+      )`);
+      const columns = db
+        .prepare('PRAGMA table_info(monitor_workspaces)')
+        .all()
+        .map((row) => row.name);
+      if (!columns.includes('aes_key') && columns.includes('token_hash')) {
+        // Preserve existing registrations when upgrading the earlier token-only schema.
         db.exec('ALTER TABLE monitor_workspaces RENAME COLUMN token_hash TO aes_key');
         const update = db.prepare('UPDATE monitor_workspaces SET aes_key=? WHERE id=?');
         for (const row of db.prepare('SELECT id FROM monitor_workspaces').all())
           update.run(randomBytes(32).toString('base64url'), row.id!);
-        db.exec('COMMIT');
-      } catch (error) {
-        db.exec('ROLLBACK');
-        throw error;
       }
+      if (!columns.includes('build_commit_at'))
+        db.exec('ALTER TABLE monitor_workspaces ADD COLUMN build_commit_at INTEGER');
+      db.exec('COMMIT');
+    } catch (error) {
+      db.exec('ROLLBACK');
+      throw error;
     }
   }
   list(): ManagedWorkspace[] {
@@ -94,10 +98,15 @@ export class WorkspaceStore {
       return null;
     return key;
   }
-  seen(id: string, hostname: string, platform: string) {
+  recordConnection(id: string, hostname: string, platform: string, buildCommitAt: number | null) {
     this.db
-      .prepare('UPDATE monitor_workspaces SET last_seen=?,hostname=?,platform=? WHERE id=?')
-      .run(Date.now(), hostname, platform, id);
+      .prepare(
+        'UPDATE monitor_workspaces SET last_seen=?,hostname=?,platform=?,build_commit_at=? WHERE id=?',
+      )
+      .run(Date.now(), hostname, platform, buildCommitAt, id);
+  }
+  seen(id: string) {
+    this.db.prepare('UPDATE monitor_workspaces SET last_seen=? WHERE id=?').run(Date.now(), id);
   }
   remove(id: string) {
     return !!this.db.prepare('DELETE FROM monitor_workspaces WHERE id=?').run(id).changes;

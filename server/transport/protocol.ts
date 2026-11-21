@@ -60,6 +60,7 @@ export const frameSchema = z.discriminatedUnion('type', [
     version: z.literal(PROTOCOL_VERSION),
     hostname: z.string().max(200),
     platform: z.string().max(80),
+    buildCommitAt: z.number().int().nonnegative().max(8.64e15).optional(), // Within the Date range.
     capabilities: z.object({ completionNotifications: z.boolean().optional() }).optional(),
   }),
   z.object({

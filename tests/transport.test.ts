@@ -131,6 +131,7 @@ test('existing token registrations migrate once to locally stored fixed AES keys
       key = store.key('local')!;
     assert.match(key, /^[A-Za-z0-9_-]{43}$/);
     assert.equal(store.get('local')!.name, '原有本机工作空间');
+    assert.equal(store.get('local')!.buildCommitAt, null);
     assert.equal(
       new WorkspaceStore(auth.db).key('local'),
       key,

@@ -4,6 +4,7 @@ import type { Express, Request, Response } from 'express';
 import { WebSocket, WebSocketServer } from 'ws';
 import { z } from 'zod';
 import type { AuthStore } from '../auth.js';
+import { buildCommitAt } from '../build-info.js';
 import { admin, fail } from '../http/access.js';
 import {
   CHUNK_BYTES,
@@ -37,8 +38,6 @@ type Peer = {
   socket: WebSocket;
   ready: boolean;
   alive: boolean;
-  hostname: string;
-  platform: string;
   completionNotifications: boolean;
   resources: (HostResourceSample & { receivedAt: number }) | null;
   pending: Map<string, Pending>;
@@ -81,7 +80,7 @@ export class WorkspaceGateway {
         }
         peer.alive = false;
         peer.socket.ping();
-        if (peer.ready) this.store.seen(id, peer.hostname, peer.platform);
+        if (peer.ready) this.store.seen(id);
       }
     }, 15000);
     this.timer.unref();
@@ -191,8 +190,6 @@ export class WorkspaceGateway {
       socket,
       ready: false,
       alive: true,
-      hostname: '',
-      platform: '',
       completionNotifications: false,
       resources: null,
       pending: new Map(),
@@ -214,12 +211,15 @@ export class WorkspaceGateway {
         if (!peer.ready) {
           if (frame.type !== 'hello' || frame.version !== PROTOCOL_VERSION)
             throw new Error('Unsupported protocol');
+          this.store.recordConnection(
+            id,
+            frame.hostname,
+            frame.platform,
+            frame.buildCommitAt ?? null,
+          );
           peer.ready = true;
-          peer.hostname = frame.hostname;
-          peer.platform = frame.platform;
           peer.completionNotifications = !!frame.capabilities?.completionNotifications;
           clearTimeout(handshake);
-          this.store.seen(id, frame.hostname, frame.platform);
           void sendFrame(socket, {
             type: 'welcome',
             version: PROTOCOL_VERSION,
@@ -355,7 +355,9 @@ export class WorkspaceGateway {
     else request.res.end();
   }
   install(app: Express) {
-    app.get('/api/workspaces', (_req, res) => res.json({ workspaces: this.list() }));
+    app.get('/api/workspaces', (_req, res) =>
+      res.json({ workspaces: this.list(), serverBuildCommitAt: buildCommitAt }),
+    );
     app.post('/api/workspaces', admin, (req, res) => {
       const parsed = nameSchema.safeParse(req.body);
       if (!parsed.success) return fail(res, 400, '请输入 1–80 字符的工作空间名称');

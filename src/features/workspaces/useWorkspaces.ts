@@ -9,13 +9,17 @@ type ConnectionCopy =
   | { id: string; status: 'copying' | 'copied' }
   | { id: string; status: 'error'; message: string };
 
+type WorkspaceList = { workspaces: ManagedWorkspace[]; serverBuildCommitAt?: number | null };
+
 function clientCommand(id: string, key: string) {
   const serverUrl = location.origin.replace(/^http/, 'ws');
   return `npm run client -- --server-url "${serverUrl}" --workspace-id "${id}" --client-key "${key}"`;
 }
 
 export function useWorkspaces(userId: string) {
-  const [workspaces, setWorkspaces] = useState<ManagedWorkspace[]>([]);
+  const [{ workspaces, serverBuildCommitAt }, setWorkspaceList] = useState<WorkspaceList>({
+    workspaces: [],
+  });
   const [loading, setLoading] = useState(true),
     [error, setError] = useState('');
   const selected = useRef(new URLSearchParams(location.search).get('workspace') || '');
@@ -29,7 +33,7 @@ export function useWorkspaces(userId: string) {
   const copyRequest = useRef<AbortController | null>(null);
   const load = useCallback(async (signal?: AbortSignal) => {
     try {
-      const result = await api<{ workspaces: ManagedWorkspace[] }>('/api/workspaces', { signal });
+      const result = await api<WorkspaceList>('/api/workspaces', { signal });
       if (signal?.aborted) return;
       if (!selected.current && result.workspaces.length) {
         const params = new URLSearchParams(location.search);
@@ -43,7 +47,7 @@ export function useWorkspaces(userId: string) {
         setActiveId(selected.current);
       }
       if (selected.current) initializeWorkspace(selected.current);
-      setWorkspaces(result.workspaces);
+      setWorkspaceList(result);
       setError('');
     } catch (error) {
       if (!signal?.aborted) setError((error as Error).message);
@@ -154,6 +158,7 @@ export function useWorkspaces(userId: string) {
   };
   return {
     workspaces,
+    serverBuildCommitAt,
     active: workspaces.find((item) => item.id === activeId),
     activeId,
     loading,

@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { PassThrough, Readable } from 'node:stream';
 import { WebSocket } from 'ws';
 import type { AuthStore } from '../auth.js';
+import { buildCommitAt } from '../build-info.js';
 import type { Config } from '../config.js';
 import { ControlError } from '../control-error.js';
 import type { Identity } from '../http/access.js';
@@ -216,6 +217,7 @@ export class MonitorClient {
             version: PROTOCOL_VERSION,
             hostname: os.hostname(),
             platform: process.platform,
+            buildCommitAt: buildCommitAt ?? undefined,
           }).catch(() => socket.terminate());
           return;
         }

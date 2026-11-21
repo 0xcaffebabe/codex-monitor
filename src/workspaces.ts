@@ -20,5 +20,6 @@ export type ManagedWorkspace = {
   lastSeen: number | null;
   hostname: string;
   platform: string;
+  buildCommitAt?: number | null;
   resources?: WorkspaceResources | null;
 };
