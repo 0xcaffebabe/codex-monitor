@@ -42,9 +42,9 @@ client 在执行中退出时，历史记录可能仍显示“运行中”。重�
 
 追加表单的通道选择与草稿按工作空间隔离；排队时锁定，刷新后恢复，成功发送后重置。更新 Server 和对应 client 才能使用此能力；旧 client 未上报支持时不提供可选入口。
 
-`MONITOR_CODEX_CLI` / `--codex-cli` 可指定 Codex CLI；也支持桌面运行环境的 `CODEX_APP_RUNTIME_CLI_PATH`。Windows 优先检查指定桌面程序旁的 `resources/codex.exe`，再通过 `Get-AppxPackage` 获取当前用户的 Store 安装位置，并检查常见独立安装目录和可读取的 Windows Store 安装目录，最后才使用已有 `OpenAI/Codex/bin` 运行时缓存。此顺序避免 `WindowsApps` 拒绝目录枚举时漏掉桌面安装，以及桌面升级后继续选中旧缓存。找不到时明确提示配置 CLI 路径，不会将桌面 GUI 当作 CLI 启动。
+`MONITOR_CODEX_CLI` / `--codex-cli` 可指定 Codex CLI。自动查找会先检查桌面运行环境的 `CODEX_APP_RUNTIME_CLI_PATH`。Windows 接着检查指定桌面程序旁的 `resources/codex.exe`、`Get-AppxPackage` 返回的当前用户 Store 安装和常见安装目录。若未找到或系统拒绝启动，继续检查 Client 的 `PATH` 及当前用户的默认 npm 目录，再检查 `OpenAI/Codex/bin` 运行时缓存。npm 安装会直接启动包里的 `codex.exe`。显式指定 CLI 后，启动失败会直接报告该错误。
 
-macOS 沿用桌面 `.app` 内 CLI 自动发现。两端都沿用当前用户的 Codex 配置与登录，`CODEX_HOME` 控制读取及执行的数据目录。
+macOS 自动查找桌面 `.app` 内的 CLI 和 `PATH` 中的 `codex`，优先使用桌面版。两端都沿用当前用户的 Codex 配置与登录，`CODEX_HOME` 控制读取及执行的数据目录。
 
 显式设置 `MONITOR_CODEX_PIPE` / `--codex-pipe` 会使用旧的桌面 tools 通道，保留原行为，不提供新的权限选择与网页审批。要使用统一通道，应移除此显式设置并重启 client。其他操作系统继续保留原桌面桥接行为。
 

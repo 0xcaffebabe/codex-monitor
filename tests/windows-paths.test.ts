@@ -3,10 +3,13 @@ import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { windowsBundledCli } from '../server/windows-paths.js';
+import { windowsCliPaths } from '../server/windows-paths.js';
 
-function findCli(env: NodeJS.ProcessEnv) {
-  return windowsBundledCli(env, { storePackages: async () => [] });
+async function findCli(
+  env: NodeJS.ProcessEnv,
+  options: Parameters<typeof windowsCliPaths>[1] = { storePackages: async () => [] },
+) {
+  for await (const cli of windowsCliPaths(env, options)) return cli;
 }
 
 function fixture(t: test.TestContext) {
@@ -88,12 +91,50 @@ test('Windows uses registered Store package metadata when WindowsApps cannot be 
   const cli = f.file('registered-package/app/resources/codex.exe');
   f.file('local/OpenAI/Codex/bin/stale-cache/codex.exe', 500);
   assert.equal(
-    await windowsBundledCli(
+    await findCli(
       {
         LOCALAPPDATA: path.join(f.root, 'local'),
         ProgramFiles: path.join(f.root, 'inaccessible-programs'),
       },
       { storePackages: async () => [path.join(f.root, 'registered-package')] },
+    ),
+    cli,
+  );
+});
+
+test('Windows finds a terminal executable before falling back to the cached runtime', async (t) => {
+  const f = fixture(t);
+  const installed = f.file('registered-package/app/resources/codex.exe');
+  const terminal = f.file('terminal cli/codex.exe');
+  const cached = f.file('local/OpenAI/Codex/bin/old/codex.exe', 200);
+  const paths: string[] = [];
+  for await (const cli of windowsCliPaths(
+    {
+      Path: `relative;"${path.dirname(terminal)}"`,
+      LOCALAPPDATA: path.join(f.root, 'local'),
+    },
+    { storePackages: async () => [path.join(f.root, 'registered-package')] },
+  ))
+    paths.push(cli);
+  assert.deepEqual(paths, [installed, terminal, cached]);
+});
+
+test('Windows resolves an npm shim to its native Codex executable', async (t) => {
+  const f = fixture(t);
+  f.file('npm/codex.ps1');
+  const cli = f.file(
+    'npm/node_modules/@openai/codex/node_modules/@openai/codex-win32-x64/vendor/x86_64-pc-windows-msvc/bin/codex.exe',
+  );
+  f.file(
+    'npm/node_modules/@openai/codex/node_modules/@openai/codex-win32-x64/vendor/x86_64-pc-windows-msvc/codex/codex.exe',
+  );
+  assert.equal(
+    await findCli(
+      { PATH: path.join(f.root, 'npm') },
+      {
+        arch: 'x64',
+        storePackages: async () => [],
+      },
     ),
     cli,
   );

@@ -4,7 +4,7 @@ import { EventEmitter } from 'node:events';
 import { PassThrough, Writable } from 'node:stream';
 import { setImmediate as nextTick } from 'node:timers/promises';
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
-import { NativeRpc } from '../server/native.js';
+import { launchAppServer, NativeRpc } from '../server/native.js';
 import { ControlError } from '../server/control-error.js';
 import { NativeApprovals } from '../server/native-approvals.js';
 
@@ -38,6 +38,49 @@ class GoalProcess extends EventEmitter {
   }
   unref() {}
 }
+
+test('native launch falls back after synchronous and asynchronous executable permission errors', async () => {
+  const attempts: string[] = [];
+  const started = new GoalProcess();
+  const blocked = new GoalProcess();
+  const child = await launchAppServer(
+    ['desktop-cli', 'desktop-cli', 'blocked-cli', 'terminal-cli', 'cached-cli'],
+    { CODEX_HOME: 'test-home' },
+    new AbortController().signal,
+    (file, args, options) => {
+      attempts.push(file);
+      assert.deepEqual(args, ['app-server', '--listen', 'stdio://']);
+      assert.equal(options.env?.CODEX_HOME, 'test-home');
+      if (file === 'desktop-cli') throw Object.assign(new Error('spawn failed'), { code: 'EPERM' });
+      if (file === 'blocked-cli') {
+        queueMicrotask(() =>
+          blocked.emit('error', Object.assign(new Error('spawn failed'), { code: 'EACCES' })),
+        );
+        return blocked as unknown as ChildProcessWithoutNullStreams;
+      }
+      queueMicrotask(() => started.emit('spawn'));
+      return started as unknown as ChildProcessWithoutNullStreams;
+    },
+  );
+  assert.deepEqual(attempts, ['desktop-cli', 'blocked-cli', 'terminal-cli']);
+  assert.equal(child, started);
+});
+
+test('closing during CLI discovery prevents a later candidate from starting', async () => {
+  const abort = new AbortController();
+  const closed = new ControlError('cancelled');
+  async function* candidates() {
+    await nextTick();
+    abort.abort(closed);
+    yield 'terminal-cli';
+  }
+  await assert.rejects(
+    launchAppServer(candidates(), {}, abort.signal, () => {
+      assert.fail('CLI started after close');
+    }),
+    closed,
+  );
+});
 
 test('project and model reads share a cold start that takes more than 30 seconds', async (t) => {
   t.mock.timers.enable({ apis: ['setTimeout'] });

@@ -1,4 +1,9 @@
-import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
+import {
+  spawn,
+  type ChildProcessWithoutNullStreams,
+  type SpawnOptionsWithoutStdio,
+} from 'node:child_process';
+import { once } from 'node:events';
 import { createInterface } from 'node:readline';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
@@ -8,7 +13,7 @@ import { ControlError, activeWriterError, compactingError } from './control-erro
 import { reasoningEfforts, type CodexModel, type ReasoningEffort } from '../src/types.js';
 import os from 'node:os';
 import { macBundledCli, macDesktopBundle } from './macos-paths.js';
-import { windowsBundledCli } from './windows-paths.js';
+import { windowsCliPaths } from './windows-paths.js';
 
 const readMethods = new Set([
   'initialize',
@@ -21,19 +26,69 @@ const readMethods = new Set([
   'project/read',
 ]);
 
-async function cliPath(signal: AbortSignal) {
-  const explicit = process.env.MONITOR_CODEX_CLI || process.env.CODEX_APP_RUNTIME_CLI_PATH;
+async function* cliPaths(signal: AbortSignal): AsyncGenerator<string> {
+  const explicit = process.env.MONITOR_CODEX_CLI;
   if (explicit) {
     if (!existsSync(explicit))
       throw new ControlError('配置的 Codex CLI 不存在，请检查 MONITOR_CODEX_CLI。');
-    return explicit;
+    yield explicit;
+    return;
+  }
+  const inherited = process.env.CODEX_APP_RUNTIME_CLI_PATH;
+  if (inherited && existsSync(inherited)) yield inherited;
+  if (process.platform === 'win32') {
+    yield* windowsCliPaths(process.env, { signal });
+    return;
   }
   if (process.platform === 'darwin') {
     const bundle = macDesktopBundle();
-    if (bundle) return macBundledCli(bundle)!;
+    if (bundle) yield macBundledCli(bundle)!;
   }
-  if (process.platform !== 'win32') return 'codex';
-  return windowsBundledCli(process.env, { signal });
+  yield 'codex';
+}
+
+export async function launchAppServer(
+  executables: AsyncIterable<string> | Iterable<string>,
+  env: NodeJS.ProcessEnv,
+  signal: AbortSignal,
+  launch: (
+    file: string,
+    args: string[],
+    options: SpawnOptionsWithoutStdio,
+  ) => ChildProcessWithoutNullStreams = spawn,
+) {
+  const attempted = new Set<string>();
+  let firstFailure: unknown;
+  for await (const executable of executables) {
+    signal.throwIfAborted();
+    const key = process.platform === 'win32' ? executable.toLowerCase() : executable;
+    if (attempted.has(key)) continue;
+    attempted.add(key);
+    try {
+      const child = launch(executable, ['app-server', '--listen', 'stdio://'], {
+        windowsHide: true,
+        stdio: ['pipe', 'pipe', 'pipe'],
+        env,
+      });
+      await once(child, 'spawn');
+      return child;
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException | undefined)?.code;
+      if (code !== 'EPERM' && code !== 'EACCES' && code !== 'ENOENT') throw error;
+      firstFailure ??= error;
+    }
+  }
+  signal.throwIfAborted();
+  if (firstFailure) throw firstFailure;
+  throw new ControlError('找不到 Codex 命令行，请在本机配置 MONITOR_CODEX_CLI。');
+}
+
+function stopProcess(child: ChildProcessWithoutNullStreams) {
+  child.stdin.destroy();
+  child.stdout.destroy();
+  child.stderr.destroy();
+  child.kill();
+  child.unref();
 }
 
 function launchError(error: unknown) {
@@ -84,20 +139,20 @@ export class NativeRpc {
   private async initialize(signal: AbortSignal) {
     let child: ChildProcessWithoutNullStreams;
     try {
-      if (this.launch) child = this.launch();
-      else {
-        const executable = await cliPath(signal);
-        if (signal.aborted) throw new ControlError('Codex 服务启动已取消，请重试。');
-        if (!executable)
-          throw new ControlError('找不到 Codex 命令行，请在本机配置 MONITOR_CODEX_CLI。');
-        child = spawn(executable, ['app-server', '--listen', 'stdio://'], {
-          windowsHide: true,
-          stdio: ['pipe', 'pipe', 'pipe'],
-          env: { ...process.env, ...(this.codexHome ? { CODEX_HOME: this.codexHome } : {}) },
-        });
-      }
+      child =
+        this.launch?.() ??
+        (await launchAppServer(
+          cliPaths(signal),
+          { ...process.env, ...(this.codexHome ? { CODEX_HOME: this.codexHome } : {}) },
+          signal,
+        ));
     } catch (error) {
       throw error instanceof ControlError ? error : launchError(error);
+    }
+    if (signal.aborted) {
+      child.on('error', () => {});
+      stopProcess(child);
+      signal.throwIfAborted();
     }
     this.process = child;
     const lines = createInterface({ input: child.stdout });
@@ -315,7 +370,7 @@ export class NativeRpc {
     const child = this.process;
     this.process = undefined;
     this.ready = undefined;
-    this.startup?.abort();
+    this.startup?.abort(new ControlError('Codex 服务启动已取消，请重试。'));
     this.startup = undefined;
     for (const controller of this.serverRequests.values()) controller.abort();
     this.serverRequests.clear();
@@ -329,13 +384,7 @@ export class NativeRpc {
       );
     }
     this.pending.clear();
-    if (child) {
-      child.stdin.destroy();
-      child.stdout.destroy();
-      child.stderr.destroy();
-      child.kill();
-      child.unref();
-    }
+    if (child) stopProcess(child);
   }
 }
 
