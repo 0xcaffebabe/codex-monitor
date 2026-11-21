@@ -12,6 +12,11 @@ import { dateKey, integer, money } from './format';
 
 type View = 'accounts' | 'keys';
 
+const tokenCount = new Intl.NumberFormat('en-US', {
+  notation: 'compact',
+  maximumFractionDigits: 2,
+});
+
 function useQuery<T>(url: string | undefined, revision = 0) {
   const [result, setResult] = useState<{
     url: string;
@@ -93,6 +98,7 @@ function AccountRows({ items, loadCredits }: { items: Sub2ApiAccount[]; loadCred
         <div className="sub2api-quotas">
           {account.quotas.map((quota) => {
             const reset = timestamp(quota.resetsAt);
+            const { requests, tokens } = quota;
             return (
               <div className="sub2api-quota" key={quota.label}>
                 <span>{quota.label}</span>
@@ -109,11 +115,11 @@ function AccountRows({ items, loadCredits }: { items: Sub2ApiAccount[]; loadCred
                   />
                 )}
                 {reset && <small>{reset} 重置</small>}
-                {(quota.requests !== null || quota.tokens !== null) && (
-                  <small>
+                {(requests !== null || tokens !== null) && (
+                  <small title={tokens === null ? undefined : `${integer(tokens)} Token`}>
                     {[
-                      quota.requests === null ? null : `${integer(quota.requests)} 次`,
-                      quota.tokens === null ? null : `${integer(quota.tokens)} Token`,
+                      requests === null ? null : `${integer(requests)} 次`,
+                      tokens === null ? null : `${tokenCount.format(tokens)} Token`,
                     ]
                       .filter(Boolean)
                       .join(' · ')}
@@ -145,7 +151,7 @@ function KeyRows({ items }: { items: Sub2ApiKeyUsage[] }) {
         {key.name && <small>#{key.id}</small>}
       </td>
       <td>{integer(key.requests)}</td>
-      <td>{integer(key.tokens)}</td>
+      <td title={integer(key.tokens)}>{tokenCount.format(key.tokens)}</td>
       <td className="usage-cost">{key.actualCost === null ? '-' : money(key.actualCost, 4)}</td>
     </tr>
   ));

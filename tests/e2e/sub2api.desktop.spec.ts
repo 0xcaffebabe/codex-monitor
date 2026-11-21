@@ -16,6 +16,8 @@ test('configure Sub2API and query subscription accounts and API keys', async ({
     const plus = usage.subscriptionAccount('Codex Plus');
     const backup = usage.subscriptionAccount('Codex backup');
     await expect(plus).toContainText('18.5%');
+    await expect(plus.getByTitle('9,354,344 Token')).toHaveText('178 次 · 9.35M Token');
+    await expect(plus.getByTitle('2,530,953,480 Token')).toHaveText('19,548 次 · 2.53B Token');
     await expect(backup).toContainText('额度暂不可用');
     await expect(plus.getByRole('status')).toHaveText('1250.50 点');
     await expect(backup.getByRole('status')).toHaveText('0 点');
@@ -45,7 +47,8 @@ test('configure Sub2API and query subscription accounts and API keys', async ({
     await usage.showApiKeys();
     const runner = usage.apiKey('CI runner');
     await expect(runner.getByRole('cell').nth(1)).toHaveText('9');
-    await expect(runner.getByRole('cell').nth(2)).toHaveText('1,000');
+    await expect(runner.getByRole('cell').nth(2)).toHaveText('1K');
+    await expect(runner.getByRole('cell').nth(2)).toHaveAttribute('title', '1,000');
     await expect(runner.getByRole('cell').nth(3)).toHaveText('$0.1234');
     await usage.selectKeyPeriod('30');
     await usage.searchKey('#99');

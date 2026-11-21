@@ -13,8 +13,13 @@ export async function sub2ApiFixture() {
       utilization,
       utilization_unknown: utilizationUnknown,
       resets_at: '2026-11-20T13:00:00Z',
+      window_stats: { requests: 178, tokens: 9_354_344 },
     },
-    seven_day: { utilization: 0, resets_at: '2026-11-24T04:00:00Z' },
+    seven_day: {
+      utilization: 0,
+      resets_at: '2026-11-24T04:00:00Z',
+      window_stats: { requests: 19_548, tokens: 2_530_953_480 },
+    },
   });
   const account = {
     id: 41,
