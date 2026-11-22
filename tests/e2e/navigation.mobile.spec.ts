@@ -4,6 +4,39 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { expect, localTitle, test } from './monitor.js';
 
+test('the mobile dock opens session history and the list has one labeled create button', async ({
+  signedIn: { browserPage, newSession, session, workspace },
+}) => {
+  await browserPage.setViewportSize({ width: 320, height: 568 });
+  const dock = browserPage.getByRole('navigation', { name: '任务导航' });
+  const home = dock.getByRole('button', { name: '返回任务动态' });
+  const history = dock.getByRole('button', { name: '会话', exact: true });
+  await home.tap();
+  await expect(home).toHaveAttribute('aria-current', 'page');
+  await expect(workspace.activityHeading).toBeVisible();
+  await history.tap();
+  await expect(history).toHaveAttribute('aria-current', 'page');
+  await expect(workspace.sessionListHeading).toBeVisible();
+  await dock.getByRole('button', { name: '查看运行中的会话' }).tap();
+  const running = browserPage.getByRole('dialog', { name: '运行中的会话' });
+  await expect(running).toBeVisible();
+  await running.getByRole('button', { name: '关闭运行中列表' }).tap();
+
+  const search = browserPage.getByRole('textbox', { name: '搜索会话' });
+  await search.fill(localTitle);
+  await workspace.tapSession(localTitle);
+  await expect(session.heading(localTitle)).toBeVisible();
+  await history.tap();
+  await expect(search).toHaveValue(localTitle);
+
+  const create = browserPage.getByRole('button', { name: /新建会话/ });
+  await expect(create).toHaveText('新建会话');
+  await expect(create.getByText('新建会话')).toBeVisible();
+  expect(await session.hasHorizontalOverflow()).toBe(false);
+  await create.tap();
+  await expect(newSession.draft).toBeVisible();
+});
+
 test('the mobile project drawer can browse and open projects from another workspace', async ({
   signedIn: { workspace },
   monitor,

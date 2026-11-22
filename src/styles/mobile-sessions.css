@@ -53,29 +53,39 @@
     border-radius: 10px;
   }
   .list-toolbar {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
     padding: 15px 14px 12px;
-    gap: 6px;
-    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .list-heading {
+    grid-area: 1 / 1 / 2 / 3;
+  }
+  .list-heading .history-heading {
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   .list-heading h2 {
     font-size: 1rem;
   }
   .list-actions {
-    gap: 6px;
+    display: contents;
   }
   .list-actions .new-session-button {
-    width: 44px;
+    grid-area: 1 / 3;
     min-height: 44px;
-    padding: 0;
-    flex-shrink: 0;
-  }
-  .list-actions .new-session-button > span {
-    display: none;
+    padding-inline: 10px;
+    white-space: nowrap;
   }
   .toggle-sub {
+    grid-area: 2 / 1;
     font-size: var(--font-meta);
     gap: 2px;
     white-space: nowrap;
+  }
+  .list-actions .segmented {
+    grid-area: 2 / 2 / 3 / -1;
+    justify-self: start;
   }
   .segmented button {
     padding: 0 6px;

@@ -79,6 +79,7 @@ export function Workspace(
     title,
   } = model;
   const hasDetail = !!selected || creating;
+  const sessionsTab = tab !== 'attention' && tab !== 'usage';
   const mobile = useMediaQuery('(max-width: 760px)');
   const activeObservation = props.attention.groups.find(({ workspace, fresh }) => fresh && workspace.id === props.workspaceId)?.snapshot;
   const watched = props.taskWatches.watches.some((item) => item.workspaceId === props.workspaceId && item.sessionId === selected);
@@ -132,9 +133,9 @@ export function Workspace(
             >
               <Menu size={21} />
             </button>
-            {user.role === 'admin' && (tab !== 'attention' || hasDetail) && (
+            {user.role === 'admin' && !creating && (selected || tab === 'usage') && (
               <button
-                className={cx('icon-button new-session-shortcut', creating && 'active')}
+                className="icon-button new-session-shortcut"
                 title="快速新建会话"
                 aria-label="快速新建会话"
                 onClick={startSession}
@@ -298,7 +299,20 @@ export function Workspace(
           </>
         )}
       </main>
-      {mobile && <MobileTaskDock groups={props.attention.groups} workspaceId={props.workspaceId} selected={selected} onHome={() => changeTab('attention')} home={tab === 'attention' && !hasDetail} />}
+      {mobile && (
+        <MobileTaskDock
+          groups={props.attention.groups}
+          workspaceId={props.workspaceId}
+          selected={selected}
+          onHome={() => changeTab('attention')}
+          home={tab === 'attention' && !hasDetail}
+          onSessions={() => {
+            if (sessionsTab) closeDetail();
+            else changeTab('all');
+          }}
+          sessions={sessionsTab && !hasDetail}
+        />
+      )}
       {settings && (
         <Settings
           user={user}

@@ -10,19 +10,26 @@
   }
   .mobile-task-dock {
     grid-row: 2;
-    display: flex;
-    justify-content: space-between;
-    padding: 0 12px env(safe-area-inset-bottom);
+    display: grid;
+    grid-template-columns: repeat(3, minmax(max-content, 1fr));
+    padding-bottom: env(safe-area-inset-bottom);
     border-top: 1px solid var(--line);
     background: var(--surface);
   }
   .mobile-task-dock button {
-    display: inline-flex;
+    display: flex;
     align-items: center;
-    gap: 7px;
+    justify-content: center;
+    gap: 5px;
     min-height: 46px;
-    padding: 0 8px;
+    padding: 0 4px;
     font-weight: 550;
+    white-space: nowrap;
+  }
+  .mobile-task-dock button[aria-current='page'] {
+    background: var(--accent-bg);
+    box-shadow: inset 0 2px var(--accent);
+    color: var(--accent);
   }
   .mobile-running-trigger > span {
     display: grid;

@@ -1,4 +1,4 @@
-import { ChevronRight, ListTodo, Radio, X } from 'lucide-react';
+import { ChevronRight, Layers3, ListTodo, Radio, X } from 'lucide-react';
 import { useLayoutEffect, useRef, useState } from 'react';
 import { cx, relative } from '../../shared/format';
 import { navigateWorkspace } from '../../workspace-scope';
@@ -10,12 +10,16 @@ export function MobileTaskDock({
   selected,
   onHome,
   home,
+  onSessions,
+  sessions,
 }: {
   groups: AttentionWorkspace[];
   workspaceId: string;
   selected?: string;
   onHome: () => void;
   home: boolean;
+  onSessions: () => void;
+  sessions: boolean;
 }) {
   const [opened, setOpened] = useState(false);
   const dialog = useRef<HTMLDialogElement>(null);
@@ -49,8 +53,16 @@ export function MobileTaskDock({
           aria-current={home ? 'page' : undefined}
           onClick={onHome}
         >
-          <ListTodo size={18} />
+          <ListTodo size={18} aria-hidden="true" />
           任务动态
+        </button>
+        <button
+          type="button"
+          aria-current={sessions ? 'page' : undefined}
+          onClick={onSessions}
+        >
+          <Layers3 size={18} aria-hidden="true" />
+          会话
         </button>
         <button
           type="button"
@@ -61,7 +73,7 @@ export function MobileTaskDock({
           aria-controls={opened ? 'mobile-running-sessions' : undefined}
           onClick={() => setOpened(true)}
         >
-          <Radio size={18} />
+          <Radio size={18} aria-hidden="true" />
           运行中{running.length > 0 && <span>{running.length}</span>}
         </button>
       </nav>
