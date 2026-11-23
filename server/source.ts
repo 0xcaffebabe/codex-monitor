@@ -71,8 +71,8 @@ export class CodexSource {
   async completions(since: number) {
     return this.completionReader.read(await this.index.notificationSessions(), since);
   }
-  completionSummary(event: SessionCompletion) {
-    return this.completionReader.summary(event);
+  completionReply(event: SessionCompletion) {
+    return this.completionReader.reply(event);
   }
   async completionFiles(id: string, turnId: string, occurredAt: number) {
     const session = await this.get(id);

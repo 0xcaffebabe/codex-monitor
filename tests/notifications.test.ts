@@ -10,6 +10,7 @@ import { createApp } from '../server/app.js';
 import { notificationMessage } from '../server/notifications/messages.js';
 import {
   LarkDeliveryError,
+  larkCard,
   sendLark,
   validLarkWebhook,
   type WebhookTransport,
@@ -242,6 +243,16 @@ test('session links remain clickable when the reply summary ends in a truncated 
   assert.equal(code?.value, 'echo "内容未完');
 });
 
+test('card capacity accounts for placeholders added when converting Markdown images', () => {
+  const link = '[查看本轮结果](https://monitor.example.com/)';
+  const text = `${link}\n\n${'![](/a)\n\n'.repeat(650)}`;
+  const card = larkCard(text);
+  const content = card.body.elements[0].content;
+  assert.ok(Buffer.byteLength(JSON.stringify(card)) < 20 * 1024);
+  assert.ok(content.startsWith(`${link}\n\n图片（请在会话中查看图片）`));
+  assert.ok(content.endsWith('…（回复过长，部分内容已省略）'));
+});
+
 test('notification APIs enforce admin access, validation, secret masking, test result and throttling', async () => {
   let requests = 0;
   const h = await harness(async () => {
@@ -325,7 +336,13 @@ test('background completion outbox delivers fast turns over real HTTP without SS
     assert.equal((await h.request('/api/notifications', 'PUT', input)).status, 200);
     await h.service.pollNotifications();
     assert.equal(received.length, 0);
-    const summary = '**第一轮完成摘要**\n\n```bash\necho "完成" > result.txt\n```';
+    const summary = [
+      '**第一轮完成摘要**',
+      '检查记录与日志一致。'.repeat(110),
+      '| 时间 | 结果 |\n| --- | --- |\n| 10:36 | 完成 |',
+      '```bash\necho "完成" > result.txt\n```',
+      '[微软说明](https://learn.microsoft.com/windows/)\n\n第一轮结论。',
+    ].join('\n\n');
     const first = complete(h.f, ids.modern, 'completed', summary);
     const second = complete(h.f, ids.modern, 'completed', '第二轮独立摘要');
     complete(h.f, ids.modern, 'failed');
@@ -427,7 +444,16 @@ test('legacy JSONL completion events work without opening a detail page', async 
           payload: {
             type: 'message',
             role: 'assistant',
-            content: [{ type: 'output_text', text: '旧版完成摘要' }],
+            content: [
+              {
+                type: 'output_text',
+                text:
+                  '[旧版完成摘要](https://example.com/result)\n\n' +
+                  '```text\n' +
+                  '超长内容😀\n'.repeat(2000) +
+                  '```\n\n代码块后续内容',
+              },
+            ],
           },
         },
         { type: 'event_msg', payload: { type: 'task_complete', turn_id: 'legacy-new-turn' } },
@@ -438,7 +464,11 @@ test('legacy JSONL completion events work without opening a detail page', async 
     await h.service.pollNotifications();
     await h.service.pollNotifications();
     assert.equal(messages.length, 1);
-    assert.match(messages[0], /旧版完成摘要/);
+    assert.ok(
+      messages[0].endsWith(
+        '[旧版完成摘要](https://example.com/result)\n\n…（回复过长，部分内容已省略）',
+      ),
+    );
     assert.match(messages[0], /result=legacy-new-turn/);
   } finally {
     await h.close();

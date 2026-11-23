@@ -23,7 +23,11 @@ import {
 import { createClientRuntime } from './runtime.js';
 import { clientConnectionUrl } from './config.js';
 import { NotificationReporter } from '../notifications/reporter.js';
-import type { NotificationReport } from '../notifications/events.js';
+import {
+  LEGACY_COMPLETION_SUMMARY_LIMIT,
+  type NotificationReport,
+} from '../notifications/events.js';
+import { limitMarkdown } from '../notifications/markdown-limit.js';
 import { HostResourceSampler } from './resources.js';
 import { PrivacyWork } from './privacy-work.js';
 import { HOST_RESOURCE_INTERVAL_MS } from '../../src/workspaces.js';
@@ -66,6 +70,7 @@ function handshakeRejection(status: number | undefined, serverProtocol: string |
 export class MonitorClient {
   private socket?: WebSocket;
   private ready = false;
+  private longCompletionReplies = false;
   private stopped = false;
   private reconnectTimer?: ReturnType<typeof setTimeout>;
   private heartbeat?: ReturnType<typeof setInterval>;
@@ -143,6 +148,23 @@ export class MonitorClient {
   private reportNotifications(report: NotificationReport): Promise<boolean> {
     if (!this.ready || !this.socket)
       return Promise.reject(new Error('Notification server disconnected'));
+    if (!this.longCompletionReplies) {
+      const shorten = <T extends NotificationReport['events'][number]>(event: T): T =>
+        event.kind === 'session.completed'
+          ? {
+              ...event,
+              summary: limitMarkdown(
+                event.summary,
+                (reply) => reply.length <= LEGACY_COMPLETION_SUMMARY_LIMIT,
+              ),
+            }
+          : event;
+      report = {
+        ...report,
+        events: report.events.map(shorten),
+        ...(report.completions && { completions: report.completions.map(shorten) }),
+      };
+    }
     const socket = this.socket,
       id = randomUUID();
     return new Promise((resolve, reject) => {
@@ -234,6 +256,7 @@ export class MonitorClient {
           if (this.ready || frame.workspaceId !== this.options.workspaceId)
             throw new Error('Invalid welcome');
           clearTimeout(handshake);
+          this.longCompletionReplies = !!frame.capabilities?.longCompletionReplies;
           this.ready = true;
           this.delay = this.options.reconnectMs ?? 1000;
           if (frame.capabilities?.hostResources)

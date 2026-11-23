@@ -25,7 +25,7 @@ export function notificationMessage(
     }).format(event.occurredAt);
     lines.push(`完成时间：${date} (UTC+8)`);
   }
-  // Keep navigation outside summaries that may be truncated inside a code block.
+  // Keep navigation above the reply so it stays visible in long cards.
   if (publicUrl) {
     const url = new URL(publicUrl);
     url.searchParams.set('session', event.sessionId);
@@ -36,7 +36,7 @@ export function notificationMessage(
     lines.push('', `[${completed ? '查看本轮结果' : '查看会话'}](<${url.href}>)`);
   }
   if (completed) {
-    if (event.summary.trim()) lines.push('', `回复摘要：\n${event.summary}`);
+    if (event.summary.trim()) lines.push('', `回复内容：\n\n${event.summary}`);
   } else {
     event.questions.forEach((question, index) => {
       lines.push('', `${index + 1}. ${question.title}`);

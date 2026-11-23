@@ -85,6 +85,7 @@ export const frameSchema = z.discriminatedUnion('type', [
     capabilities: z.object({
       hostResources: z.boolean().optional(),
       hostUptime: z.boolean().optional(),
+      longCompletionReplies: z.boolean().optional(),
     }).optional(),
     privacyWorkEnabled: z.boolean().optional(),
   }),

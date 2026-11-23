@@ -237,7 +237,7 @@ export class WorkspaceGateway {
             type: 'welcome',
             version: PROTOCOL_VERSION,
             workspaceId: id,
-            capabilities: { hostResources: true, hostUptime: true },
+            capabilities: { hostResources: true, hostUptime: true, longCompletionReplies: true },
             ...(peer.privacyWork && {
               privacyWorkEnabled: this.store.get(id)?.privacyWorkEnabled ?? false,
             }),

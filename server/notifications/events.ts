@@ -1,5 +1,12 @@
 import { z } from 'zod';
 
+export const COMPLETION_REPLY_BYTES = 12 * 1024;
+export const LEGACY_COMPLETION_SUMMARY_LIMIT = 1000;
+
+export function fitsCompletionReply(reply: string) {
+  return Buffer.byteLength(JSON.stringify(reply)) <= COMPLETION_REPLY_BYTES;
+}
+
 const identifier = z.string().min(1).max(200);
 const occurredAt = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
 const session = {
@@ -14,7 +21,7 @@ export const completionEventSchema = z
     ...session,
     turnId: identifier,
     occurredAt,
-    summary: z.string().max(1000),
+    summary: z.string().max(COMPLETION_REPLY_BYTES).refine(fitsCompletionReply),
   })
   .strict();
 export type CompletionEvent = z.infer<typeof completionEventSchema>;

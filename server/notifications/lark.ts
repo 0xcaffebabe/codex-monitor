@@ -1,5 +1,9 @@
 import { createHmac } from 'node:crypto';
 import { larkMarkdown } from './lark-markdown.js';
+import { limitMarkdown } from './markdown-limit.js';
+
+// Leave room for the card envelope and webhook signature within the request limit.
+const LARK_MARKDOWN_BYTES = 16 * 1024;
 
 export function validLarkWebhook(value: string) {
   try {
@@ -31,9 +35,13 @@ export class LarkDeliveryError extends Error {
 export type WebhookTransport = typeof fetch;
 
 export function larkCard(text: string, app = false) {
+  const content = limitMarkdown(
+    larkMarkdown(text, app),
+    (markdown) => Buffer.byteLength(JSON.stringify(markdown)) <= LARK_MARKDOWN_BYTES,
+  );
   return {
     schema: '2.0',
-    body: { elements: [{ tag: 'markdown', content: larkMarkdown(text, app) }] },
+    body: { elements: [{ tag: 'markdown', content }] },
   };
 }
 

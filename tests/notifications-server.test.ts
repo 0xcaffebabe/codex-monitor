@@ -305,7 +305,11 @@ test('Server owns one configuration and delivers events from two encrypted clien
     );
 
     const turnId = randomUUID();
-    complete(a, turnId, 'A 的完成结果');
+    const longReply =
+      'A 的完成结果\n\n' +
+      '处理记录。'.repeat(250) +
+      '\n\n[结果说明](https://example.com/result)';
+    complete(a, turnId, longReply);
     complete(b, turnId, 'B 的完成结果');
     await until(
       () =>
@@ -328,7 +332,7 @@ test('Server owns one configuration and delivers events from two encrypted clien
       received.some(
         (message) =>
           message.card.body.elements[0].content.includes('电脑 A') &&
-          message.card.body.elements[0].content.includes('A 的完成结果') &&
+          message.card.body.elements[0].content.endsWith(longReply) &&
           message.card.body.elements[0].content.includes(`workspace=${wa.workspace.id}`),
       ),
     );

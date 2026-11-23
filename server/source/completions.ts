@@ -108,12 +108,8 @@ export class CompletionReader {
     return events;
   }
 
-  summary(event: SessionCompletion) {
-    return this.reply(event, 1000);
-  }
-
-  reply(event: Pick<SessionCompletion, 'session' | 'turnId' | 'summary'>, limit = REPLY_LIMIT) {
-    if (event.summary !== undefined) return event.summary.slice(0, limit);
+  reply(event: Pick<SessionCompletion, 'session' | 'turnId' | 'summary'>) {
+    if (event.summary !== undefined) return event.summary.slice(0, REPLY_LIMIT);
     const row = this.databases.history
       ?.prepare(
         `SELECT substr(json_extract(item_json,'$.text'),1,?) AS text,
@@ -123,10 +119,10 @@ export class CompletionReader {
        AND (json_extract(item_json,'$.phase') IN ('final','final_answer') OR json_extract(item_json,'$.phase') IS NULL)
        ORDER BY rollout_ordinal DESC LIMIT 1`,
       )
-      .get(limit, limit === 1000 ? 4000 : 1024 * 1024, event.session.id, event.turnId);
+      .get(REPLY_LIMIT, 1024 * 1024, event.session.id, event.turnId);
     if (typeof row?.text === 'string') return row.text;
     try {
-      return textOf(JSON.parse(String(row?.content || '[]')), limit);
+      return textOf(JSON.parse(String(row?.content || '[]')), REPLY_LIMIT);
     } catch {
       return '';
     }

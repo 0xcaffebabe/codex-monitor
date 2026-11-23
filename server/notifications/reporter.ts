@@ -3,6 +3,7 @@ import type { CodexSource } from '../source.js';
 import type { SessionCompletion } from '../source/completions.js';
 import type { SessionInputRequest } from '../source/input-requests.js';
 import {
+  fitsCompletionReply,
   notificationKey,
   type CompletionEvent,
   type NotificationEvent,
@@ -11,8 +12,9 @@ import {
 } from './events.js';
 import { NotificationReportStore } from './report-store.js';
 import { CompletionOutbox } from './completions.js';
+import { limitMarkdown } from './markdown-limit.js';
 
-type EventSource = Pick<CodexSource, 'completions' | 'completionSummary' | 'inputRequests'>;
+type EventSource = Pick<CodexSource, 'completions' | 'completionReply' | 'inputRequests'>;
 
 /** Collects Codex events without access to a webhook, signing secret or provider adapter. */
 export class NotificationReporter {
@@ -35,13 +37,14 @@ export class NotificationReporter {
     this.timer = setInterval(() => void this.poll(), pollMs);
     this.timer.unref();
   }
-  private completion(event: SessionCompletion): CompletionEvent {
+  private completion(event: SessionCompletion, includeReply = false): CompletionEvent {
     let summary = '';
-    try {
-      summary = this.source.completionSummary(event).slice(0, 1000);
-    } catch {
-      /* Optional. */
-    }
+    if (includeReply)
+      try {
+        summary = limitMarkdown(this.source.completionReply(event), fitsCompletionReply);
+      } catch {
+        /* Optional. */
+      }
     return {
       kind: 'session.completed',
       sessionId: event.session.id,
@@ -151,14 +154,12 @@ export class NotificationReporter {
     const scannedAt = Date.now();
     let monitorError: NotificationReport['monitorError'] = '';
     try {
-      const completions = (await this.source.completions(Math.min(webhookSince, browserSince))).map(
-        (event) => this.completion(event),
-      );
+      const completions = await this.source.completions(Math.min(webhookSince, browserSince));
       if (this.closed || this.policy !== policy) return;
       if (Number.isFinite(browserSince))
         this.store.transaction(() => {
           for (const event of completions)
-            if (event.occurredAt >= browserSince) this.completions.enqueue(event);
+            if (event.completedAt >= browserSince) this.completions.enqueue(this.completion(event));
           this.completions.checkpoint(scannedAt);
         });
       if (Number.isFinite(webhookSince)) {
@@ -186,7 +187,7 @@ export class NotificationReporter {
             this.store.trackInput(input);
           }
           for (const event of completions)
-            if (event.occurredAt >= webhookSince) this.store.enqueue(event);
+            if (event.completedAt >= webhookSince) this.store.enqueue(this.completion(event, true));
           this.store.checkpoint(scannedAt);
         });
       }
