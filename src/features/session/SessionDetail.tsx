@@ -7,6 +7,7 @@ import { useMediaQuery } from '../../shared/useMediaQuery';
 import { MessageComposer } from '../control/MessageComposer';
 import { NewSessionComposer } from '../control/NewSessionComposer';
 import type { NewSessionProps } from '../control/useNewSession';
+import { useSessionControl } from '../control/useSessionControl';
 import { SessionBranchDialog } from '../git/GitBranchSelector';
 import GitDiff from '../git/GitDiff';
 import { DetailHeader } from './DetailHeader';
@@ -51,6 +52,10 @@ export function Detail(
   useScreenWakeLock(!newSession);
   const mobile = useMediaQuery('(max-width: 760px)');
   const { setFollow, session } = model;
+  const control = useSessionControl(
+    !newSession && user.role === 'admin' ? session?.id : undefined,
+    session?.status,
+  );
   const actions = useSessionActions(notify);
   const [computerUseSession, setComputerUseSession] = useState('');
   const [terminalSession, setTerminalSession] = useState('');
@@ -78,6 +83,7 @@ export function Detail(
         onBack={onBack}
         workspaceName={props.workspaceName}
         session={session}
+        desktopOwned={control.state?.owner === 'desktop'}
         mobileOutline={mobile && !newSession && session && (
           <MobileOutline
             key={session.id}
@@ -205,7 +211,7 @@ export function Detail(
               key={session.id}
               user={user}
               threadId={session.id}
-              sessionStatus={session.status}
+              control={control}
               context={page?.context}
               onAccepted={() => {
                 setFollow(true);

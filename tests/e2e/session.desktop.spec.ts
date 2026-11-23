@@ -4,6 +4,28 @@ import path from 'node:path';
 import { ids } from '../fixture.js';
 import { expect, localTitle, test } from './monitor.js';
 
+test('the session header follows confirmed desktop ownership after a turn completes', async ({
+  signedIn: { browserPage, session },
+  local,
+}) => {
+  await browserPage.clock.install();
+  local.data.hist
+    .prepare("UPDATE thread_turns SET status='completed',completed_at=? WHERE thread_id=?")
+    .run(Math.floor(Date.now() / 1000), ids.modern);
+  await session.open(local.id, ids.modern);
+
+  const meta = session.detail.locator('.detail-heading-meta');
+  const owner = meta.getByText('Codex 桌面端持有', { exact: true });
+  await expect(meta).toContainText('已完成');
+  await expect(owner).toBeVisible();
+  await browserPage.setViewportSize({ width: 390, height: 844 });
+  await expect(owner).toBeInViewport();
+
+  local.control.owner = 'monitor';
+  await browserPage.clock.fastForward(10000);
+  await expect(owner).toHaveCount(0);
+});
+
 test('reads archived history and renders untrusted conversation Markdown without remote images', async ({
   signedIn: { browserPage, workspace, session },
   local,

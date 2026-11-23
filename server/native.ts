@@ -442,6 +442,7 @@ export async function requestOwnedThread(
         'ipc.sock',
       ),
   readOnly = false,
+  timeoutMs = 90000,
 ) {
   return new Promise<Record<string, any>>((resolve, reject) => {
     const socket = net.createConnection(endpoint);
@@ -469,7 +470,7 @@ export async function requestOwnedThread(
             504,
           ),
         ),
-      90000,
+      timeoutMs,
     );
     const send = (value: object) => {
       const body = Buffer.from(JSON.stringify(value)),

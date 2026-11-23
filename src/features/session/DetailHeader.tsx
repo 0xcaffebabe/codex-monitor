@@ -28,6 +28,7 @@ export function DetailHeader({
   taskWatch,
   mobileOutline,
   workspaceName,
+  desktopOwned,
   creating = false,
 }: Pick<DetailProps, 'page' | 'onBack'> & {
   session?: Session;
@@ -38,6 +39,7 @@ export function DetailHeader({
   taskWatch?: { watched: boolean; busy: boolean; toggle: () => void };
   mobileOutline?: ReactNode;
   workspaceName?: string;
+  desktopOwned?: boolean;
   creating?: boolean;
 }) {
   const [showInfo, setShowInfo] = useState(false);
@@ -57,6 +59,12 @@ export function DetailHeader({
               {location && (
                 <span className="detail-summary-project" title={session.cwd}>
                   {location}
+                </span>
+              )}
+              {desktopOwned && (
+                <span className="detail-desktop-owner">
+                  <Monitor size={13} aria-hidden="true" />
+                  Codex 桌面端持有
                 </span>
               )}
               {page?.turnTiming?.finishedAt === null && (

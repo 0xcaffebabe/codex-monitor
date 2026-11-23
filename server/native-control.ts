@@ -284,7 +284,14 @@ export class NativeDesktopControl implements DesktopControl {
     });
   }
 
-  private owner(threadId: string, method: string, params = {}, version = 1, readOnly = false) {
+  private owner(
+    threadId: string,
+    method: string,
+    params = {},
+    version = 1,
+    readOnly = false,
+    timeoutMs?: number,
+  ) {
     return (this.dependencies.owner ?? requestOwnedThread)(
       threadId,
       method,
@@ -294,10 +301,15 @@ export class NativeDesktopControl implements DesktopControl {
       this.options.codexHome,
       undefined,
       readOnly,
+      timeoutMs,
     );
   }
 
-  async state(_context: string, threadId: string): ReturnType<DesktopControl['state']> {
+  async state(
+    _context: string,
+    threadId: string,
+    options?: { inspectOwner?: boolean },
+  ): ReturnType<DesktopControl['state']> {
     const runtime = this.runtimes.get(threadId);
     let result: any;
     try {
@@ -329,14 +341,26 @@ export class NativeDesktopControl implements DesktopControl {
       await (runtime.dispose?.() ?? runtime.close());
     }
     const persisted = this.options.activity(threadId);
-    if (persisted && !persisted.running)
-      return {
-        status: 'notLoaded', turnId: persisted.turnId, compacting: false,
-        permissionMode: this.savedPermission(threadId),
-      };
+    const completed =
+      persisted && !persisted.running
+        ? {
+            status: 'notLoaded',
+            turnId: persisted.turnId,
+            compacting: false,
+            permissionMode: this.savedPermission(threadId),
+          }
+        : undefined;
+    if (completed && !options?.inspectOwner) return completed;
     try {
       // This read confirms a live owner without loading history or claiming its writer.
-      await this.owner(threadId, 'thread-follower-read-model-settings', {}, 1, true);
+      await this.owner(
+        threadId,
+        'thread-follower-read-model-settings',
+        {},
+        1,
+        true,
+        completed ? 3000 : undefined,
+      );
       const activity = this.options.activity(threadId);
       return {
         status: activity?.running ? 'active' : 'idle',
@@ -345,6 +369,7 @@ export class NativeDesktopControl implements DesktopControl {
         compacting: !!activity?.compacting,
       };
     } catch (error) {
+      if (completed) return completed;
       if (!noOwner(error)) throw error;
       return {
         status: 'notLoaded',

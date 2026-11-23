@@ -1,14 +1,14 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { api } from '../../api';
-import type { SessionPermissionMode } from '../../approval-types';
-import type { SessionContext, SessionStatus, User } from '../../types';
+import type { SessionContext, User } from '../../types';
 import type { Receipt, SessionGoal } from './types';
 import { useModelSettings } from './useModelSettings';
+import type { useSessionControl } from './useSessionControl';
 
 export type MessageComposerProps = {
   user: User;
   threadId: string;
-  sessionStatus?: SessionStatus;
+  control: ReturnType<typeof useSessionControl>;
   context?: SessionContext;
   contextControls?: ReactNode;
   onAccepted: () => void;
@@ -16,20 +16,9 @@ export type MessageComposerProps = {
 export function useMessageComposer({
   user,
   threadId,
-  sessionStatus,
+  control: { state, refresh, setRefresh, markStopped },
   onAccepted,
 }: MessageComposerProps) {
-  const [state, setState] = useState<{
-    available: boolean;
-    desktopChannel?: boolean;
-    messagePermissions?: boolean;
-    permissionMode?: Exclude<SessionPermissionMode, 'inherit'>;
-    running?: boolean;
-    compacting?: boolean;
-    turnId?: string;
-    reason?: string;
-  }>();
-  const [refresh, setRefresh] = useState(0);
   const [goalOpen, setGoalOpen] = useState(false);
   const [controlNotice, setControlNotice] = useState('');
   const canChangeModel =
@@ -76,34 +65,10 @@ export function useMessageComposer({
     onAccepted();
   };
   const stopDone = () => {
-    setState((previous) => previous && { ...previous, running: false, compacting: false });
+    markStopped();
     setRefresh((value) => value + 1);
     onAccepted();
   };
-  useEffect(() => {
-    if (user.role !== 'admin') return;
-    let stopped = false,
-      busy = false;
-    const load = async () => {
-      if (busy) return;
-      busy = true;
-      try {
-        const result = await api<any>(`/api/sessions/${threadId}/control`);
-        if (!stopped) setState(result);
-      } catch (error) {
-        if (!stopped) setState({ available: false, reason: (error as Error).message });
-      } finally {
-        busy = false;
-      }
-    };
-    void load();
-    const timer = setInterval(() => void load(), 10000);
-    return () => {
-      stopped = true;
-      clearInterval(timer);
-    };
-  }, [threadId, user.role, refresh, sessionStatus]);
-
   return {
     canChangeModel,
     modelSettings,

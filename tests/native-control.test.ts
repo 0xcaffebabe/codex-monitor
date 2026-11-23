@@ -805,6 +805,14 @@ test('owner status distinguishes live turns from old persisted turn ids without 
   f.activity.running = false;
   assert.equal((await f.control.state('context', 'desktop-thread')).status, 'notLoaded');
   assert.equal(f.ownerCalls.length, 1, 'completed records do not need owner discovery');
+  const ownerOptions = { inspectOwner: true };
+  const idle = await f.control.state('context', 'desktop-thread', ownerOptions);
+  assert.equal(idle.status, 'idle');
+  assert.equal(idle.owner, 'desktop');
+  f.ownerError = new ControlError('owner timed out', false, 504);
+  const completed = await f.control.state('context', 'desktop-thread', ownerOptions);
+  assert.equal(completed.status, 'notLoaded');
+  assert.equal(completed.owner, undefined);
   assert.equal(
     f.calls.every((c) => c.params.includeTurns === false),
     true,

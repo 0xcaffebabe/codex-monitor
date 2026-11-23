@@ -241,11 +241,12 @@ export function installControl(
           : '内部子代理会话不支持从网页发送消息。',
       });
     try {
-      const state = await bridge.state(await context(id), id);
+      const state = await bridge.state(await context(id), id, { inspectOwner: true });
       if (state.compacting)
         return res.json({
           available: true,
           desktopChannel: !!bridge.desktopChannel,
+          owner: state.owner,
           compacting: true,
           running: false,
           turnId: state.turnId,
@@ -259,6 +260,7 @@ export function installControl(
       res.json({
         available: true,
         desktopChannel: !!bridge.desktopChannel,
+        owner: state.owner,
         messagePermissions:
           !!bridge.messagePermissions && state.owner !== 'desktop' &&
           (state.status === 'idle' || state.status === 'notLoaded'),

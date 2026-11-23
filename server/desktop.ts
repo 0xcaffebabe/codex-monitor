@@ -38,7 +38,11 @@ export interface DesktopControl {
   desktopChannel?: boolean;
   projects(context: string): Promise<DesktopProject[]>;
   models(): Promise<CodexModel[]>;
-  state(context: string, threadId: string): Promise<DesktopThreadState>;
+  state(
+    context: string,
+    threadId: string,
+    options?: { inspectOwner?: boolean },
+  ): Promise<DesktopThreadState>;
   send(
     context: string,
     threadId: string,
