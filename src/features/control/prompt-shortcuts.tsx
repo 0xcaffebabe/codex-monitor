@@ -1,4 +1,4 @@
-import { CloudUpload, GitCommitHorizontal, Monitor } from 'lucide-react';
+import { CloudUpload, GitCommitHorizontal, Monitor, Upload } from 'lucide-react';
 import type { ReactNode } from 'react';
 
 export type PromptShortcut = {
@@ -47,5 +47,14 @@ export const promptShortcuts: PromptShortcut[] = [
     prompt: '请将当前分支的代码推送到对应的远程分支。',
     icon: <CloudUpload size={17} />,
     keywords: ['git', 'push'],
+  },
+  {
+    id: 'commit-and-push-code',
+    label: '提交并推送代码',
+    description: '提交本次改动并推送当前分支',
+    group: '代码协作',
+    prompt: '请检查本次任务相关的代码改动，编写清晰的提交说明并提交，然后将当前分支推送到对应的远程分支。',
+    icon: <Upload size={17} />,
+    keywords: ['git', 'commit', 'push', '提交推送'],
   },
 ];
