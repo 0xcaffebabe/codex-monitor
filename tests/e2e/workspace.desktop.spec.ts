@@ -9,7 +9,8 @@ test('the desktop dock stays fixed on usage and opens a running session across w
   const remoteName = '运行中的远程工作空间';
   const remoteTitle = '正在处理远程会话';
   const remote = await monitor.addWorkspace(remoteName, remoteTitle);
-  await page.setViewportSize({ width: 1440, height: 720 });
+  const viewport = { width: 1440, height: 720 };
+  await page.setViewportSize(viewport);
   await usage.open();
 
   const dock = page.getByRole('navigation', { name: '会话快捷入口' });
@@ -19,8 +20,8 @@ test('the desktop dock stays fixed on usage and opens a running session across w
   const bounds = (await trigger.boundingBox())!;
   const dashboard = page.locator('.usage-dashboard');
   const dashboardBounds = (await dashboard.boundingBox())!;
-  expect(bounds.x).toBeGreaterThanOrEqual(dashboardBounds.x + dashboardBounds.width);
-  expect(1440 - bounds.x - bounds.width).toBeLessThan(16);
+  expect(dashboardBounds.x + dashboardBounds.width).toBe(viewport.width);
+  expect(viewport.width - bounds.x - bounds.width).toBeLessThan(16);
   await dashboard.evaluate((element) => (element.scrollTop = element.scrollHeight));
   await expect.poll(() => dashboard.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
   expect(await trigger.boundingBox()).toEqual(bounds);

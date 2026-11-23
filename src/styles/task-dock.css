@@ -100,10 +100,6 @@
 }
 
 @media (width > 760px) {
-  .app-shell:has(.desktop-task-dock) {
-    --desktop-task-dock-gutter: 60px;
-    padding-inline-end: var(--desktop-task-dock-gutter);
-  }
   .desktop-task-dock {
     position: fixed;
     inset-block-start: 50%;
@@ -132,7 +128,8 @@
     background: var(--surface2);
   }
   .running-sessions-dialog {
-    inset: 50% var(--desktop-task-dock-gutter) auto auto;
+    inset: 50% auto auto;
+    inset-inline-end: 60px;
     transform: translateY(-50%);
     width: 360px;
     border-radius: 8px;
