@@ -31,6 +31,7 @@ export type PromptFormProps = {
   allowGoal?: boolean;
   /** Omit to remove the option; false retains saved selections for unavailable clients. */
   allowDesktopChannel?: boolean;
+  desktopOwned?: boolean;
   allowPermissionChanges?: boolean;
   currentPermissionMode?: Exclude<SessionPermissionMode, 'inherit'>;
   promptShortcuts?: PromptShortcut[];
@@ -47,6 +48,7 @@ export function usePromptForm({
   allowAttachments = false,
   allowGoal = false,
   allowDesktopChannel,
+  desktopOwned,
   allowPermissionChanges,
   maxLength = 12000,
 }: PromptFormProps) {
@@ -86,17 +88,29 @@ export function usePromptForm({
   const objective = goalCommand ? draft.prompt.trimStart().slice(5).trim() : draft.prompt.trim();
   const characterLimit = asGoal ? 4000 : maxLength;
   const characterCount = asGoal ? objective.length : draft.prompt.length;
+  // A submitted request displays the channel saved with its receipt.
+  const autoDesktopChannelFor = (prompt: string) =>
+    !!(
+      allowDesktopChannel &&
+      desktopOwned &&
+      !draft.requestId &&
+      !prompt.trimStart().startsWith('/')
+    );
+  const autoDesktopChannel = autoDesktopChannelFor(draft.prompt);
+  const desktopChannel = autoDesktopChannel || !!draft.desktopChannel;
   const permissionError = !draft.permissionMode
     ? ''
-    : draft.desktopChannel
-      ? '桌面通道沿用桌面端权限，请取消桌面通道或选择沿用当前权限。'
+    : desktopChannel
+      ? autoDesktopChannel
+        ? '桌面通道沿用桌面端权限，请选择沿用当前权限。'
+        : '桌面通道沿用桌面端权限，请取消桌面通道或选择沿用当前权限。'
       : !allowPermissionChanges
         ? '当前无法切换权限。请等待会话空闲，或选择沿用当前权限。'
         : '';
   const validationError =
     characterCount > characterLimit
       ? `${asGoal ? '目标' : '消息'}最多 ${characterLimit} 字符，请缩短内容。`
-      : draft.desktopChannel && !allowDesktopChannel && enabled
+      : desktopChannel && !allowDesktopChannel && enabled
         ? '此工作空间暂不支持桌面通道，请更新客户端或取消勾选。'
         : permissionError ||
           (draft.permissionMode && draft.prompt.trimStart().startsWith('/')
@@ -105,7 +119,7 @@ export function usePromptForm({
   const needsFullAccessConfirmation = draft.permissionMode === 'danger-full-access' && !fullAccessConfirmed;
   const hasContent = asGoal ? !!objective : !!draft.prompt.trim() || !!attachments.length;
   const canSubmit = !!enabled && hasContent && !validationError && !needsFullAccessConfirmation;
-  const canSubmitPreset = !!enabled && (!draft.desktopChannel || !!allowDesktopChannel) &&
+  const canSubmitPreset = !!enabled && (!desktopChannel || !!allowDesktopChannel) &&
     !permissionError && !needsFullAccessConfirmation;
   function setPermissionMode(mode: SessionPermissionMode) {
     setFullAccessConfirmed(false);
@@ -194,7 +208,7 @@ export function usePromptForm({
   }
   async function submit() {
     if (!canSubmit) return;
-    await sendDraft({ ...draft, asGoal });
+    await sendDraft({ ...draft, asGoal, desktopChannel });
   }
   function insertProjectFiles(paths: string[]) {
     if (!enabled || submitting.current || draft.requestId) return '当前消息暂不可编辑。';
@@ -208,10 +222,20 @@ export function usePromptForm({
     return undefined;
   }
   async function submitPresetPrompt(shortcut: PromptShortcut) {
-    const desktopChannel = shortcut.channel === 'desktop' || !!draft.desktopChannel;
-    if (!enabled || (desktopChannel && !allowDesktopChannel) || permissionError || needsFullAccessConfirmation ||
-      (desktopChannel && !!draft.permissionMode)) return;
-    await sendDraft({ prompt: shortcut.prompt, desktopChannel, permissionMode: draft.permissionMode });
+    const presetDesktopChannel =
+      shortcut.channel === 'desktop' || !!draft.desktopChannel || autoDesktopChannelFor(shortcut.prompt);
+    if (
+      !enabled ||
+      (presetDesktopChannel && !allowDesktopChannel) ||
+      permissionError ||
+      needsFullAccessConfirmation ||
+      (presetDesktopChannel && !!draft.permissionMode)
+    ) return;
+    await sendDraft({
+      prompt: shortcut.prompt,
+      desktopChannel: presetDesktopChannel,
+      permissionMode: draft.permissionMode,
+    });
   }
   async function sendDraft(submission: Draft) {
     if (submitting.current || uploading.current || draft.requestId) return;
@@ -353,6 +377,8 @@ export function usePromptForm({
   return {
     draft,
     setDraft,
+    desktopChannel,
+    autoDesktopChannel,
     busy,
     error,
     setError,

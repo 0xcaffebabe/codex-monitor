@@ -32,14 +32,15 @@ test('viewing or closing a completion marks the session read on its workspace', 
   expect(local.control.readThreads).toEqual([]);
 });
 
-test('the session header follows confirmed desktop ownership after a turn completes', async ({
+test('the session header and composer follow desktop ownership after a turn completes', async ({
   signedIn: { browserPage, session },
   local,
 }) => {
   await browserPage.clock.install();
+  const completedAt = Math.floor(Date.now() / 1000) - 10 * 60;
   local.data.hist
-    .prepare("UPDATE thread_turns SET status='completed',completed_at=? WHERE thread_id=?")
-    .run(Math.floor(Date.now() / 1000), ids.modern);
+    .prepare("UPDATE thread_turns SET status='completed',started_at=?,completed_at=? WHERE thread_id=?")
+    .run(completedAt - 60, completedAt, ids.modern);
   await session.open(local.id, ids.modern);
 
   const meta = session.detail.locator('.detail-heading-meta');
@@ -48,10 +49,38 @@ test('the session header follows confirmed desktop ownership after a turn comple
   await expect(owner).toBeVisible();
   await browserPage.setViewportSize({ width: 390, height: 844 });
   await expect(owner).toBeInViewport();
+  await session.detail.getByRole('button', { name: '发送设置', exact: true }).click();
+  const desktopChannel = session.detail.getByRole('checkbox', { name: '桌面通道', exact: true });
+  await expect(desktopChannel).toBeVisible();
+  await expect(desktopChannel).toBeChecked();
+  await expect(desktopChannel).toBeDisabled();
 
   local.control.owner = 'monitor';
   await browserPage.clock.fastForward(10000);
   await expect(owner).toHaveCount(0);
+  await expect(desktopChannel).not.toBeChecked();
+  await expect(desktopChannel).toBeEnabled();
+  await desktopChannel.check();
+});
+
+test('desktop-owned sessions send prompts through the desktop and still run slash commands', async ({
+  signedIn: { session },
+  local,
+}) => {
+  await session.open(local.id, ids.modern);
+  await session.sendMessage('自动通过桌面通道发送');
+  await expect.poll(() => local.control.lastSend.channel).toBe('desktop');
+  await expect(session.draft).toHaveValue('');
+
+  await session.detail.getByRole('button', { name: '快捷操作', exact: true }).click();
+  await session.detail.getByRole('button', { name: '提交代码', exact: true }).click();
+  await expect.poll(() => local.control.sends).toBe(2);
+  expect(local.control.lastSend.channel).toBe('desktop');
+  await expect(session.draft).toHaveValue('');
+
+  await session.sendMessage('  /help');
+  await expect(session.detail.getByText('可用指令：/compact 压缩上下文', { exact: false })).toBeVisible();
+  expect(local.control.sends).toBe(2);
 });
 
 test('reads archived history and renders untrusted conversation Markdown without remote images', async ({

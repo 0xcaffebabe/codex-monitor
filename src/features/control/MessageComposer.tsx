@@ -144,6 +144,7 @@ export function MessageComposer(props: MessageComposerProps) {
         allowAttachments
         projectFilesUrl={`/api/sessions/${threadId}/files`}
         allowDesktopChannel={!!state?.desktopChannel}
+        desktopOwned={state?.owner === 'desktop'}
         allowPermissionChanges={canChangeModel && !!state?.messagePermissions}
         currentPermissionMode={state?.permissionMode}
         promptShortcuts={promptShortcuts}

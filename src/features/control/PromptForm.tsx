@@ -42,6 +42,8 @@ export function PromptForm(props: PromptFormProps) {
   const {
     draft,
     setDraft,
+    desktopChannel,
+    autoDesktopChannel,
     busy,
     error,
     notice,
@@ -72,8 +74,12 @@ export function PromptForm(props: PromptFormProps) {
   const promptLabel = asGoal ? '目标内容' : inputLabel;
   const busyLabel = draft.creation ? '正在保存目标…' : '正在发送…';
   const enterSends = submitOnEnter && !isMobile;
-  const canSelectPermission = !!allowPermissionChanges && !draft.desktopChannel;
-  const sendSettings = [draft.desktopChannel && '桌面通道', modelSummary, draft.permissionMode && permissionLabels[draft.permissionMode]]
+  const canSelectPermission = !!allowPermissionChanges && !desktopChannel;
+  const sendSettings = [
+    desktopChannel && '桌面通道',
+    modelSummary,
+    draft.permissionMode && permissionLabels[draft.permissionMode],
+  ]
     .filter(Boolean)
     .join(' · ');
   return (
@@ -179,11 +185,11 @@ export function PromptForm(props: PromptFormProps) {
               }}
             />
           )}
-          {(attachmentControls || allowDesktopChannel || draft.desktopChannel || allowPermissionChanges || draft.permissionMode) && (
+          {(attachmentControls || allowDesktopChannel || desktopChannel || allowPermissionChanges || draft.permissionMode) && (
             <Popover
               label="发送设置"
               displayLabel={sendSettings || undefined}
-              icon={draft.desktopChannel ? <Monitor size={15} /> : <SlidersHorizontal size={15} />}
+              icon={desktopChannel ? <Monitor size={15} /> : <SlidersHorizontal size={15} />}
               active={!!sendSettings}
               className="composer-settings-trigger"
             >
@@ -207,7 +213,7 @@ export function PromptForm(props: PromptFormProps) {
                         >
                           {sessionPermissionModes.map((mode) => (
                             <option key={mode} value={mode} disabled={mode !== 'inherit' && !canSelectPermission}>
-                              {mode === 'inherit' && currentPermissionMode && !draft.desktopChannel
+                              {mode === 'inherit' && currentPermissionMode && !desktopChannel
                                 ? `沿用当前权限（${permissionLabels[currentPermissionMode]}）`
                                 : permissionLabels[mode]}
                             </option>
@@ -227,15 +233,15 @@ export function PromptForm(props: PromptFormProps) {
                       )}
                     </section>
                   )}
-                  {(allowDesktopChannel || draft.desktopChannel) && (
+                  {(allowDesktopChannel || desktopChannel) && (
                     <section>
                       <h3>发送通道</h3>
                       <label className="composer-desktop-channel">
                         <input
                           type="checkbox"
                           aria-label="桌面通道"
-                          checked={!!draft.desktopChannel}
-                          disabled={busy || !!draft.requestId || !enabled}
+                          checked={desktopChannel}
+                          disabled={autoDesktopChannel || busy || !!draft.requestId || !enabled}
                           onChange={(event) =>
                             setDraft((previous) => ({
                               ...previous,
@@ -245,7 +251,11 @@ export function PromptForm(props: PromptFormProps) {
                         />
                         <span>
                           <strong>桌面通道</strong>
-                          <small>通过 Codex 桌面应用发送，支持执行中追加。</small>
+                          <small>
+                            {autoDesktopChannel
+                              ? '当前会话由 Codex 桌面端持有。'
+                              : '通过 Codex 桌面应用发送，支持执行中追加。'}
+                          </small>
                         </span>
                       </label>
                     </section>
