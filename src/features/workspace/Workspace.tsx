@@ -18,7 +18,7 @@ import { Settings } from '../settings/Settings';
 import { UsageDashboard } from '../usage/UsageDashboard';
 import { AttentionBoard } from '../attention/AttentionBoard';
 import { SessionPanel } from './SessionPanel';
-import { MobileTaskDock } from './MobileTaskDock';
+import { TaskDock } from './TaskDock';
 import { Sidebar } from './Sidebar';
 import { useWorkspace, WorkspaceProps } from './useWorkspace';
 import { useDesktopLayout } from './useDesktopLayout';
@@ -299,20 +299,19 @@ export function Workspace(
           </>
         )}
       </main>
-      {mobile && (
-        <MobileTaskDock
-          groups={props.attention.groups}
-          workspaceId={props.workspaceId}
-          selected={selected}
-          onHome={() => changeTab('attention')}
-          home={tab === 'attention' && !hasDetail}
-          onSessions={() => {
-            if (sessionsTab) closeDetail();
-            else changeTab('all');
-          }}
-          sessions={sessionsTab && !hasDetail}
-        />
-      )}
+      <TaskDock
+        mobile={mobile}
+        groups={props.attention.groups}
+        workspaceId={props.workspaceId}
+        selected={selected}
+        onHome={() => changeTab('attention')}
+        home={tab === 'attention' && !hasDetail}
+        onSessions={() => {
+          if (sessionsTab) closeDetail();
+          else changeTab('all');
+        }}
+        sessions={sessionsTab && !hasDetail}
+      />
       {settings && (
         <Settings
           user={user}

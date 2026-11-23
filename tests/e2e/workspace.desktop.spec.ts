@@ -2,6 +2,48 @@ import path from 'node:path';
 import { ids } from '../fixture.js';
 import { expect, localTitle, test } from './monitor.js';
 
+test('the desktop dock stays fixed on usage and opens a running session across workspaces', async ({
+  signedIn: { browserPage: page, session, usage, workspace },
+  monitor,
+}) => {
+  const remoteName = '运行中的远程工作空间';
+  const remoteTitle = '正在处理远程会话';
+  const remote = await monitor.addWorkspace(remoteName, remoteTitle);
+  await page.setViewportSize({ width: 1440, height: 720 });
+  await usage.open();
+
+  const dock = page.getByRole('navigation', { name: '会话快捷入口' });
+  const trigger = dock.getByRole('button', { name: '查看运行中的会话' });
+  const dialog = page.getByRole('dialog', { name: '运行中的会话' });
+  await expect(trigger).toHaveText('2');
+  const bounds = (await trigger.boundingBox())!;
+  const dashboard = page.locator('.usage-dashboard');
+  const dashboardBounds = (await dashboard.boundingBox())!;
+  expect(bounds.x).toBeGreaterThanOrEqual(dashboardBounds.x + dashboardBounds.width);
+  expect(1440 - bounds.x - bounds.width).toBeLessThan(16);
+  await dashboard.evaluate((element) => (element.scrollTop = element.scrollHeight));
+  await expect.poll(() => dashboard.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
+  expect(await trigger.boundingBox()).toEqual(bounds);
+
+  await trigger.click();
+  await expect(dialog.getByRole('button', { name: new RegExp(localTitle) })).toBeVisible();
+  const dialogBounds = (await dialog.boundingBox())!;
+  expect(dialogBounds.x + dialogBounds.width).toBeLessThan(bounds.x);
+  const remoteSession = dialog.getByRole('button', { name: new RegExp(remoteTitle) });
+  await expect(remoteSession).toContainText(remoteName);
+  await page.keyboard.press('Escape');
+  await expect(dialog).toBeHidden();
+  await expect(trigger).toBeFocused();
+
+  await trigger.click();
+  await remoteSession.click();
+  await expect(dialog).toBeHidden();
+  await expect(workspace.workspaceSelector).toHaveValue(remote.id);
+  await expect(session.heading(remoteTitle)).toBeVisible();
+  await trigger.click();
+  await expect(remoteSession).toHaveAttribute('aria-current', 'page');
+});
+
 test('a slow workspace leaves other session lists visible and refreshing', async ({
   app: { browserPage: page, account, workspace },
   monitor,

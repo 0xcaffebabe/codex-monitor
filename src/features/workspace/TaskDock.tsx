@@ -4,7 +4,8 @@ import { cx, relative } from '../../shared/format';
 import { navigateWorkspace } from '../../workspace-scope';
 import type { AttentionWorkspace } from '../attention/useAttention';
 
-export function MobileTaskDock({
+export function TaskDock({
+  mobile,
   groups,
   workspaceId,
   selected,
@@ -13,6 +14,7 @@ export function MobileTaskDock({
   onSessions,
   sessions,
 }: {
+  mobile: boolean;
   groups: AttentionWorkspace[];
   workspaceId: string;
   selected?: string;
@@ -22,6 +24,7 @@ export function MobileTaskDock({
   sessions: boolean;
 }) {
   const [opened, setOpened] = useState(false);
+  const trigger = useRef<HTMLButtonElement>(null);
   const dialog = useRef<HTMLDialogElement>(null);
   const running = groups
     .flatMap(({ workspace, snapshot, fresh }) => {
@@ -36,7 +39,11 @@ export function MobileTaskDock({
     })
     .sort((left, right) => right.session.updatedAt - left.session.updatedAt);
   const unavailable = groups.filter(({ fresh }) => !fresh).map(({ workspace }) => workspace.name);
-  const close = () => setOpened(false);
+  const close = () => {
+    dialog.current?.close();
+    trigger.current?.focus({ preventScroll: true });
+    setOpened(false);
+  };
   useLayoutEffect(() => {
     if (!opened || !dialog.current) return;
     const element = dialog.current;
@@ -46,43 +53,50 @@ export function MobileTaskDock({
 
   return (
     <>
-      <nav className="mobile-task-dock" aria-label="任务导航">
+      <nav
+        className={mobile ? 'mobile-task-dock' : 'desktop-task-dock'}
+        aria-label={mobile ? '任务导航' : '会话快捷入口'}
+      >
+        {mobile && (
+          <>
+            <button
+              type="button"
+              aria-label="返回任务动态"
+              aria-current={home ? 'page' : undefined}
+              onClick={onHome}
+            >
+              <ListTodo size={18} aria-hidden="true" />
+              任务动态
+            </button>
+            <button type="button" aria-current={sessions ? 'page' : undefined} onClick={onSessions}>
+              <Layers3 size={18} aria-hidden="true" />
+              会话
+            </button>
+          </>
+        )}
         <button
+          ref={trigger}
           type="button"
-          aria-label="返回任务动态"
-          aria-current={home ? 'page' : undefined}
-          onClick={onHome}
-        >
-          <ListTodo size={18} aria-hidden="true" />
-          任务动态
-        </button>
-        <button
-          type="button"
-          aria-current={sessions ? 'page' : undefined}
-          onClick={onSessions}
-        >
-          <Layers3 size={18} aria-hidden="true" />
-          会话
-        </button>
-        <button
-          type="button"
-          className="mobile-running-trigger"
+          className="running-sessions-trigger"
           aria-label="查看运行中的会话"
+          aria-description={mobile ? undefined : `${running.length} 个运行中的会话`}
           aria-haspopup="dialog"
           aria-expanded={opened}
-          aria-controls={opened ? 'mobile-running-sessions' : undefined}
+          aria-controls={opened ? 'running-sessions' : undefined}
+          title={mobile ? undefined : '运行中的会话'}
           onClick={() => setOpened(true)}
         >
           <Radio size={18} aria-hidden="true" />
-          运行中{running.length > 0 && <span>{running.length}</span>}
+          {mobile && '运行中'}
+          {(!mobile || running.length > 0) && <span>{running.length}</span>}
         </button>
       </nav>
       {opened && (
         <dialog
           ref={dialog}
-          className="mobile-running-sheet"
-          id="mobile-running-sessions"
-          aria-labelledby="mobile-running-heading"
+          className="running-sessions-dialog"
+          id="running-sessions"
+          aria-labelledby="running-sessions-heading"
           onCancel={(event) => {
             event.preventDefault();
             close();
@@ -91,12 +105,12 @@ export function MobileTaskDock({
             if (event.target === event.currentTarget) close();
           }}
         >
-          <div className="mobile-running-inner">
+          <div className="running-sessions-inner">
             <header>
-              <h2 id="mobile-running-heading">运行中的会话</h2>
+              <h2 id="running-sessions-heading">运行中的会话</h2>
               <span>全部工作空间</span>
             </header>
-            <div className="mobile-running-list">
+            <div className="running-sessions-list">
               {unavailable.length > 0 && <p role="status">未同步：{unavailable.join('、')}</p>}
               {!running.length && <p>已同步的工作空间中暂无运行中的会话。</p>}
               {running.map(({ workspace, session }) => {
