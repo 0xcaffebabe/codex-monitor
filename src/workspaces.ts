@@ -21,5 +21,7 @@ export type ManagedWorkspace = {
   hostname: string;
   platform: string;
   buildCommitAt?: number | null;
+  privacyWorkEnabled?: boolean;
+  privacyWorkSupported?: boolean;
   resources?: WorkspaceResources | null;
 };

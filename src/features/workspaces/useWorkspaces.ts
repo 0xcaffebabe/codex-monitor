@@ -121,6 +121,13 @@ export function useWorkspaces(userId: string) {
     action(id, async () => {
       await api(`/api/workspaces/${id}`, { method: 'PATCH', body: JSON.stringify({ name }) });
     });
+  const setPrivacyWork = (id: string, enabled: boolean) =>
+    action(id, async () => {
+      await api(`/api/workspaces/${encodeURIComponent(id)}/privacy-work`, {
+        method: 'PATCH',
+        body: JSON.stringify({ enabled }),
+      });
+    });
   const copy = async () => {
     setConnectionCopy(null);
     try {
@@ -175,6 +182,7 @@ export function useWorkspaces(userId: string) {
     rotate,
     remove,
     rename,
+    setPrivacyWork,
     copy,
     copyWorkspaceCommand,
     close: () => {

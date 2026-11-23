@@ -24,12 +24,34 @@ function ClientRow({ workspace, model }: { workspace: ManagedWorkspace; model: W
   const [name, setName] = useState(workspace.name);
   const [confirming, setConfirming] = useState<'rotate' | 'remove' | ''>('');
   const copy = model.connectionCopy?.id === workspace.id ? model.connectionCopy : null;
+  const privacyWorkEnabled = !!workspace.privacyWorkEnabled;
+  const privacyWorkTitle =
+    workspace.platform !== 'win32'
+      ? '仅支持 Windows'
+      : !workspace.online
+        ? '客户端离线，连接后可开启隐私工作'
+        : !workspace.privacyWorkSupported
+          ? '请先更新 Windows 客户端'
+          : '开启时立即关闭屏幕，之后每隔 60 秒关闭一次';
   return (
     <article className="client-row">
       <div className="client-heading">
         <Monitor size={20} />
         <strong>{workspace.name}</strong>
-        <span className={workspace.online ? 'client-online' : 'muted'}>
+        <span title={privacyWorkTitle}>
+          <button
+            type="button"
+            className="client-privacy-switch"
+            role="switch"
+            aria-checked={privacyWorkEnabled}
+            disabled={!!model.pending || (!privacyWorkEnabled && !workspace.privacyWorkSupported)}
+            onClick={() => void model.setPrivacyWork(workspace.id, !privacyWorkEnabled)}
+          >
+            <span className="client-privacy-track" aria-hidden="true" />
+            隐私工作
+          </button>
+        </span>
+        <span className={`client-status ${workspace.online ? 'client-online' : 'muted'}`}>
           {workspace.online ? '在线' : '离线'}
         </span>
       </div>

@@ -8,6 +8,7 @@ import path from 'node:path';
 import { WebSocket } from 'ws';
 import { setTimeout as delay } from 'node:timers/promises';
 import { createMonitorServer } from '../server/server-app.js';
+import { WorkspaceStore } from '../server/workspaces/store.js';
 import {
   connectionProof,
   PROTOCOL_VERSION,
@@ -18,7 +19,7 @@ import {
   type Frame,
 } from '../server/transport/protocol.js';
 
-async function gatewayFixture() {
+async function gatewayFixture(platform = 'test', privacyWork = false) {
   const root = mkdtempSync(path.join(os.tmpdir(), 'codex-monitor-gateway-'));
   const service = createMonitorServer({
     dataDir: root,
@@ -44,6 +45,7 @@ async function gatewayFixture() {
     { headers: { Authorization: proof } },
   );
   const requests: Extract<Frame, { type: 'request' }>[] = [];
+  const privacyStates: boolean[] = [];
   let encrypted = false;
   let ready!: () => void;
   const connected = new Promise<void>((resolve) => {
@@ -58,18 +60,23 @@ async function gatewayFixture() {
         type: 'hello',
         version: PROTOCOL_VERSION,
         hostname: 'test',
-        platform: 'test',
+        platform,
+        ...(privacyWork && { capabilities: { privacyWork: true } }),
       });
       return;
     }
     const frame = readFrame(socket, raw);
     if (frame.type === 'welcome') ready();
     if (frame.type === 'request') requests.push(frame);
+    if (frame.type === 'privacy-work') privacyStates.push(frame.enabled);
   });
   await connected;
   return {
     url: base + '/api/workspaces/' + workspace.workspace.id,
     headers,
+    service,
+    workspaceId: workspace.workspace.id,
+    privacyStates,
     requests,
     socket,
     async untilRequests(count: number) {
@@ -89,6 +96,43 @@ async function gatewayFixture() {
     },
   };
 }
+
+test('privacy work is persisted and sent only to a supported Windows client', async () => {
+  const windows = await gatewayFixture('win32', true);
+  const legacy = await gatewayFixture('win32');
+  const mac = await gatewayFixture('darwin', true);
+  const setPrivacyWork = (f: typeof windows, enabled: boolean | string, authorized = true) =>
+    fetch(f.url + '/privacy-work', {
+      method: 'PATCH',
+      headers: { ...(authorized ? f.headers : {}), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled }),
+      signal: AbortSignal.timeout(3000),
+    });
+  try {
+    const current = () => windows.service.gateway.list()[0];
+    assert.equal(current().privacyWorkEnabled, false);
+    assert.equal(current().privacyWorkSupported, true);
+    assert.equal((await setPrivacyWork(windows, true, false)).status, 401);
+    assert.equal((await setPrivacyWork(windows, 'true')).status, 400);
+    assert.equal((await setPrivacyWork(legacy, true)).status, 409);
+    assert.equal((await setPrivacyWork(mac, true)).status, 409);
+    assert.deepEqual(windows.privacyStates, []);
+
+    assert.equal((await setPrivacyWork(windows, true)).status, 200);
+    assert.equal(current().privacyWorkEnabled, true);
+    const store = new WorkspaceStore(windows.service.auth.db);
+    assert.equal(store.get(windows.workspaceId)?.privacyWorkEnabled, true);
+    assert.equal((await setPrivacyWork(windows, false)).status, 200);
+    const deadline = Date.now() + 3000;
+    while (windows.privacyStates.length < 2 && Date.now() < deadline) await delay(10);
+    assert.deepEqual(windows.privacyStates, [true, false]);
+    assert.equal(current().privacyWorkEnabled, false);
+    assert.deepEqual(legacy.privacyStates, []);
+    assert.deepEqual(mac.privacyStates, []);
+  } finally {
+    await Promise.all([windows.close(), legacy.close(), mac.close()]);
+  }
+});
 
 test('gateway rejects binary bodies outside uploads before forwarding or buffering them', async () => {
   const f = await gatewayFixture();

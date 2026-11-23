@@ -25,6 +25,7 @@ import { clientConnectionUrl } from './config.js';
 import { NotificationReporter } from '../notifications/reporter.js';
 import type { NotificationReport } from '../notifications/events.js';
 import { HostResourceSampler } from './resources.js';
+import { PrivacyWork } from './privacy-work.js';
 import { HOST_RESOURCE_INTERVAL_MS } from '../../src/workspaces.js';
 
 export type ClientOptions = {
@@ -33,6 +34,7 @@ export type ClientOptions = {
   key: string;
   config: Config;
   services?: WorkspaceServices & { store?: AuthStore };
+  turnOffDisplay?: (signal: AbortSignal) => Promise<void>;
   onStatus?: (status: 'connected' | 'disconnected', reason?: string) => void;
   reconnectMs?: number;
 };
@@ -68,6 +70,7 @@ export class MonitorClient {
   private reconnectTimer?: ReturnType<typeof setTimeout>;
   private heartbeat?: ReturnType<typeof setInterval>;
   private resourceTimer?: ReturnType<typeof setInterval>;
+  private readonly privacyWork: PrivacyWork;
   private delay: number;
   private requests = new Map<string, ActiveRequest>();
   private rpc = new Map<
@@ -93,6 +96,7 @@ export class MonitorClient {
   private constructor(private options: ClientOptions) {
     this.url = clientConnectionUrl(options);
     this.delay = options.reconnectMs ?? 1000;
+    this.privacyWork = new PrivacyWork(options.turnOffDisplay);
   }
   static async start(options: ClientOptions) {
     const client = new MonitorClient(options);
@@ -213,7 +217,11 @@ export class MonitorClient {
           encrypted = true;
           void sendFrame(socket, {
             type: 'hello',
-            capabilities: { completionNotifications: true, notificationAttachments: true },
+            capabilities: {
+              completionNotifications: true,
+              notificationAttachments: true,
+              privacyWork: process.platform === 'win32',
+            },
             version: PROTOCOL_VERSION,
             hostname: os.hostname(),
             platform: process.platform,
@@ -229,9 +237,14 @@ export class MonitorClient {
           this.ready = true;
           this.delay = this.options.reconnectMs ?? 1000;
           if (frame.capabilities?.hostResources) this.startResourceReporting(socket);
+          this.privacyWork.setEnabled(process.platform === 'win32' && !!frame.privacyWorkEnabled);
           this.options.onStatus?.('connected');
         } else if (!this.ready) throw new Error('Handshake required');
-        else if (frame.type === 'notification-policy') {
+        else if (frame.type === 'privacy-work') {
+          this.privacyWork.setEnabled(process.platform === 'win32' && frame.enabled, {
+            runImmediately: true,
+          });
+        } else if (frame.type === 'notification-policy') {
           this.notificationConfiguration = this.notificationConfiguration
             .then(async () => {
               if (socket !== this.socket || !this.ready || this.stopped) return;
@@ -335,6 +348,7 @@ export class MonitorClient {
       clearTimeout(handshake);
       clearInterval(this.heartbeat);
       clearInterval(this.resourceTimer);
+      this.privacyWork.setEnabled(false);
       this.ready = false;
       this.runtime.access.clear();
       this.runtime.terminals.closeAll();
@@ -520,6 +534,7 @@ export class MonitorClient {
     clearTimeout(this.reconnectTimer);
     clearInterval(this.heartbeat);
     clearInterval(this.resourceTimer);
+    this.privacyWork.setEnabled(false);
     const socket = this.socket;
     if (socket && socket.readyState !== WebSocket.CLOSED) {
       await new Promise<void>((resolve) => {

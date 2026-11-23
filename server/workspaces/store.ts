@@ -4,7 +4,7 @@ import type { ManagedWorkspace } from '../../src/workspaces.js';
 import { connectionProof } from '../transport/protocol.js';
 
 const workspaceColumns = `id,name,created_at AS createdAt,last_seen AS lastSeen,hostname,platform,
-  build_commit_at AS buildCommitAt`;
+  build_commit_at AS buildCommitAt,privacy_work_enabled AS privacyWorkEnabled`;
 function workspaceFromRow(row: Record<string, SQLOutputValue>): ManagedWorkspace {
   return {
     id: String(row.id),
@@ -14,6 +14,7 @@ function workspaceFromRow(row: Record<string, SQLOutputValue>): ManagedWorkspace
     hostname: String(row.hostname || ''),
     platform: String(row.platform || ''),
     buildCommitAt: row.buildCommitAt == null ? null : Number(row.buildCommitAt),
+    privacyWorkEnabled: row.privacyWorkEnabled === 1,
     online: false,
   };
 }
@@ -25,7 +26,8 @@ export class WorkspaceStore {
     try {
       db.exec(`CREATE TABLE IF NOT EXISTS monitor_workspaces (
         id TEXT PRIMARY KEY, name TEXT NOT NULL, aes_key TEXT NOT NULL, created_at INTEGER NOT NULL,
-        last_seen INTEGER, hostname TEXT, platform TEXT, build_commit_at INTEGER
+        last_seen INTEGER, hostname TEXT, platform TEXT, build_commit_at INTEGER,
+        privacy_work_enabled INTEGER NOT NULL DEFAULT 0
       )`);
       const columns = db
         .prepare('PRAGMA table_info(monitor_workspaces)')
@@ -40,6 +42,10 @@ export class WorkspaceStore {
       }
       if (!columns.includes('build_commit_at'))
         db.exec('ALTER TABLE monitor_workspaces ADD COLUMN build_commit_at INTEGER');
+      if (!columns.includes('privacy_work_enabled'))
+        db.exec(
+          'ALTER TABLE monitor_workspaces ADD COLUMN privacy_work_enabled INTEGER NOT NULL DEFAULT 0',
+        );
       db.exec('COMMIT');
     } catch (error) {
       db.exec('ROLLBACK');
@@ -92,6 +98,11 @@ export class WorkspaceStore {
     return !!this.db.prepare('UPDATE monitor_workspaces SET name=? WHERE id=?').run(name, id)
       .changes;
   }
+  setPrivacyWork(id: string, enabled: boolean) {
+    this.db
+      .prepare('UPDATE monitor_workspaces SET privacy_work_enabled=? WHERE id=?')
+      .run(Number(enabled), id);
+  }
   rotate(id: string) {
     const key = randomBytes(32).toString('base64url');
     if (!this.db.prepare('UPDATE monitor_workspaces SET aes_key=? WHERE id=?').run(key, id).changes)
@@ -101,9 +112,10 @@ export class WorkspaceStore {
   recordConnection(id: string, hostname: string, platform: string, buildCommitAt: number | null) {
     this.db
       .prepare(
-        'UPDATE monitor_workspaces SET last_seen=?,hostname=?,platform=?,build_commit_at=? WHERE id=?',
+        `UPDATE monitor_workspaces SET last_seen=?,hostname=?,platform=?,build_commit_at=?,
+          privacy_work_enabled=CASE WHEN ?='win32' THEN privacy_work_enabled ELSE 0 END WHERE id=?`,
       )
-      .run(Date.now(), hostname, platform, buildCommitAt, id);
+      .run(Date.now(), hostname, platform, buildCommitAt, platform, id);
   }
   seen(id: string) {
     this.db.prepare('UPDATE monitor_workspaces SET last_seen=? WHERE id=?').run(Date.now(), id);

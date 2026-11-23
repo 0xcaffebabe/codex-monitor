@@ -42,6 +42,7 @@ type Peer = {
   alive: boolean;
   completionNotifications: boolean;
   notificationAttachments: boolean;
+  privacyWork: boolean;
   attachments: Map<string, (frame: Frame) => void>;
   resources: (HostResourceSample & { receivedAt: number }) | null;
   pending: Map<string, Pending>;
@@ -56,6 +57,7 @@ type Peer = {
   >;
 };
 const nameSchema = z.object({ name: z.string().trim().min(1).max(80) }).strict();
+const privacyWorkSchema = z.object({ enabled: z.boolean() }).strict();
 
 /** One authenticated, outbound client connection per registered workspace. */
 export class WorkspaceGateway {
@@ -103,6 +105,7 @@ export class WorkspaceGateway {
       return {
         ...workspace,
         online: !!peer?.ready,
+        privacyWorkSupported: !!(peer?.ready && peer.privacyWork),
         resources: resources
           ? {
               sampledAt: resources.sampledAt,
@@ -196,6 +199,7 @@ export class WorkspaceGateway {
       alive: true,
       completionNotifications: false,
       notificationAttachments: false,
+      privacyWork: false,
       attachments: new Map(),
       resources: null,
       pending: new Map(),
@@ -226,12 +230,16 @@ export class WorkspaceGateway {
           peer.ready = true;
           peer.completionNotifications = !!frame.capabilities?.completionNotifications;
           peer.notificationAttachments = !!frame.capabilities?.notificationAttachments;
+          peer.privacyWork = frame.platform === 'win32' && !!frame.capabilities?.privacyWork;
           clearTimeout(handshake);
           void sendFrame(socket, {
             type: 'welcome',
             version: PROTOCOL_VERSION,
             workspaceId: id,
             capabilities: { hostResources: true },
+            ...(peer.privacyWork && {
+              privacyWorkEnabled: this.store.get(id)?.privacyWorkEnabled ?? false,
+            }),
           })
             .then(() => this.sendNotificationPolicy(peer, this.notifications.policy(), false))
             .catch(() => socket.terminate());
@@ -455,6 +463,25 @@ export class WorkspaceGateway {
       const key = this.store.key(id);
       if (!key) return fail(res, 404, '找不到工作空间');
       res.json({ key });
+    });
+    app.patch('/api/workspaces/:workspace/privacy-work', admin, (req, res) => {
+      const parsed = privacyWorkSchema.safeParse(req.body);
+      if (!parsed.success) return fail(res, 400, '隐私工作开关状态无效');
+      const id = String(req.params.workspace);
+      const workspace = this.store.get(id);
+      if (!workspace) return fail(res, 404, '找不到工作空间');
+      const peer = this.peers.get(id);
+      if (parsed.data.enabled) {
+        if (workspace.platform !== 'win32') return fail(res, 409, '隐私工作仅支持 Windows');
+        if (!peer?.ready) return fail(res, 503, '工作空间已离线，请等待客户端重新连接');
+        if (!peer.privacyWork) return fail(res, 409, '请先更新此工作空间的客户端');
+      }
+      this.store.setPrivacyWork(id, parsed.data.enabled);
+      if (peer?.ready && peer.privacyWork)
+        void sendFrame(peer.socket, { type: 'privacy-work', enabled: parsed.data.enabled }).catch(
+          () => peer.socket.terminate(),
+        );
+      res.json({ ok: true });
     });
     app.post('/api/workspaces/:workspace/rotate-key', admin, (req, res) => {
       const id = String(req.params.workspace);

@@ -45,6 +45,7 @@ export const hostResourceSchema: z.ZodType<HostResourceSample> = z
   .strict();
 export const frameSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('host-resources'), sample: hostResourceSchema }).strict(),
+  z.object({ type: z.literal('privacy-work'), enabled: z.boolean() }).strict(),
   z.object({
     type: z.literal('notification-policy'),
     policy: notificationPolicySchema,
@@ -73,6 +74,7 @@ export const frameSchema = z.discriminatedUnion('type', [
     capabilities: z.object({
       completionNotifications: z.boolean().optional(),
       notificationAttachments: z.boolean().optional(),
+      privacyWork: z.boolean().optional(),
     }).optional(),
   }),
   z.object({
@@ -80,6 +82,7 @@ export const frameSchema = z.discriminatedUnion('type', [
     version: z.literal(PROTOCOL_VERSION),
     workspaceId: z.string().max(100),
     capabilities: z.object({ hostResources: z.boolean().optional() }).optional(),
+    privacyWorkEnabled: z.boolean().optional(),
   }),
   z.object({
     type: z.literal('request'),

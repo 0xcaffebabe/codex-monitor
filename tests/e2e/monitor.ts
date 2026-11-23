@@ -66,6 +66,7 @@ async function startMonitor(defer: Cleanup) {
     data.state.prepare('UPDATE threads SET title=? WHERE id=?').run(title, ids.modern);
     let active: MonitorClient | undefined;
     let control: ApprovalFixtureDesktop;
+    let displayOffCalls = 0;
 
     async function start() {
       control = new ApprovalFixtureDesktop(data, 0, project);
@@ -75,6 +76,9 @@ async function startMonitor(defer: Cleanup) {
         workspaceId,
         key: registration.key,
         services: { control },
+        turnOffDisplay: async () => {
+          displayOffCalls++;
+        },
       });
       await expect.poll(() => active?.connected).toBe(true);
     }
@@ -94,6 +98,9 @@ async function startMonitor(defer: Cleanup) {
       stop,
       get control() {
         return control;
+      },
+      get displayOffCalls() {
+        return displayOffCalls;
       },
     };
   }

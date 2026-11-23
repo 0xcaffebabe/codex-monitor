@@ -175,3 +175,33 @@ test('an admin can copy the full connection command for an existing remote works
   await expect(remoteRow.getByRole('button', { name: '已复制' })).toBeVisible();
   expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(expectedCommand);
 });
+
+test('privacy work runs on enable and survives a Windows client reconnect', async ({
+  signedIn: { browserPage: page },
+  monitor,
+}) => {
+  test.skip(process.platform !== 'win32', 'Privacy work requires a Windows client');
+  const remote = await monitor.addWorkspace('隐私工作测试电脑', '远程会话');
+  await page.getByRole('button', { name: '管理工作空间' }).click();
+  const dialog = page.getByRole('dialog', { name: '管理工作空间' });
+  const remoteRow = dialog.getByRole('article').filter({ hasText: '隐私工作测试电脑' });
+  const localRow = dialog.getByRole('article').filter({ hasText: '本机工作空间' });
+  const privacySwitch = remoteRow.getByRole('switch', { name: '隐私工作' });
+  const localSwitch = localRow.getByRole('switch', { name: '隐私工作' });
+
+  await expect(privacySwitch).toHaveAttribute('aria-checked', 'false');
+  await privacySwitch.click();
+  await expect(privacySwitch).toHaveAttribute('aria-checked', 'true');
+  await expect(localSwitch).toHaveAttribute('aria-checked', 'false');
+  await expect.poll(() => remote.displayOffCalls).toBe(1);
+
+  await remote.stop();
+  await expect(remoteRow.locator('.client-status')).toHaveText('离线');
+  await remote.start();
+  await expect(remoteRow.locator('.client-status')).toHaveText('在线');
+  await expect(privacySwitch).toHaveAttribute('aria-checked', 'true');
+  expect(remote.displayOffCalls).toBe(1);
+
+  await privacySwitch.click();
+  await expect(privacySwitch).toHaveAttribute('aria-checked', 'false');
+});
