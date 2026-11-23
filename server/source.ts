@@ -11,7 +11,7 @@ import { normalizeItem } from './normalize.js';
 import type { SourceDatabases } from './source/databases.js';
 import { openCodexDatabases } from './source/databases.js';
 import { savedImage } from './source/images.js';
-import { messageFiles, withMessageFiles } from './source/message-files.js';
+import { completionFilePaths, messageFiles, withMessageFiles } from './source/message-files.js';
 import { messageImagePath, messageImages, withMessageImages } from './source/message-images.js';
 import { SessionOutlineReader } from './source/outline.js';
 import { RolloutStore } from './source/rollouts.js';
@@ -73,6 +73,14 @@ export class CodexSource {
   }
   completionSummary(event: SessionCompletion) {
     return this.completionReader.summary(event);
+  }
+  async completionFiles(id: string, turnId: string, occurredAt: number) {
+    const session = await this.get(id);
+    if (!session) return null;
+    const event = (await this.completionReader.read([session], occurredAt))
+      .find((entry) => entry.turnId === turnId && entry.completedAt === occurredAt);
+    if (!event) return null;
+    return { cwd: session.cwd, paths: completionFilePaths(this.completionReader.reply(event)) };
   }
   async inputRequests(since: number) {
     return this.inputRequestReader.read(await this.index.notificationSessions(), since);

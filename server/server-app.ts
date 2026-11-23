@@ -30,6 +30,8 @@ export function createMonitorServer(
   const notifications = new NotificationService(auth.db, config.pollMs, services.webhookTransport);
   installNotificationRoutes(app, auth, notifications);
   const gateway = new WorkspaceGateway(auth, notifications);
+  notifications.readAttachment = (workspaceId, ref, signal) =>
+    gateway.readNotificationAttachment(workspaceId, ref, signal);
   notifications.onConfigure = (policy, reset) => gateway.configureNotifications(policy, reset);
   gateway.install(app);
   installFrontend(app, path.resolve(services.publicDir || 'dist/public'));

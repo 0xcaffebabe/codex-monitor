@@ -21,6 +21,8 @@ import {
 import { WorkspaceStore } from './store.js';
 import type { NotificationService } from '../notifications/service.js';
 import type { NotificationPolicy } from '../notifications/events.js';
+import type { NotificationAttachmentRef, NotificationAttachmentResult } from '../notifications/attachments.js';
+import { LarkDeliveryError } from '../notifications/lark.js';
 import type { HostResourceSample } from '../../src/workspaces.js';
 
 type Pending = {
@@ -39,6 +41,8 @@ type Peer = {
   ready: boolean;
   alive: boolean;
   completionNotifications: boolean;
+  notificationAttachments: boolean;
+  attachments: Map<string, (frame: Frame) => void>;
   resources: (HostResourceSample & { receivedAt: number }) | null;
   pending: Map<string, Pending>;
   grants: Map<string, string>;
@@ -191,6 +195,8 @@ export class WorkspaceGateway {
       ready: false,
       alive: true,
       completionNotifications: false,
+      notificationAttachments: false,
+      attachments: new Map(),
       resources: null,
       pending: new Map(),
       grants: new Map(),
@@ -219,6 +225,7 @@ export class WorkspaceGateway {
           );
           peer.ready = true;
           peer.completionNotifications = !!frame.capabilities?.completionNotifications;
+          peer.notificationAttachments = !!frame.capabilities?.notificationAttachments;
           clearTimeout(handshake);
           void sendFrame(socket, {
             type: 'welcome',
@@ -298,6 +305,11 @@ export class WorkspaceGateway {
     if (!['response', 'data', 'end', 'error', 'body-ack'].includes(frame.type))
       throw new Error('Unexpected message');
     if (!('id' in frame)) return;
+    const attachment = peer.attachments.get(frame.id);
+    if (attachment) {
+      attachment(frame);
+      return;
+    }
     const request = peer.pending.get(frame.id);
     if (!request) return; // A canceled browser may still have one chunk in flight.
     if (!this.auth.authenticate(request.token)) return this.unauthorized(peer, frame.id, request);
@@ -336,6 +348,69 @@ export class WorkspaceGateway {
     } else if (frame.type === 'error') {
       this.finish(peer, frame.id, request, 502, frame.message);
     }
+  }
+  readNotificationAttachment(workspaceId: string, ref: NotificationAttachmentRef, signal: AbortSignal) {
+    signal.throwIfAborted();
+    const peer = this.peers.get(workspaceId);
+    const disconnected = () => new LarkDeliveryError('工作空间连接已中断，暂无法读取通知附件', true);
+    if (!peer?.ready) throw disconnected();
+    if (!peer.notificationAttachments) return Promise.resolve(null);
+    const id = randomUUID();
+    return new Promise<NotificationAttachmentResult>((resolve, reject) => {
+      const chunks: Buffer[] = [];
+      let size = 0;
+      let status: number | undefined;
+      let name = '';
+      let mime = '';
+      const finish = () => {
+        if (!peer.attachments.delete(id)) return false;
+        clearTimeout(timer);
+        signal.removeEventListener('abort', cancel);
+        peer.socket.off('close', close);
+        return true;
+      };
+      const close = () => {
+        if (finish()) reject(disconnected());
+      };
+      const cancel = () => {
+        if (!finish()) return;
+        void sendFrame(peer.socket, { type: 'cancel', id }).catch(() => {});
+        reject(disconnected());
+      };
+      const timer = setTimeout(cancel, 30000);
+      timer.unref();
+      signal.addEventListener('abort', cancel, { once: true });
+      peer.socket.once('close', close);
+      peer.attachments.set(id, (frame) => {
+        if (frame.type === 'response' && status === undefined) {
+          status = frame.status;
+          if (status !== 200) return;
+          try {
+            name = decodeURIComponent(frame.headers['x-attachment-name']);
+            if (!name || name === '.' || name === '..' || /[\\/\x00-\x1f\x7f]/.test(name))
+              return cancel();
+            mime = frame.headers['content-type'] || 'application/octet-stream';
+            if (!/^(image\/[a-z]+|application\/octet-stream)$/.test(mime)) return cancel();
+          } catch {
+            cancel();
+          }
+        } else if (frame.type === 'data' && status === 200) {
+          const chunk = Buffer.from(frame.data, 'base64');
+          size += chunk.length;
+          if (!chunk.length || chunk.length > CHUNK_BYTES || size > MAX_BODY) return cancel();
+          chunks.push(chunk);
+          void sendFrame(peer.socket, { type: 'ack', id }).catch(close);
+        } else if (frame.type === 'end' && status !== undefined) {
+          if (finish()) {
+            if (status === 404) resolve(null);
+            else if (status === 422) resolve('unavailable');
+            else if (status === 200 && size > 0) resolve({ name, mime, data: Buffer.concat(chunks, size) });
+            else reject(disconnected());
+          }
+        } else cancel();
+      });
+      void sendFrame(peer.socket, { type: 'notification-attachment', id, ...ref }).catch(close);
+    });
   }
   private unauthorized(peer: Peer, id: string, request: Pending) {
     if (request.stream && request.started) request.res.write('event: unauthorized\ndata: {}\n\n');

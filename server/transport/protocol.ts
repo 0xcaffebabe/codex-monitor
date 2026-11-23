@@ -3,6 +3,7 @@ import { WebSocket } from 'ws';
 import { createCipheriv, createDecipheriv, createHash, createHmac, randomBytes } from 'node:crypto';
 import { notificationPolicySchema, notificationReportSchema } from '../notifications/events.js';
 import type { HostResourceSample } from '../../src/workspaces.js';
+import { NOTIFICATION_ATTACHMENT_LIMIT } from '../notifications/attachments.js';
 
 export const PROTOCOL_VERSION = 3;
 export const MAX_BODY = 20 * 1024 * 1024;
@@ -56,12 +57,23 @@ export const frameSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('notification-report'), id, report: notificationReportSchema }),
   z.object({ type: z.literal('notification-report-ack'), id, accepted: z.boolean() }),
   z.object({
+    type: z.literal('notification-attachment'),
+    id,
+    sessionId: z.string().regex(/^[A-Za-z0-9_-]{1,100}$/),
+    turnId: z.string().min(1).max(200),
+    occurredAt: bytes,
+    index: z.number().int().min(0).max(NOTIFICATION_ATTACHMENT_LIMIT - 1),
+  }),
+  z.object({
     type: z.literal('hello'),
     version: z.literal(PROTOCOL_VERSION),
     hostname: z.string().max(200),
     platform: z.string().max(80),
     buildCommitAt: z.number().int().nonnegative().max(8.64e15).optional(), // Within the Date range.
-    capabilities: z.object({ completionNotifications: z.boolean().optional() }).optional(),
+    capabilities: z.object({
+      completionNotifications: z.boolean().optional(),
+      notificationAttachments: z.boolean().optional(),
+    }).optional(),
   }),
   z.object({
     type: z.literal('welcome'),

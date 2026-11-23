@@ -30,6 +30,13 @@ export class LarkDeliveryError extends Error {
 
 export type WebhookTransport = typeof fetch;
 
+export function larkCard(text: string, app = false) {
+  return {
+    schema: '2.0',
+    body: { elements: [{ tag: 'markdown', content: larkMarkdown(text, app) }] },
+  };
+}
+
 /** Only this adapter handles credentials and the provider's wire format. */
 export async function sendLark(
   config: { webhookUrl: string; signingSecret: string },
@@ -42,18 +49,7 @@ export async function sendLark(
   const timestamp = String(Math.floor(Date.now() / 1000));
   const body = {
     msg_type: 'interactive',
-    card: {
-      // Card 2.0 supports Markdown headings, lists, links and code blocks.
-      schema: '2.0',
-      body: {
-        elements: [
-          {
-            tag: 'markdown',
-            content: larkMarkdown(text),
-          },
-        ],
-      },
-    },
+    card: larkCard(text),
     ...(config.signingSecret
       ? {
           timestamp,
@@ -63,13 +59,35 @@ export async function sendLark(
         }
       : {}),
   };
+  const result = await larkRequest(config.webhookUrl, body, signal, transport);
+  const code = result?.code ?? result?.StatusCode;
+  if (typeof code !== 'number') throw new LarkDeliveryError('飞书/Lark 返回了无效响应');
+  if (code === 11246)
+    throw new LarkDeliveryError(
+      '飞书/Lark 消息内容创建失败（错误码 11246），请检查卡片格式及图片资源',
+    );
+  if (code !== 0)
+    throw new LarkDeliveryError(`飞书/Lark 拒绝消息（错误码 ${code}），请检查机器人安全设置`);
+}
+
+export async function larkRequest(
+  url: string,
+  body: object,
+  signal: AbortSignal,
+  transport: WebhookTransport,
+  token?: string,
+) {
   try {
-    const response = await transport(config.webhookUrl, {
+    const multipart = body instanceof FormData;
+    const response = await transport(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
+      headers: {
+        ...(multipart ? {} : { 'Content-Type': 'application/json' }),
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: multipart ? body : JSON.stringify(body),
       redirect: 'error',
-      signal: AbortSignal.any([signal, AbortSignal.timeout(10000)]),
+      signal: AbortSignal.any([signal, AbortSignal.timeout(multipart ? 30000 : 10000)]),
     });
     if (!response.ok) {
       await response.body?.cancel();
@@ -96,20 +114,17 @@ export async function sendLark(
     } finally {
       reader.releaseLock();
     }
-    let result: { code?: unknown; StatusCode?: unknown };
     try {
-      result = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+      return JSON.parse(Buffer.concat(chunks).toString('utf8')) as {
+        code?: unknown;
+        StatusCode?: unknown;
+        tenant_access_token?: unknown;
+        expire?: unknown;
+        data?: { image_key?: unknown; file_key?: unknown };
+      } | null;
     } catch {
       throw new LarkDeliveryError('飞书/Lark 返回了无效响应');
     }
-    const code = result?.code ?? result?.StatusCode;
-    if (typeof code !== 'number') throw new LarkDeliveryError('飞书/Lark 返回了无效响应');
-    if (code === 11246)
-      throw new LarkDeliveryError(
-        '飞书/Lark 消息内容创建失败（错误码 11246），请检查卡片格式及图片资源',
-      );
-    if (code !== 0)
-      throw new LarkDeliveryError(`飞书/Lark 拒绝消息（错误码 ${code}），请检查机器人安全设置`);
   } catch (error) {
     if (error instanceof LarkDeliveryError) throw error;
     // Fetch errors can contain the complete webhook URL; never expose them.

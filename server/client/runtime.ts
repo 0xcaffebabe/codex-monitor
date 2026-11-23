@@ -22,6 +22,8 @@ export async function createClientRuntime(
     store.db.exec(`UPDATE notification_settings SET enabled=0,webhook_url='',signing_secret='';
       UPDATE notification_deliveries SET status='cancelled',error='通知已迁移到 Server 统一投递'
       WHERE status IN ('pending','sending');`);
+    if (store.db.prepare("SELECT 1 FROM pragma_table_info('notification_settings') WHERE name='app_secret'").get())
+      store.db.exec("UPDATE notification_settings SET app_secret=''");
   }
   app.use((req, res, next) => {
     const header = req.headers.authorization || '',

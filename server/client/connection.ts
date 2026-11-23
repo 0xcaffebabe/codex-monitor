@@ -213,7 +213,7 @@ export class MonitorClient {
           encrypted = true;
           void sendFrame(socket, {
             type: 'hello',
-            capabilities: { completionNotifications: true },
+            capabilities: { completionNotifications: true, notificationAttachments: true },
             version: PROTOCOL_VERSION,
             hostname: os.hostname(),
             platform: process.platform,
@@ -257,16 +257,17 @@ export class MonitorClient {
             this.rpc.delete(frame.id);
             rpc.resolve(frame.result);
           }
-        } else if (frame.type === 'request') {
+        } else if (frame.type === 'request' || frame.type === 'notification-attachment') {
           if (this.requests.has(frame.id)) throw new Error('Duplicate request');
-          const upload = frame.bodySize !== undefined;
+          const bodySize = frame.type === 'request' ? frame.bodySize : undefined;
+          const upload = bodySize !== undefined;
           if (
             this.requests.size >= MAX_REQUESTS ||
-            !workspacePath(frame.method, frame.path) ||
-            (upload &&
-              (frame.method !== 'POST' ||
+            (frame.type === 'request' &&
+              (!workspacePath(frame.method, frame.path) ||
+              (upload && (frame.method !== 'POST' ||
                 frame.path.split('?')[0] !== '/api/uploads' ||
-                frame.body !== ''))
+                frame.body !== ''))))
           ) {
             void sendFrame(socket, {
               type: 'error',
@@ -277,7 +278,7 @@ export class MonitorClient {
           }
           const active: ActiveRequest = {
             abort: new AbortController(),
-            bodySize: frame.bodySize ?? 0,
+            bodySize: bodySize ?? 0,
             received: 0,
             body: upload ? new PassThrough({ highWaterMark: CHUNK_BYTES }) : undefined,
           };
@@ -403,38 +404,50 @@ export class MonitorClient {
   }
   private async forward(
     socket: WebSocket,
-    frame: Extract<Frame, { type: 'request' }>,
+    frame: Extract<Frame, { type: 'request' | 'notification-attachment' }>,
     active: ActiveRequest,
   ) {
     let lease: { token: string; close: () => unknown } | undefined;
     const signal = active.abort.signal;
     try {
-      const result = await this.authorize({ grantId: frame.grantId });
-      if (signal.aborted) return;
-      if (!result || typeof result !== 'object') {
-        await sendFrame(socket, { type: 'response', id: frame.id, status: 401, headers: {} });
-        await sendFrame(socket, { type: 'end', id: frame.id });
-        return;
+      let response: Response;
+      if (frame.type === 'notification-attachment') {
+        const file = await this.runtime.notificationAttachments.read(frame, signal);
+        response = file && file !== 'unavailable'
+          ? new Response(new Uint8Array(file.data), {
+              headers: { 'content-type': file.mime, 'x-attachment-name': encodeURIComponent(file.name) },
+            })
+          : new Response(null, { status: file === 'unavailable' ? 422 : 404 });
+      } else {
+        const result = await this.authorize({ grantId: frame.grantId });
+        if (signal.aborted) return;
+        if (!result || typeof result !== 'object') {
+          await sendFrame(socket, { type: 'response', id: frame.id, status: 401, headers: {} });
+          await sendFrame(socket, { type: 'end', id: frame.id });
+          return;
+        }
+        lease = this.runtime.access.open(result as Identity);
+        const headers: Record<string, string> = { Authorization: `Bearer ${lease.token}` };
+        for (const name of ['content-type', 'x-upload-type'])
+          if (frame.headers[name]) headers[name] = frame.headers[name];
+        response = await fetch(this.runtime.url + frame.path, {
+          method: frame.method,
+          headers,
+          body: active.body
+            ? (Readable.toWeb(active.body) as ReadableStream<Uint8Array>)
+            : frame.method === 'GET'
+              ? undefined
+              : Buffer.from(frame.body, 'base64'),
+          ...(active.body ? { duplex: 'half' } : {}),
+          signal,
+          redirect: 'error',
+        });
       }
-      lease = this.runtime.access.open(result as Identity);
-      const headers: Record<string, string> = { Authorization: `Bearer ${lease.token}` };
-      for (const name of ['content-type', 'x-upload-type'])
-        if (frame.headers[name]) headers[name] = frame.headers[name];
-      const response = await fetch(this.runtime.url + frame.path, {
-        method: frame.method,
-        headers,
-        body: active.body
-          ? (Readable.toWeb(active.body) as ReadableStream<Uint8Array>)
-          : frame.method === 'GET'
-            ? undefined
-            : Buffer.from(frame.body, 'base64'),
-        ...(active.body ? { duplex: 'half' } : {}),
-        signal,
-        redirect: 'error',
-      });
       const responseHeaders: Record<string, string> = {};
       for (const name of ['content-type', 'content-disposition', 'retry-after'])
         if (response.headers.has(name)) responseHeaders[name] = response.headers.get(name)!;
+      if (frame.type === 'notification-attachment' && response.headers.has('x-attachment-name'))
+        responseHeaders['x-attachment-name'] = response.headers.get('x-attachment-name')!;
       await sendFrame(socket, {
         type: 'response',
         id: frame.id,

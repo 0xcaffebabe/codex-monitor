@@ -52,7 +52,10 @@ function fileTarget(destination: string): Omit<SessionFileLink, 'id' | 'offset'>
   return { path: local, line, endLine };
 }
 
-export function messageFiles(event: TimelineEvent): SessionFileLink[] {
+function markdownFiles(
+  event: Pick<TimelineEvent, 'kind' | 'text'>,
+  attachment = false,
+): SessionFileLink[] {
   if (event.kind === 'tool' || event.kind === 'system' || !/\[|<file:/i.test(event.text)) return [];
   type Node = {
     type: string;
@@ -81,15 +84,19 @@ export function messageFiles(event: TimelineEvent): SessionFileLink[] {
   const files: SessionFileLink[] = [];
   for (const node of nodes) {
     const destination =
-      node.type === 'link'
+      node.type === 'link' || (attachment && node.type === 'image')
         ? node.url
-        : node.type === 'linkReference'
+        : node.type === 'linkReference' || (attachment && node.type === 'imageReference')
           ? definitions.get(node.identifier ?? '')
           : undefined;
     const offset = node.position?.start.offset;
     if (!destination || offset === undefined) continue;
-    const target = fileTarget(destination);
-    if (!target) continue;
+    const local =
+      attachment && destination.startsWith('sandbox:/mnt/data/')
+        ? destination.slice('sandbox:'.length)
+        : destination;
+    const target = fileTarget(local);
+    if (!target || (attachment && target.line !== undefined)) continue;
     // A changing realtime message must never open a new target at an old offset.
     const id = createHash('sha256')
       .update(JSON.stringify([offset, destination]))
@@ -98,6 +105,14 @@ export function messageFiles(event: TimelineEvent): SessionFileLink[] {
     if (files.length === 100) break;
   }
   return files;
+}
+
+export function messageFiles(event: TimelineEvent) {
+  return markdownFiles(event);
+}
+
+export function completionFilePaths(text: string) {
+  return [...new Set(markdownFiles({ kind: 'assistant', text }, true).map((file) => file.path))];
 }
 
 export function withMessageFiles(event: TimelineEvent): TimelineEvent {

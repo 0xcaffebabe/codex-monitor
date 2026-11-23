@@ -2,6 +2,7 @@ import type { Express, Request } from 'express';
 import { z } from 'zod';
 import type { NotificationService } from '../notifications/service.js';
 import { validLarkWebhook } from '../notifications/lark.js';
+import { notificationConfigured } from '../notifications/store.js';
 import { admin, fail, type WorkspaceAuth } from './access.js';
 
 const publicUrl = z
@@ -30,6 +31,11 @@ const settings = z
     completionMode: z.enum(['watched', 'all']).optional(),
     webhookUrl: z.string().trim().max(512).refine(validLarkWebhook).optional(),
     signingSecret: z.string().trim().max(256).optional(),
+    mode: z.enum(['webhook', 'app']).optional(),
+    appRegion: z.enum(['lark', 'feishu']).optional(),
+    appId: z.string().trim().regex(/^(?:cli_[A-Za-z0-9]{1,100})?$/).optional(),
+    appSecret: z.string().trim().max(256).optional(),
+    chatId: z.string().trim().regex(/^(?:oc_[A-Za-z0-9_-]{1,100})?$/).optional(),
     publicUrl,
   })
   .strict();
@@ -75,9 +81,12 @@ export function installNotificationRoutes(
   });
   app.put('/api/notifications', admin, async (req, res) => {
     const parsed = settings.safeParse(req.body);
-    if (!parsed.success) return fail(res, 400, '请填写有效的飞书/Lark Webhook 和访问地址');
-    if (parsed.data.enabled && !(parsed.data.webhookUrl ?? notifications.store.config().webhookUrl))
-      return fail(res, 400, '启用完成通知前请先配置 Webhook');
+    if (!parsed.success) return fail(res, 400, '请检查飞书/Lark 通知配置和监控台访问地址');
+    const config = { ...notifications.store.config(), ...parsed.data };
+    if (config.enabled && !notificationConfigured(config))
+      return fail(res, 400, config.mode === 'app'
+        ? '启用通知前请填写 App ID、App Secret 和群聊 ID'
+        : '启用通知前请先配置 Webhook');
     try {
       const result = await notifications.configure(parsed.data, () =>
         authorized ? authorized(req) : auth.authenticate(req.token!)?.user.role === 'admin',
@@ -89,7 +98,8 @@ export function installNotificationRoutes(
     }
   });
   app.post('/api/notifications/test', admin, async (req, res) => {
-    if (!notifications.store.config().webhookUrl) return fail(res, 400, '请先保存 Webhook 配置');
+    if (!notificationConfigured(notifications.store.config()))
+      return fail(res, 400, '请先保存所选方式的通知配置');
     const task = notifications.test();
     if (!task) {
       res.setHeader('Retry-After', '5');

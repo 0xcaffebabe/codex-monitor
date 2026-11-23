@@ -150,6 +150,11 @@ export interface NotificationSettings {
   completionMode: 'watched' | 'all';
   enabled: boolean;
   provider: 'lark';
+  mode: 'webhook' | 'app';
+  appRegion: 'lark' | 'feishu';
+  appId: string;
+  appSecretConfigured: boolean;
+  chatId: string;
   webhookConfigured: boolean;
   webhookHint: string;
   signingSecretConfigured: boolean;

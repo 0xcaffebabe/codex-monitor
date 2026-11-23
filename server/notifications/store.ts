@@ -7,20 +7,38 @@ export type NotificationConfig = {
   enabled: boolean;
   webhookUrl: string;
   signingSecret: string;
+  mode: NotificationSettings['mode'];
+  appRegion: NotificationSettings['appRegion'];
+  appId: string;
+  appSecret: string;
+  chatId: string;
   publicUrl: string;
   enabledAt: number;
   scanAt: number;
   inputSince: number;
   revision: number;
 };
-export type NotificationInput = {
+export type NotificationInput = Partial<
+  Pick<NotificationConfig, 'mode' | 'appRegion' | 'appId' | 'appSecret' | 'chatId'>
+> & {
   completionMode?: NotificationSettings['completionMode'];
   enabled: boolean;
   webhookUrl?: string;
   signingSecret?: string;
   publicUrl: string;
 };
-export type PendingDelivery = NotificationDelivery & { message: string; revision: number };
+export type PendingDelivery = NotificationDelivery & {
+  message: string;
+  revision: number;
+  turnId: string | null;
+  occurredAt: number | null;
+};
+
+export function notificationConfigured(config: NotificationConfig) {
+  return config.mode === 'app'
+    ? !!(config.appId && config.appSecret && config.chatId)
+    : !!config.webhookUrl;
+}
 
 export class NotificationStore {
   constructor(private db: DatabaseSync) {
@@ -48,6 +66,18 @@ export class NotificationStore {
       UPDATE notification_deliveries SET status='failed', error='上次投递中断，结果未确认，请核对群消息' WHERE status='sending';
     `);
     const columns = db.prepare('PRAGMA table_info(notification_settings)').all();
+    for (const [name, value] of [
+      ['mode', 'webhook'],
+      ['app_region', 'lark'],
+      ['app_id', ''],
+      ['app_secret', ''],
+      ['chat_id', ''],
+    ]) {
+      if (!columns.some((column) => column.name === name))
+        db.exec(
+          `ALTER TABLE notification_settings ADD COLUMN ${name} TEXT NOT NULL DEFAULT '${value}'`,
+        );
+    }
     if (!columns.some((column) => column.name === 'completion_mode')) {
       db.exec(`ALTER TABLE notification_settings ADD COLUMN completion_mode TEXT NOT NULL DEFAULT 'watched';
         UPDATE notification_settings SET completion_mode='all' WHERE enabled_at>0;`);
@@ -59,6 +89,10 @@ export class NotificationStore {
       db.prepare('UPDATE notification_settings SET input_since=?').run(Date.now());
     }
     const deliveryColumns = db.prepare('PRAGMA table_info(notification_deliveries)').all();
+    if (!deliveryColumns.some((column) => column.name === 'turn_id'))
+      db.exec('ALTER TABLE notification_deliveries ADD COLUMN turn_id TEXT');
+    if (!deliveryColumns.some((column) => column.name === 'occurred_at'))
+      db.exec('ALTER TABLE notification_deliveries ADD COLUMN occurred_at INTEGER');
     if (!deliveryColumns.some((column) => column.name === 'workspace_id')) {
       db.exec(`ALTER TABLE notification_deliveries ADD COLUMN workspace_id TEXT;
         UPDATE notification_deliveries SET workspace_id='local',event_key='local:' || event_key
@@ -76,6 +110,11 @@ export class NotificationStore {
       enabled: !!row.enabled,
       webhookUrl: String(row.webhook_url),
       signingSecret: String(row.signing_secret),
+      mode: row.mode === 'app' ? 'app' : 'webhook',
+      appRegion: row.app_region === 'feishu' ? 'feishu' : 'lark',
+      appId: String(row.app_id),
+      appSecret: String(row.app_secret),
+      chatId: String(row.chat_id),
       publicUrl: String(row.public_url),
       enabledAt: Number(row.enabled_at),
       scanAt: Number(row.scan_at),
@@ -89,6 +128,11 @@ export class NotificationStore {
       completionMode: config.completionMode,
       enabled: config.enabled,
       provider: 'lark',
+      mode: config.mode,
+      appRegion: config.appRegion,
+      appId: config.appId,
+      appSecretConfigured: !!config.appSecret,
+      chatId: config.chatId,
       webhookConfigured: !!config.webhookUrl,
       webhookHint: config.webhookUrl
         ? `${new URL(config.webhookUrl).origin}/…/${config.webhookUrl.slice(-4)}`
@@ -105,7 +149,8 @@ export class NotificationStore {
       this.db
         .prepare(
           `UPDATE notification_settings SET enabled=?,webhook_url=?,signing_secret=?,public_url=?,
-        enabled_at=?,scan_at=?,input_since=?,completion_mode=?,revision=revision+1 WHERE id=1`,
+        enabled_at=?,scan_at=?,input_since=?,completion_mode=?,mode=?,app_region=?,app_id=?,
+        app_secret=?,chat_id=?,revision=revision+1 WHERE id=1`,
         )
         .run(
           Number(input.enabled),
@@ -116,6 +161,11 @@ export class NotificationStore {
           reset ? enabledAt : old.scanAt,
           reset ? Math.max(Date.now(), old.inputSince + 1) : old.inputSince,
           input.completionMode ?? old.completionMode,
+          input.mode ?? old.mode,
+          input.appRegion ?? old.appRegion,
+          input.appId ?? old.appId,
+          input.appSecret ?? old.appSecret,
+          input.chatId ?? old.chatId,
         );
       // Changing credentials or disabling must never send an old queued message to a new recipient.
       if (reset || !input.enabled)
@@ -192,6 +242,8 @@ export class NotificationStore {
       workspaceName?: string;
       title: string;
       message: string;
+      turnId?: string;
+      occurredAt?: number;
     },
     revision: number,
   ) {
@@ -199,7 +251,8 @@ export class NotificationStore {
     const result = this.db
       .prepare(
         `INSERT OR IGNORE INTO notification_deliveries
-      (id,event_key,kind,session_id,title,message,status,created_at,revision,workspace_id,workspace_name) VALUES(?,?,?,?,?,?,'pending',?,?,?,?)`,
+      (id,event_key,kind,session_id,title,message,status,created_at,revision,workspace_id,workspace_name,turn_id,occurred_at)
+      VALUES(?,?,?,?,?,?,'pending',?,?,?,?,?,?)`,
       )
       .run(
         id,
@@ -212,11 +265,14 @@ export class NotificationStore {
         revision,
         input.workspaceId ?? null,
         input.workspaceName ?? null,
+        input.turnId ?? null,
+        input.occurredAt ?? null,
       );
     return result.changes ? id : undefined;
   }
   private select = `SELECT id,kind,session_id AS sessionId,title,status,attempts,error,
-    created_at AS createdAt,sent_at AS sentAt,message,revision,workspace_id AS workspaceId,workspace_name AS workspaceName FROM notification_deliveries`;
+    created_at AS createdAt,sent_at AS sentAt,message,revision,workspace_id AS workspaceId,
+    workspace_name AS workspaceName,turn_id AS turnId,occurred_at AS occurredAt FROM notification_deliveries`;
   delivery(id: string) {
     return this.db.prepare(`${this.select} WHERE id=?`).get(id) as PendingDelivery | undefined;
   }
@@ -259,10 +315,10 @@ export class NotificationStore {
       )
       .run(id).changes;
   }
-  sent(id: string) {
+  sent(id: string, warning = '') {
     this.db
-      .prepare("UPDATE notification_deliveries SET status='sent',sent_at=?,error='' WHERE id=?")
-      .run(Date.now(), id);
+      .prepare("UPDATE notification_deliveries SET status='sent',sent_at=?,error=? WHERE id=?")
+      .run(Date.now(), warning, id);
   }
   failed(id: string, error: string, retryAt?: number) {
     this.db

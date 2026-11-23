@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import { createServer } from 'node:http';
 import { randomUUID } from 'node:crypto';
-import { rmSync } from 'node:fs';
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 import { setTimeout as delay } from 'node:timers/promises';
 import path from 'node:path';
@@ -77,6 +77,141 @@ async function central(f: ReturnType<typeof fixture>, transport: WebhookTranspor
     },
   };
 }
+
+test('Lark app settings send cards, native images and files from a remote workspace', async () => {
+  const f = fixture();
+  const project = path.join(f.root, 'project');
+  mkdirSync(project);
+  f.state.prepare('UPDATE threads SET cwd=? WHERE id=?').run(project, ids.modern);
+  const png = Buffer.from(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+Xf2sAAAAASUVORK5CYII=',
+    'base64',
+  );
+  const report = Buffer.alloc(120000, 'a');
+  writeFileSync(path.join(project, 'shot.png'), png);
+  writeFileSync(path.join(project, '测试报告.txt'), report);
+  writeFileSync(path.join(project, '.env'), 'PRIVATE_VALUE');
+  f.config.pollMs = 40;
+  const uploads: { name: string; data: Buffer }[] = [];
+  const messages: { receive_id: string; uuid: string; msg_type: string; content: string }[] = [];
+  let tokenRequests = 0;
+  const server = await central(f, async (url, init) => {
+    const endpoint = new URL(String(url));
+    assert.equal(endpoint.origin, 'https://open.larksuite.com');
+    if (endpoint.pathname.includes('/auth/')) {
+      tokenRequests++;
+      assert.deepEqual(JSON.parse(String(init?.body)), {
+        app_id: 'cli_monitor',
+        app_secret: 'server-only-app-secret',
+      });
+      return Response.json({ code: 0, tenant_access_token: 'tenant-token', expire: 7200 });
+    }
+    assert.equal(new Headers(init?.headers).get('authorization'), 'Bearer tenant-token');
+    if (endpoint.pathname.endsWith('/messages')) {
+      assert.equal(endpoint.searchParams.get('receive_id_type'), 'chat_id');
+      messages.push(JSON.parse(String(init?.body)));
+      return Response.json({ code: 0 });
+    }
+    assert.ok(init?.body instanceof FormData);
+    const image = endpoint.pathname.endsWith('/images');
+    const file = init.body.get(image ? 'image' : 'file');
+    assert.ok(file instanceof File);
+    assert.equal(init.body.get(image ? 'image_type' : 'file_type'), image ? 'message' : 'stream');
+    uploads.push({ name: file.name, data: Buffer.from(await file.arrayBuffer()) });
+    return Response.json({
+      code: 0,
+      data: image ? { image_key: 'img_test' } : { file_key: 'file_test' },
+    });
+  });
+  let client: MonitorClient | undefined;
+  try {
+    const owner = await server.service.auth.setup('owner', 'central-notification-password');
+    const headers = {
+      Authorization: `Bearer ${server.service.auth.issue(owner, 'test').token}`,
+      'Content-Type': 'application/json',
+    };
+    const save = (enabled: boolean, appSecret?: string) =>
+      fetch(server.base + '/api/notifications', {
+        method: 'PUT',
+        headers,
+        body: JSON.stringify({
+          provider: 'lark',
+          mode: 'app',
+          appRegion: 'lark',
+          appId: 'cli_monitor',
+          appSecret,
+          chatId: 'oc_team',
+          enabled,
+          completionMode: 'all',
+          publicUrl: '',
+        }),
+      });
+    assert.equal((await save(true)).status, 400);
+    const saved = await save(false, 'server-only-app-secret');
+    assert.equal(saved.status, 200);
+    const body = await saved.text();
+    assert.doesNotMatch(body, /server-only-app-secret/);
+    assert.equal(JSON.parse(body).settings.appSecretConfigured, true);
+    const tested = await fetch(server.base + '/api/notifications/test', {
+      method: 'POST',
+      headers,
+    });
+    assert.equal(tested.status, 200, await tested.text());
+    assert.deepEqual(
+      messages.map((item) => item.msg_type),
+      ['interactive', 'file'],
+    );
+    assert.equal(uploads[0].name, 'codex-monitor-test.txt');
+
+    const work = server.service.gateway.store.create('远程电脑');
+    client = await MonitorClient.start({
+      config: f.config,
+      serverUrl: server.base,
+      workspaceId: work.workspace.id,
+      key: work.key,
+    });
+    await until(() => !!client?.connected);
+    assert.equal((await save(true)).status, 200);
+    complete(
+      f,
+      'app-turn',
+      [
+        '![截图](shot.png) [配置](.env) [截图副本](shot.png)',
+        '正文'.repeat(600),
+        '[测试报告](测试报告.txt) [代码](secret.txt#L3) [网页](https://example.com/artifact)',
+      ].join('\n\n'),
+    );
+    await until(async () => {
+      await server.service.notifications.poll();
+      return server.service.notifications.store
+        .history()
+        .some(
+          (delivery) => delivery.workspaceId === work.workspace.id && delivery.status === 'sent',
+        );
+    });
+    assert.equal(tokenRequests, 1);
+    assert.ok(messages.every((item) => item.receive_id === 'oc_team' && item.uuid.length <= 50));
+    assert.deepEqual(
+      messages.slice(2).map((item) => item.msg_type),
+      ['interactive', 'image', 'file'],
+    );
+    assert.match(messages[2].content, /截图/);
+    assert.doesNotMatch(messages[2].content, /shot\.png|\.env/);
+    assert.deepEqual(JSON.parse(messages[3].content), { image_key: 'img_test' });
+    assert.deepEqual(JSON.parse(messages[4].content), { file_key: 'file_test' });
+    assert.deepEqual(uploads.slice(1), [
+      { name: 'shot.png', data: png },
+      { name: '测试报告.txt', data: report },
+    ]);
+    assert.match(server.service.notifications.store.history()[0].error, /部分附件无法读取/);
+  } finally {
+    await client?.close();
+    await server.close();
+    f.state.close();
+    f.hist.close();
+    rmSync(f.root, { recursive: true, force: true });
+  }
+});
 
 test('Server owns one configuration and delivers events from two encrypted clients with workspace-scoped identities', async () => {
   const a = fixture(),

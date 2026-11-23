@@ -3,15 +3,25 @@ import { api, post } from '../../api';
 import type { NotificationDelivery, NotificationSettings } from '../../types';
 
 type NotificationState = { settings: NotificationSettings; deliveries: NotificationDelivery[] };
+const defaultApp = { appRegion: 'lark', appId: '', appSecret: '', chatId: '' } as const;
 
 export function useNotifications(notify: (message: string) => void) {
   const [saved, setSaved] = useState<NotificationSettings>();
   const [deliveries, setDeliveries] = useState<NotificationDelivery[]>([]);
   const [enabled, setEnabled] = useState(false);
-  const [completionMode, setCompletionMode] = useState<NotificationSettings['completionMode']>('watched');
+  const [completionMode, setCompletionMode] =
+    useState<NotificationSettings['completionMode']>('watched');
   const [webhookUrl, setWebhookUrl] = useState('');
   const [signingSecret, setSigningSecret] = useState('');
   const [clearSecret, setClearSecret] = useState(false);
+  const [mode, setMode] = useState<NotificationSettings['mode']>('webhook');
+  const [app, setApp] = useState<{
+    appRegion: NotificationSettings['appRegion'];
+    appId: string;
+    appSecret: string;
+    chatId: string;
+  }>(defaultApp);
+  const [clearAppSecret, setClearAppSecret] = useState(false);
   const [publicUrl, setPublicUrl] = useState('');
   const [pending, setPending] = useState('');
   const [error, setError] = useState('');
@@ -25,6 +35,14 @@ export function useNotifications(notify: (message: string) => void) {
       setWebhookUrl('');
       setSigningSecret('');
       setClearSecret(false);
+      setMode(state.settings.mode ?? 'webhook');
+      setApp({
+        appRegion: state.settings.appRegion ?? 'lark',
+        appId: state.settings.appId ?? '',
+        appSecret: '',
+        chatId: state.settings.chatId ?? '',
+      });
+      setClearAppSecret(false);
     }
   }, []);
   const refresh = useCallback(
@@ -52,9 +70,14 @@ export function useNotifications(notify: (message: string) => void) {
     (enabled !== saved.enabled ||
       completionMode !== (saved.completionMode ?? 'watched') ||
       publicUrl !== saved.publicUrl ||
-      !!webhookUrl ||
-      !!signingSecret ||
-      clearSecret);
+      mode !== (saved.mode ?? 'webhook') ||
+      (mode === 'webhook'
+        ? !!webhookUrl.trim() || !!signingSecret.trim() || clearSecret
+        : app.appRegion !== saved.appRegion ||
+          app.appId !== saved.appId ||
+          app.chatId !== saved.chatId ||
+          !!app.appSecret.trim() ||
+          clearAppSecret));
   async function save() {
     setPending('save');
     setError('');
@@ -64,14 +87,24 @@ export function useNotifications(notify: (message: string) => void) {
         body: JSON.stringify({
           enabled,
           provider: 'lark',
+          mode,
           completionMode,
           publicUrl: publicUrl.trim(),
-          ...(webhookUrl.trim() ? { webhookUrl: webhookUrl.trim() } : {}),
-          ...(clearSecret
-            ? { signingSecret: '' }
-            : signingSecret.trim()
-              ? { signingSecret: signingSecret.trim() }
-              : {}),
+          ...(mode === 'app'
+            ? {
+                appRegion: app.appRegion,
+                appId: app.appId.trim(),
+                chatId: app.chatId.trim(),
+                ...(clearAppSecret || app.appSecret.trim()
+                  ? { appSecret: clearAppSecret ? '' : app.appSecret.trim() }
+                  : {}),
+              }
+            : {
+                ...(webhookUrl.trim() ? { webhookUrl: webhookUrl.trim() } : {}),
+                ...(clearSecret || signingSecret.trim()
+                  ? { signingSecret: clearSecret ? '' : signingSecret.trim() }
+                  : {}),
+              }),
         }),
       });
       apply(state, true);
@@ -108,6 +141,16 @@ export function useNotifications(notify: (message: string) => void) {
     setSigningSecret,
     clearSecret,
     setClearSecret,
+    mode,
+    setMode,
+    app,
+    setApp,
+    clearAppSecret,
+    setClearAppSecret,
+    testConfigured:
+      mode === 'app'
+        ? !!(saved?.appId && saved.appSecretConfigured && saved.chatId)
+        : !!saved?.webhookConfigured,
     publicUrl,
     setPublicUrl,
     pending,

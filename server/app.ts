@@ -30,6 +30,8 @@ export function createApp(
   installSub2ApiRoutes(app, auth);
   const runtime = installWorkspaceRuntime(app, config, auth, services);
   const notifications = new NotificationService(auth.db, config.pollMs, services.webhookTransport);
+  notifications.readAttachment = (_workspaceId, ref, signal) =>
+    runtime.notificationAttachments.read(ref, signal);
   const notificationReporter = new NotificationReporter(
     auth.db,
     runtime.source,

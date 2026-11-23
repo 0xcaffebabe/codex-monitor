@@ -144,17 +144,104 @@ export class SessionFilePreviews {
     ];
   }
 
-  private async resolve(file: string) {
-    if (this.privatePaths.some((root) => within(root, file)))
+  private async resolve(file: string, privatePaths = this.privatePaths) {
+    if (privatePaths.some((root) => within(root, file)))
       throw new MediaError(403, '此文件位于受保护的私有目录');
     const resolved = await realpath(file);
     if (!localAbsolute(resolved)) throw new MediaError(403, '此文件路径不可预览');
-    const roots = await Promise.all(
-      this.privatePaths.map((root) => realpath(root).catch(() => root)),
-    );
+    const roots = await Promise.all(privatePaths.map((root) => realpath(root).catch(() => root)));
     if (roots.some((root) => within(root, resolved)))
       throw new MediaError(403, '此文件位于受保护的私有目录');
     return resolved;
+  }
+
+  private async openFile(
+    file: string,
+    signal: AbortSignal,
+    resolve = (file: string) => this.resolve(file),
+  ) {
+    const resolved = await resolve(file);
+    const before = await stat(resolved);
+    if (!before.isFile()) throw new MediaError(415, '此链接未指向普通文件');
+    signal.throwIfAborted();
+    const handle = await open(
+      resolved,
+      constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0),
+    );
+    try {
+      const info = await handle.stat();
+      const current = await resolve(resolved);
+      const after = await stat(current);
+      if (
+        !info.isFile() ||
+        current !== resolved ||
+        info.dev !== before.dev ||
+        info.ino !== before.ino ||
+        info.dev !== after.dev ||
+        info.ino !== after.ino
+      )
+        throw new MediaError(409, '文件路径已变化，请重新打开');
+      if (info.size > MAX_BYTES) throw new MediaError(413, '文件超过 20 MiB，暂无法打开');
+      return { handle, size: info.size, name: path.basename(resolved), resolved };
+    } catch (error) {
+      await handle.close();
+      throw error;
+    }
+  }
+
+  async attachment(file: string, cwd: string, outputRoots: string[], signal: AbortSignal) {
+    if (this.pending >= 4) throw new MediaError(429, '文件读取请求过多，请稍后重试');
+    this.pending++;
+    try {
+      return await this.readAttachment(file, cwd, outputRoots, signal);
+    } finally {
+      this.pending--;
+    }
+  }
+
+  private async readAttachment(
+    file: string,
+    cwd: string,
+    outputRoots: string[],
+    signal: AbortSignal,
+  ) {
+    const roots = await Promise.all(
+      [...(localAbsolute(cwd) ? [cwd] : []), ...outputRoots].map(async (root) => ({
+        path: path.resolve(root),
+        real: await realpath(root).catch(() => path.resolve(root)),
+      })),
+    );
+    const allowed = (root: string, target: string) =>
+      within(root, target) &&
+      path
+        .relative(root, target)
+        .split(path.sep)
+        .every((part) => !part.startsWith('.') && !/\.(pem|key|pfx|p12|kdbx)$/i.test(part));
+    const resolve = async (target: string) => {
+      const candidates = roots.filter(
+        (root) => allowed(root.path, target) || allowed(root.real, target),
+      );
+      if (!candidates.length) throw new MediaError(403, '文件不在会话工作目录或输出目录内');
+      const output = candidates.find(
+        (root) => outputRoots.includes(root.path) && root.path === root.real,
+      );
+      const privatePaths =
+        output && path.basename(output.path) === 'generated_images'
+          ? this.privatePaths.filter((root) => root !== path.dirname(output.path))
+          : this.privatePaths;
+      const resolved = await this.resolve(target, privatePaths);
+      if (!(output ? [output] : candidates).some((root) => allowed(root.real, resolved)))
+        throw new MediaError(403, '文件不在会话工作目录或输出目录内');
+      return resolved;
+    };
+    const { handle, size, name } = await this.openFile(resolveFile(file, cwd), signal, resolve);
+    try {
+      const data = await readBytes(handle, size, signal);
+      if (!data.length) throw new MediaError(415, '附件为空');
+      return { name, data, mime: imageMime(data.subarray(0, 16)) || 'application/octet-stream' };
+    } finally {
+      await handle.close();
+    }
   }
 
   async read(
@@ -170,29 +257,9 @@ export class SessionFilePreviews {
     try {
       const target = await this.source.fileLink(sessionId, itemId, linkId);
       if (!target) throw new MediaError(404, '找不到这条文件引用，或会话内容已更新');
-      const resolved = await this.resolve(resolveFile(target.link.path, target.cwd));
-      const before = await stat(resolved);
-      if (!before.isFile()) throw new MediaError(415, '此链接未指向普通文件');
-      signal.throwIfAborted();
-      handle = await open(
-        resolved,
-        constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0),
-      );
-      const info = await handle.stat();
-      const current = await this.resolve(resolved);
-      const after = await stat(current);
-      if (
-        !info.isFile() ||
-        current !== resolved ||
-        info.dev !== before.dev ||
-        info.ino !== before.ino ||
-        info.dev !== after.dev ||
-        info.ino !== after.ino
-      )
-        throw new MediaError(409, '文件路径已变化，请重新打开');
-      const size = info.size;
-      if (size > MAX_BYTES) throw new MediaError(413, '文件超过 20 MiB，暂无法打开');
-      const name = path.basename(resolved);
+      const file = await this.openFile(resolveFile(target.link.path, target.cwd), signal);
+      handle = file.handle;
+      const { size, name, resolved } = file;
       const extension = path.extname(name).toLowerCase();
       const metadata = { name, path: resolved, size };
       if (downloads.has(extension)) {

@@ -6,6 +6,8 @@ import type { SourceDatabases } from './databases.js';
 import type { RolloutStore } from './rollouts.js';
 import type { InternalSession } from './session.js';
 
+const REPLY_LIMIT = 128 * 1024;
+
 export type SessionCompletion = {
   key: string;
   session: Session;
@@ -73,7 +75,7 @@ export class CompletionReader {
               payload.type === 'message' &&
               payload.role === 'assistant'
             )
-              summary = textOf(payload.content, 1000);
+              summary = textOf(payload.content, REPLY_LIMIT);
             if (
               record.type === 'event_msg' &&
               ['task_complete', 'task_completed'].includes(payload.type)
@@ -86,7 +88,7 @@ export class CompletionReader {
                   session,
                   turnId: id,
                   completedAt,
-                  summary: textOf(payload.last_agent_message ?? summary, 1000),
+                  summary: textOf(payload.last_agent_message ?? summary, REPLY_LIMIT),
                 });
             }
           } catch {
@@ -107,20 +109,24 @@ export class CompletionReader {
   }
 
   summary(event: SessionCompletion) {
-    if (event.summary !== undefined) return event.summary;
+    return this.reply(event, 1000);
+  }
+
+  reply(event: Pick<SessionCompletion, 'session' | 'turnId' | 'summary'>, limit = REPLY_LIMIT) {
+    if (event.summary !== undefined) return event.summary.slice(0, limit);
     const row = this.databases.history
       ?.prepare(
-        `SELECT substr(json_extract(item_json,'$.text'),1,1000) AS text,
-              substr(json_extract(item_json,'$.content'),1,4000) AS content
+        `SELECT substr(json_extract(item_json,'$.text'),1,?) AS text,
+              substr(json_extract(item_json,'$.content'),1,?) AS content
        FROM thread_items WHERE thread_id=? AND turn_id=?
        AND lower(replace(json_extract(item_json,'$.type'),'_',''))='agentmessage'
        AND (json_extract(item_json,'$.phase') IN ('final','final_answer') OR json_extract(item_json,'$.phase') IS NULL)
        ORDER BY rollout_ordinal DESC LIMIT 1`,
       )
-      .get(event.session.id, event.turnId);
+      .get(limit, limit === 1000 ? 4000 : 1024 * 1024, event.session.id, event.turnId);
     if (typeof row?.text === 'string') return row.text;
     try {
-      return textOf(JSON.parse(String(row?.content || '[]')), 1000);
+      return textOf(JSON.parse(String(row?.content || '[]')), limit);
     } catch {
       return '';
     }

@@ -223,6 +223,9 @@
 .notification-fields .help {
   margin: 0;
 }
+.notification-mode {
+  justify-self: start;
+}
 .notification-hint {
   overflow-wrap: anywhere;
 }

@@ -1,19 +1,26 @@
 import { fromMarkdown } from 'mdast-util-from-markdown';
 import type { Nodes } from 'mdast';
 
-function imageText(alt: string | null | undefined, source: string | undefined, inLink: boolean) {
-  const label = (alt?.trim() || '图片').replace(/[\\[\]`*_<>!]/g, '\\$&');
-  if (inLink) return label;
+function webUrl(source: string | undefined) {
   try {
     const url = new URL(source ?? '');
-    if (url.protocol === 'https:' || url.protocol === 'http:') return `[${label}](<${url.href}>)`;
+    if (url.protocol === 'https:' || url.protocol === 'http:') return url.href;
   } catch {}
-  return `${label}（请在会话中查看图片）`;
+}
+
+function escapedLabel(text: string | null | undefined, fallback: string) {
+  return (text?.trim() || fallback).replace(/[\\[\]`*_<>!]/g, '\\$&');
+}
+
+function linkLabel(node: Nodes): string {
+  if (node.type === 'image' || node.type === 'imageReference') return node.alt ?? '';
+  if (node.type === 'text' || node.type === 'inlineCode') return node.value;
+  return 'children' in node ? node.children.map(linkLabel).join('') : '';
 }
 
 /** Card images require provider-issued image keys, never URLs or local paths. */
-export function larkMarkdown(text: string) {
-  if (text.includes('!')) {
+export function larkMarkdown(text: string, app = false) {
+  if (text.includes('!') || (app && /\[|</.test(text))) {
     const nodes: { node: Nodes; inLink: boolean }[] = [],
       pending = [{ node: fromMarkdown(text) as Nodes, inLink: false }];
     while (pending.length) {
@@ -34,17 +41,38 @@ export function larkMarkdown(text: string) {
     }
     const edits: { start: number; end: number; value: string }[] = [];
     for (const { node, inLink } of nodes) {
-      if (node.type !== 'image' && node.type !== 'imageReference') continue;
       const start = node.position?.start.offset,
         end = node.position?.end.offset;
       if (start === undefined || end === undefined) continue;
-      const source =
-        node.type === 'image' ? node.url : definitions.get(node.identifier.toUpperCase());
-      edits.push({ start, end, value: imageText(node.alt, source, inLink) });
+      if (node.type === 'image' || node.type === 'imageReference') {
+        const url = webUrl(
+          node.type === 'image' ? node.url : definitions.get(node.identifier.toUpperCase()),
+        );
+        const label = escapedLabel(node.alt, '图片');
+        const value = inLink
+          ? label
+          : url
+            ? `[${label}](<${url}>)`
+            : app
+              ? label
+              : `${label}（请在会话中查看图片）`;
+        edits.push({ start, end, value });
+      } else if (app && (node.type === 'link' || node.type === 'linkReference')) {
+        const url =
+          node.type === 'link' ? node.url : definitions.get(node.identifier.toUpperCase());
+        if (!webUrl(url)) edits.push({ start, end, value: escapedLabel(linkLabel(node), '附件') });
+      } else if (app && node.type === 'definition' && !webUrl(node.url)) {
+        edits.push({ start, end, value: '' });
+      }
     }
-    // Replace only parsed images, leaving code examples and other formatting intact.
-    for (const edit of edits.sort((a, b) => b.start - a.start))
-      text = text.slice(0, edit.start) + edit.value + text.slice(edit.end);
+    let offset = 0;
+    const parts: string[] = [];
+    for (const edit of edits.sort((a, b) => a.start - b.start || b.end - a.end)) {
+      if (edit.start < offset) continue; // The enclosing link has already been replaced.
+      parts.push(text.slice(offset, edit.start), edit.value);
+      offset = edit.end;
+    }
+    text = parts.join('') + text.slice(offset);
   }
   // Neutralize mentions while preserving blockquotes, autolinks and code operators.
   return text.replace(/<\/?at\b[^>]*>/gi, (tag) => tag.replaceAll('<', '＜').replaceAll('>', '＞'));

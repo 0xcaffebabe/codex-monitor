@@ -20,6 +20,7 @@ import { ProjectGit } from './git.js';
 import { installGitRoutes } from './http/git-routes.js';
 import { SessionFilePreviews } from './file-preview.js';
 import { installFilePreviewRoutes } from './http/file-preview-routes.js';
+import { NotificationAttachments } from './notifications/attachments.js';
 
 export type WorkspaceServices = {
   control?: DesktopControl;
@@ -42,7 +43,9 @@ export function installWorkspaceRuntime(
   );
   const uploads = new UploadStore(auth.db, config.dataDir);
   const previews = new ImagePreviews();
-  installFilePreviewRoutes(app, new SessionFilePreviews(source, config), previews);
+  const files = new SessionFilePreviews(source, config);
+  const notificationAttachments = new NotificationAttachments(source, files, config);
+  installFilePreviewRoutes(app, files, previews);
   installUploads(app, uploads, previews);
   const terminals = new ProjectTerminals(auth, source, services.authorization);
   installTerminalRoutes(app, terminals);
@@ -93,5 +96,5 @@ export function installWorkspaceRuntime(
     closing = Promise.all([usage.close(), desktopWatchdog?.close()]).then(() => {});
     return closing;
   };
-  return { source, usage, terminals, close };
+  return { source, usage, terminals, notificationAttachments, close };
 }
