@@ -4,6 +4,34 @@ import path from 'node:path';
 import { ids } from '../fixture.js';
 import { expect, localTitle, test } from './monitor.js';
 
+test('viewing or closing a completion marks the session read on its workspace', async ({
+  signedIn: { browserPage, session },
+  local,
+  monitor,
+}) => {
+  const title = '远端已完成会话';
+  const remote = await monitor.addWorkspace('任务主机', title);
+  const complete = (ordinal: number) => {
+    const now = Math.floor(Date.now() / 1000);
+    remote.data.hist
+      .prepare('INSERT INTO thread_turns VALUES(?,?,?,?,?,?)')
+      .run(ids.modern, randomUUID(), ordinal, 'completed', now - 1, now);
+  };
+  const notices = browserPage.getByRole('region', { name: '任务完成通知' });
+
+  complete(100);
+  await notices.getByRole('link', { name: `查看已完成会话：${title}` }).click();
+  await expect.poll(() => remote.control.readThreads).toEqual([ids.modern]);
+  await expect(session.heading(title)).toBeVisible();
+  await expect(notices).toHaveCount(0);
+
+  complete(101);
+  await notices.getByRole('button', { name: `关闭通知：${title}` }).click();
+  await expect(notices).toHaveCount(0);
+  await expect.poll(() => remote.control.readThreads).toEqual([ids.modern, ids.modern]);
+  expect(local.control.readThreads).toEqual([]);
+});
+
 test('the session header follows confirmed desktop ownership after a turn completes', async ({
   signedIn: { browserPage, session },
   local,

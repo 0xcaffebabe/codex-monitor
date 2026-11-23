@@ -1,5 +1,6 @@
 import type { Express, Request } from 'express';
 import { z } from 'zod';
+import type { CompletionNotification } from '../../src/types.js';
 import type { NotificationService } from '../notifications/service.js';
 import { validLarkWebhook } from '../notifications/lark.js';
 import { notificationConfigured } from '../notifications/store.js';
@@ -44,13 +45,16 @@ const dismissal = z
   .object({
     generation: z.uuid(),
     ids: z.array(z.number().int().positive().max(Number.MAX_SAFE_INTEGER)).min(1).max(50),
+    markRead: z.literal(true).optional(),
   })
-  .strict();
+  .strict()
+  .refine(({ ids, markRead }) => !markRead || ids.length === 1);
 
 export function installNotificationRoutes(
   app: Express,
   auth: WorkspaceAuth,
   notifications: NotificationService,
+  markRead: (notice: CompletionNotification) => Promise<void>,
   authorized?: (req: Request) => Promise<boolean>,
 ) {
   // All authenticated readers can already read sessions in every registered workspace.
@@ -61,8 +65,13 @@ export function installNotificationRoutes(
     const parsed = dismissal.safeParse(req.body);
     if (!parsed.success) return fail(res, 400, '通知关闭请求无效，请刷新后重试');
     // Dismiss only IDs observed by the caller, so a concurrent new completion survives “close all”.
-    const result = notifications.completions.dismiss(parsed.data.generation, parsed.data.ids);
+    const { generation, ids, markRead: shouldMarkRead } = parsed.data;
+    const target = shouldMarkRead
+      ? notifications.completions.snapshot().notifications.find((notice) => notice.id === ids[0])
+      : undefined;
+    const result = notifications.completions.dismiss(generation, ids);
     if (!result) return fail(res, 409, '服务已重启，通知列表已更新，请刷新后重试');
+    if (target) void markRead(target).catch(() => {});
     res.json(result);
   });
   app.get('/api/notifications', admin, (_req, res) => res.json(notifications.state()));

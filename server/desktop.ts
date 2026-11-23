@@ -38,6 +38,7 @@ export interface DesktopControl {
   desktopChannel?: boolean;
   projects(context: string): Promise<DesktopProject[]>;
   models(): Promise<CodexModel[]>;
+  markRead?(threadId: string): Promise<void>;
   state(
     context: string,
     threadId: string,
@@ -134,7 +135,12 @@ export class DesktopBridge implements DesktopControl {
     );
   }
 
-  private async call(context: string, tool: string, args: Record<string, unknown>): Promise<any> {
+  private async call(
+    context: string,
+    tool: string,
+    args: Record<string, unknown>,
+    timeoutMs = this.options.timeoutMs ?? 90000,
+  ): Promise<any> {
     const socket = await this.connect();
     return new Promise((resolve, reject) => {
       let buffer = Buffer.alloc(0),
@@ -151,7 +157,7 @@ export class DesktopBridge implements DesktopControl {
       const timer = setTimeout(
         () =>
           finish(new ControlError('Codex 暂未返回回执，发送结果待确认。请勿重复发送。', true, 504)),
-        this.options.timeoutMs ?? 90000,
+        timeoutMs,
       );
       socket.on('error', () =>
         finish(
@@ -223,6 +229,15 @@ export class DesktopBridge implements DesktopControl {
       dispatched = true;
       socket.write(frame);
     });
+  }
+
+  async markRead(threadId: string) {
+    await this.call(
+      threadId,
+      'set_thread_read_state',
+      { threadId, hostId: 'local', read: true },
+      this.options.timeoutMs ?? 5000,
+    );
   }
 
   async projects(context: string) {

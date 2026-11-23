@@ -242,6 +242,7 @@ export class MonitorClient {
             capabilities: {
               completionNotifications: true,
               notificationAttachments: true,
+              notificationMarkRead: true,
               privacyWork: process.platform === 'win32',
             },
             version: PROTOCOL_VERSION,
@@ -271,6 +272,8 @@ export class MonitorClient {
           this.privacyWork.setEnabled(process.platform === 'win32' && frame.enabled, {
             runImmediately: true,
           });
+        } else if (frame.type === 'notification-mark-read') {
+          void this.runtime.markSessionRead(frame.sessionId).catch(() => {});
         } else if (frame.type === 'notification-policy') {
           this.notificationConfiguration = this.notificationConfiguration
             .then(async () => {

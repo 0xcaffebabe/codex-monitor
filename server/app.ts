@@ -40,7 +40,9 @@ export function createApp(
   );
   notifications.onConfigure = (policy, reset) => notificationReporter.configure(policy, reset);
   const notificationReady = notificationReporter.configure(notifications.policy());
-  installNotificationRoutes(app, auth, notifications);
+  installNotificationRoutes(app, auth, notifications, ({ sessionId }) =>
+    runtime.markSessionRead(sessionId),
+  );
   installFrontend(app, path.resolve(services.publicDir || 'dist/public'));
   let closing: Promise<void> | undefined;
   return {

@@ -310,6 +310,8 @@ test('desktop bridge handles split frames, rejects invalid receipts and never re
   let calls = 0,
     mode = 'ok';
   let lastArgs: Record<string, unknown> | undefined;
+  let lastTool: string | undefined;
+  let lastContext: string | undefined;
   const sockets = new Set<net.Socket>();
   const server = net
     .createServer((socket) => {
@@ -323,6 +325,8 @@ test('desktop bridge handles split frames, rejects invalid receipts and never re
         calls++;
         assert.equal(request.method, 'tools/call');
         lastArgs = request.params.arguments;
+        lastTool = request.params.tool;
+        lastContext = request.params.threadId;
         if (request.params.tool === 'send_message_to_thread')
           assert.equal(request.params.arguments.threadId, ids.modern);
         if (mode === 'drop') {
@@ -375,6 +379,10 @@ test('desktop bridge handles split frames, rejects invalid receipts and never re
   await once(server, 'listening');
   const bridge = new DesktopBridge({ pipe, timeoutMs: 1000 });
   try {
+    await bridge.markRead(ids.modern);
+    assert.equal(lastTool, 'set_thread_read_state');
+    assert.equal(lastContext, ids.modern);
+    assert.deepEqual(lastArgs, { threadId: ids.modern, hostId: 'local', read: true });
     await bridge.create(ids.modern, projectId, 'new', { model: 'gpt-6.1-sol', thinking: 'ultra' });
     assert.deepEqual(lastArgs, {
       prompt: 'new',
@@ -422,7 +430,7 @@ test('desktop bridge handles split frames, rejects invalid receipts and never re
       bridge.send(ids.modern, ids.modern, 'hello'),
       (e: unknown) => e instanceof ControlError && e.uncertain,
     );
-    assert.equal(calls, 9);
+    assert.equal(calls, 10);
   } finally {
     for (const socket of sockets) socket.destroy();
     await new Promise<void>((resolve) => server.close(() => resolve()));

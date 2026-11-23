@@ -62,7 +62,7 @@ export class NativeDesktopControl implements DesktopControl {
   readonly approvals = new NativeApprovals();
   private fileChanges = new Map<string, unknown>();
   private native: NativeControl;
-  private desktop: Pick<DesktopControl, 'projects' | 'send' | 'create' | 'close'>;
+  private desktop: Pick<DesktopControl, 'projects' | 'send' | 'create' | 'markRead' | 'close'>;
   private runtimes = new Map<string, NativeControl>();
   private pendingRuntimes = new Set<NativeControl>();
   private turns = new Map<string, { turnId: string; running: boolean; compacting: boolean }>();
@@ -78,7 +78,7 @@ export class NativeDesktopControl implements DesktopControl {
       owner?: typeof requestOwnedThread;
       launch?: ConstructorParameters<typeof NativeRpc>[1];
       generateTitle?: typeof generateSessionTitle;
-      desktop?: Pick<DesktopControl, 'projects' | 'send' | 'create' | 'close'>;
+      desktop?: NativeDesktopControl['desktop'];
     } = {},
   ) {
     this.options.permissionDb?.exec(`CREATE TABLE IF NOT EXISTS monitor_session_permissions (
@@ -205,6 +205,10 @@ export class NativeDesktopControl implements DesktopControl {
         await (runtime.dispose?.() ?? runtime.close());
       },
     };
+  }
+
+  async markRead(threadId: string) {
+    await this.desktop.markRead?.(threadId);
   }
 
   async projects(_context: string): Promise<DesktopProject[]> {

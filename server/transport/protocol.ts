@@ -59,6 +59,10 @@ export const frameSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('notification-report'), id, report: notificationReportSchema }),
   z.object({ type: z.literal('notification-report-ack'), id, accepted: z.boolean() }),
   z.object({
+    type: z.literal('notification-mark-read'),
+    sessionId: z.string().regex(/^[A-Za-z0-9_-]{1,100}$/),
+  }),
+  z.object({
     type: z.literal('notification-attachment'),
     id,
     sessionId: z.string().regex(/^[A-Za-z0-9_-]{1,100}$/),
@@ -75,6 +79,7 @@ export const frameSchema = z.discriminatedUnion('type', [
     capabilities: z.object({
       completionNotifications: z.boolean().optional(),
       notificationAttachments: z.boolean().optional(),
+      notificationMarkRead: z.boolean().optional(),
       privacyWork: z.boolean().optional(),
     }).optional(),
   }),

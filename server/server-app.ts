@@ -28,8 +28,10 @@ export function createMonitorServer(
   installUserRoutes(app, auth);
   installSub2ApiRoutes(app, auth);
   const notifications = new NotificationService(auth.db, config.pollMs, services.webhookTransport);
-  installNotificationRoutes(app, auth, notifications);
   const gateway = new WorkspaceGateway(auth, notifications);
+  installNotificationRoutes(app, auth, notifications, ({ workspaceId, sessionId }) =>
+    gateway.markCompletionRead(workspaceId, sessionId),
+  );
   notifications.readAttachment = (workspaceId, ref, signal) =>
     gateway.readNotificationAttachment(workspaceId, ref, signal);
   notifications.onConfigure = (policy, reset) => gateway.configureNotifications(policy, reset);

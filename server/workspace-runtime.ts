@@ -49,21 +49,16 @@ export function installWorkspaceRuntime(
   installUploads(app, uploads, previews);
   const terminals = new ProjectTerminals(auth, source, services.authorization);
   installTerminalRoutes(app, terminals);
-  const control = installControl(
-    app,
-    auth.db,
-    source,
+  const desktop =
     services.control ??
-      createDesktopControl({
-        codexHome: config.codexHome,
-        activity: (id) => source.activity(id),
-        onCreated: scope.include,
-        projectPath: config.projectPath,
-        permissionDb: auth.db,
-      }),
-    uploads,
-    services.authorization,
-  );
+    createDesktopControl({
+      codexHome: config.codexHome,
+      activity: (id) => source.activity(id),
+      onCreated: scope.include,
+      projectPath: config.projectPath,
+      permissionDb: auth.db,
+    });
+  const control = installControl(app, auth.db, source, desktop, uploads, services.authorization);
   const git = new ProjectGit(source, control.projectPath);
   installGitRoutes(app, git, auth, services.authorization);
   const recentCreation = auth.db.prepare(`SELECT 1 FROM control_requests WHERE state='succeeded'
@@ -96,5 +91,14 @@ export function installWorkspaceRuntime(
     closing = Promise.all([usage.close(), desktopWatchdog?.close()]).then(() => {});
     return closing;
   };
-  return { source, usage, terminals, notificationAttachments, close };
+  return {
+    source,
+    usage,
+    terminals,
+    notificationAttachments,
+    markSessionRead: async (sessionId: string) => {
+      if (!closing) await desktop.markRead?.(sessionId);
+    },
+    close,
+  };
 }

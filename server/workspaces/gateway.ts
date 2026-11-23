@@ -42,6 +42,7 @@ type Peer = {
   alive: boolean;
   completionNotifications: boolean;
   notificationAttachments: boolean;
+  notificationMarkRead: boolean;
   privacyWork: boolean;
   attachments: Map<string, (frame: Frame) => void>;
   resources: (HostResourceSample & { receivedAt: number }) | null;
@@ -200,6 +201,7 @@ export class WorkspaceGateway {
       alive: true,
       completionNotifications: false,
       notificationAttachments: false,
+      notificationMarkRead: false,
       privacyWork: false,
       attachments: new Map(),
       resources: null,
@@ -231,6 +233,7 @@ export class WorkspaceGateway {
           peer.ready = true;
           peer.completionNotifications = !!frame.capabilities?.completionNotifications;
           peer.notificationAttachments = !!frame.capabilities?.notificationAttachments;
+          peer.notificationMarkRead = !!frame.capabilities?.notificationMarkRead;
           peer.privacyWork = frame.platform === 'win32' && !!frame.capabilities?.privacyWork;
           clearTimeout(handshake);
           void sendFrame(socket, {
@@ -357,6 +360,11 @@ export class WorkspaceGateway {
     } else if (frame.type === 'error') {
       this.finish(peer, frame.id, request, 502, frame.message);
     }
+  }
+  async markCompletionRead(workspaceId: string, sessionId: string) {
+    const peer = this.peers.get(workspaceId);
+    if (peer?.ready && peer.notificationMarkRead)
+      await sendFrame(peer.socket, { type: 'notification-mark-read', sessionId });
   }
   readNotificationAttachment(workspaceId: string, ref: NotificationAttachmentRef, signal: AbortSignal) {
     signal.throwIfAborted();

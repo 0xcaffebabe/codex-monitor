@@ -12,6 +12,7 @@ export class FixtureDesktop implements DesktopControl {
   readonly desktopChannel = true;
   readonly messagePermissions = true;
   sends = 0;
+  readThreads: string[] = [];
   creates = 0;
   lastCreation: SessionCreationSettings = {};
   lastSend: SessionMessageSettings = {};
@@ -28,6 +29,9 @@ export class FixtureDesktop implements DesktopControl {
   ) {}
   async projects() {
     return [{ id: projectId, name: 'work', path: this.projectPath }];
+  }
+  async markRead(id: string) {
+    this.readThreads.push(id);
   }
   async models(): Promise<CodexModel[]> {
     return [

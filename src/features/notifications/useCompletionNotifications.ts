@@ -74,7 +74,11 @@ export function useCompletionNotifications() {
           {
             method: 'POST',
             signal: request.signal,
-            body: JSON.stringify({ generation: observed.generation, ids: targets }),
+            body: JSON.stringify({
+              generation: observed.generation,
+              ids: targets,
+              ...(ids && { markRead: true }),
+            }),
           },
         );
         if (stopped) return false;
