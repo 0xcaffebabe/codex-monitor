@@ -236,7 +236,11 @@ export class MonitorClient {
           clearTimeout(handshake);
           this.ready = true;
           this.delay = this.options.reconnectMs ?? 1000;
-          if (frame.capabilities?.hostResources) this.startResourceReporting(socket);
+          if (frame.capabilities?.hostResources)
+            this.startResourceReporting(
+              socket,
+              process.platform === 'win32' && !!frame.capabilities.hostUptime,
+            );
           this.privacyWork.setEnabled(process.platform === 'win32' && !!frame.privacyWorkEnabled);
           this.options.onStatus?.('connected');
         } else if (!this.ready) throw new Error('Handshake required');
@@ -371,7 +375,7 @@ export class MonitorClient {
       }
     });
   }
-  private startResourceReporting(socket: WebSocket) {
+  private startResourceReporting(socket: WebSocket, readUptime: boolean) {
     clearInterval(this.resourceTimer);
     const sampler = new HostResourceSampler();
     let sampling = false;
@@ -380,7 +384,7 @@ export class MonitorClient {
       if (sampling || socket !== this.socket || !this.ready || this.stopped) return;
       sampling = true;
       try {
-        const sample = await sampler.sample();
+        const sample = await sampler.sample(Date.now(), readUptime);
         if (socket !== this.socket || !this.ready || this.stopped) return;
         // Keep sampling across congestion, but never queue up obsolete resource reports.
         if (sending || socket.bufferedAmount > CHUNK_BYTES) return;

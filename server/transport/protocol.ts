@@ -28,6 +28,7 @@ export const hostResourceSchema: z.ZodType<HostResourceSample> = z
   .object({
     sampledAt: bytes,
     cpuPercent: z.number().finite().min(0).max(100).nullable(),
+    uptimeSeconds: z.number().int().nonnegative().optional(),
     memory: z
       .object({
         totalBytes: bytes.positive(),
@@ -81,7 +82,10 @@ export const frameSchema = z.discriminatedUnion('type', [
     type: z.literal('welcome'),
     version: z.literal(PROTOCOL_VERSION),
     workspaceId: z.string().max(100),
-    capabilities: z.object({ hostResources: z.boolean().optional() }).optional(),
+    capabilities: z.object({
+      hostResources: z.boolean().optional(),
+      hostUptime: z.boolean().optional(),
+    }).optional(),
     privacyWorkEnabled: z.boolean().optional(),
   }),
   z.object({

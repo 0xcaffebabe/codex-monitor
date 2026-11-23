@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import { createServer } from 'node:http';
 import { rmSync } from 'node:fs';
+import { uptime } from 'node:os';
 import { setTimeout as delay } from 'node:timers/promises';
 import { WebSocket, WebSocketServer } from 'ws';
 import { fixture } from './fixture.js';
@@ -49,6 +50,13 @@ test('a real client reports host resources periodically and starts a fresh CPU b
     const initial = current().resources!;
     assert.equal(initial.cpuPercent, null);
     assert.ok(initial.memory && initial.memory.totalBytes > 0);
+    if (process.platform === 'win32') {
+      assert.ok(
+        initial.uptimeSeconds !== undefined && Math.abs(initial.uptimeSeconds - uptime()) < 5,
+      );
+    } else {
+      assert.equal(initial.uptimeSeconds, undefined);
+    }
     await until(() => current().resources?.cpuPercent != null);
     const periodic = current().resources!;
     assert.ok(periodic.sampledAt > initial.sampledAt);
@@ -168,44 +176,57 @@ test('Server attributes samples to the authenticated workspace and ages them usi
   }
 });
 
-test('new clients keep working with a v3 Server that does not advertise resource support', async () => {
-  const f = fixture();
-  const server = createServer();
-  const wss = new WebSocketServer({ server });
-  const key = 'A'.repeat(43),
-    workspaceId = 'local';
-  const frames: Frame[] = [];
-  wss.on('connection', (socket, request) => {
-    socket.on('message', (raw) => {
-      const frame = readFrame(socket, raw);
-      frames.push(frame);
-      if (frame.type === 'hello')
-        void sendFrame(socket, { type: 'welcome', version: PROTOCOL_VERSION, workspaceId });
+for (const hostResources of [false, true]) {
+  test(`new clients keep working with a v3 Server that ${hostResources ? 'only supports CPU and memory' : 'does not support resource reports'}`, async () => {
+    const f = fixture();
+    const server = createServer();
+    const wss = new WebSocketServer({ server });
+    const key = 'A'.repeat(43),
+      workspaceId = 'local';
+    const frames: Frame[] = [];
+    wss.on('connection', (socket, request) => {
+      socket.on('message', (raw) => {
+        const frame = readFrame(socket, raw);
+        frames.push(frame);
+        if (frame.type === 'hello')
+          void sendFrame(socket, {
+            type: 'welcome',
+            version: PROTOCOL_VERSION,
+            workspaceId,
+            ...(hostResources && { capabilities: { hostResources: true } }),
+          });
+      });
+      startServerChannel(socket, key, request.headers.authorization!);
     });
-    startServerChannel(socket, key, request.headers.authorization!);
+    server.listen(0, '127.0.0.1');
+    await once(server, 'listening');
+    let client: MonitorClient | undefined;
+    try {
+      client = await MonitorClient.start({
+        config: f.config,
+        serverUrl: `http://127.0.0.1:${(server.address() as { port: number }).port}`,
+        workspaceId,
+        key,
+      });
+      await until(() => client!.connected);
+      if (hostResources) {
+        await until(() => frames.some((frame) => frame.type === 'host-resources'));
+        const first = frames.find((frame) => frame.type === 'host-resources')!;
+        assert.equal('uptimeSeconds' in first.sample, false);
+      } else {
+        await delay(HOST_RESOURCE_INTERVAL_MS + 100);
+        assert.deepEqual(
+          frames.map((frame) => frame.type),
+          ['hello'],
+        );
+      }
+      assert.equal(client.connected, true);
+    } finally {
+      await client?.close();
+      await new Promise<void>((resolve) => wss.close(() => resolve()));
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+      f.close();
+      rmSync(f.root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    }
   });
-  server.listen(0, '127.0.0.1');
-  await once(server, 'listening');
-  let client: MonitorClient | undefined;
-  try {
-    client = await MonitorClient.start({
-      config: f.config,
-      serverUrl: `http://127.0.0.1:${(server.address() as { port: number }).port}`,
-      workspaceId,
-      key,
-    });
-    await until(() => client!.connected);
-    await delay(HOST_RESOURCE_INTERVAL_MS + 100);
-    assert.equal(client.connected, true);
-    assert.deepEqual(
-      frames.map((frame) => frame.type),
-      ['hello'],
-    );
-  } finally {
-    await client?.close();
-    await new Promise<void>((resolve) => wss.close(() => resolve()));
-    await new Promise<void>((resolve) => server.close(() => resolve()));
-    f.close();
-    rmSync(f.root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
-  }
-});
+}

@@ -5,6 +5,7 @@ export type HostResourceSample = {
   sampledAt: number;
   cpuPercent: number | null;
   memory: { totalBytes: number; usedBytes: number; usedPercent: number } | null;
+  uptimeSeconds?: number;
 };
 
 export type WorkspaceResources = HostResourceSample & {

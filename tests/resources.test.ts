@@ -154,6 +154,15 @@ test('resource frames validate numeric bounds and consistency and cannot claim a
   };
   const frame = { type: 'host-resources', sample };
   assert.ok(frameSchema.safeParse(frame).success);
+  for (const uptimeSeconds of [0, 90061]) {
+    const withUptime = { ...frame, sample: { ...sample, uptimeSeconds } };
+    assert.deepEqual(frameSchema.parse(withUptime), withUptime);
+  }
+  for (const uptimeSeconds of [-1, 1.5, Infinity, NaN])
+    assert.equal(
+      frameSchema.safeParse({ ...frame, sample: { ...sample, uptimeSeconds } }).success,
+      false,
+    );
   assert.ok(
     frameSchema.safeParse({ ...frame, sample: { ...sample, cpuPercent: null, memory: null } })
       .success,

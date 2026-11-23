@@ -19,9 +19,16 @@ export class HostResourceSampler {
 
   constructor(private source: ResourceSource = systemSource) {}
 
-  async sample(now = Date.now()): Promise<HostResourceSample> {
+  async sample(now = Date.now(), readUptime = false): Promise<HostResourceSample> {
     let cpuPercent: number | null = null;
     let memory: HostResourceSample['memory'] = null;
+    let uptimeSeconds: number | undefined;
+    if (readUptime) {
+      try {
+        const seconds = Math.floor(os.uptime());
+        if (Number.isSafeInteger(seconds) && seconds >= 0) uptimeSeconds = seconds;
+      } catch {}
+    }
     try {
       const cpus = this.source.cpus();
       const current: CpuSnapshot = { idle: 0, total: 0, count: cpus.length, at: now };
@@ -63,6 +70,11 @@ export class HostResourceSampler {
         memory = { totalBytes, usedBytes, usedPercent: (usedBytes / totalBytes) * 100 };
       }
     } catch {}
-    return { sampledAt: now, cpuPercent, memory };
+    return {
+      sampledAt: now,
+      cpuPercent,
+      memory,
+      ...(uptimeSeconds !== undefined && { uptimeSeconds }),
+    };
   }
 }

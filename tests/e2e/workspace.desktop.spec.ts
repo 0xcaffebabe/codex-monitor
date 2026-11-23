@@ -205,3 +205,25 @@ test('privacy work runs on enable and survives a Windows client reconnect', asyn
   await privacySwitch.click();
   await expect(privacySwitch).toHaveAttribute('aria-checked', 'false');
 });
+
+test('workspace management shows system uptime next to the Windows client version', async ({
+  signedIn: { browserPage: page },
+  monitor,
+}) => {
+  test.skip(process.platform !== 'win32', 'System uptime requires a Windows client');
+  const name = '开机时长测试电脑';
+  const remote = await monitor.addWorkspace(name, '远程会话');
+  await page.getByRole('button', { name: '管理工作空间' }).click();
+  const dialog = page.getByRole('dialog', { name: '管理工作空间' });
+  const row = dialog.getByRole('article').filter({ has: page.getByText(name, { exact: true }) });
+  const details = row.locator('.client-details');
+  const uptime = details.getByText(/^开机时长 /);
+  await expect(uptime).toHaveText(/^开机时长 (不足 1|(?:\d+ 天 )?(?:\d+ 小时 )?\d+) 分钟$/);
+  const versionBox = await details.getByText(/^客户端版本 /).boundingBox();
+  const uptimeBox = await uptime.boundingBox();
+  expect(uptimeBox!.x).toBeGreaterThan(versionBox!.x + versionBox!.width);
+  expect(uptimeBox!.y).toBe(versionBox!.y);
+
+  await remote.stop();
+  await expect(uptime).toHaveCount(0);
+});

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Check, Copy, Monitor, Plus, X } from 'lucide-react';
 import type { WorkspacesModel } from './useWorkspaces';
-import type { ManagedWorkspace } from '../../workspaces';
+import { HOST_RESOURCE_STALE_MS, type ManagedWorkspace } from '../../workspaces';
 import { relative } from '../../shared/format';
 import { ResourceMetrics } from './ResourceMetrics';
 
@@ -20,10 +20,27 @@ function BuildTime({ commitAt }: { commitAt?: number | null }) {
   return <time dateTime={new Date(commitAt).toISOString()}>{buildTime.format(commitAt)}</time>;
 }
 
+function formatUptime(seconds: number) {
+  if (seconds < 60) return '不足 1 分钟';
+  const days = Math.floor(seconds / 86400);
+  const hours = Math.floor(seconds / 3600) % 24;
+  const minutes = Math.floor(seconds / 60) % 60;
+  return `${days ? `${days} 天 ` : ''}${days || hours ? `${hours} 小时 ` : ''}${minutes} 分钟`;
+}
+
 function ClientRow({ workspace, model }: { workspace: ManagedWorkspace; model: WorkspacesModel }) {
   const [name, setName] = useState(workspace.name);
   const [confirming, setConfirming] = useState<'rotate' | 'remove' | ''>('');
   const copy = model.connectionCopy?.id === workspace.id ? model.connectionCopy : null;
+  const resources = workspace.resources;
+  const uptimeSeconds =
+    workspace.platform === 'win32' &&
+    workspace.online &&
+    !model.error &&
+    resources &&
+    resources.ageMs < HOST_RESOURCE_STALE_MS
+      ? resources.uptimeSeconds
+      : undefined;
   const privacyWorkEnabled = !!workspace.privacyWorkEnabled;
   const privacyWorkTitle =
     workspace.platform !== 'win32'
@@ -63,6 +80,7 @@ function ClientRow({ workspace, model }: { workspace: ManagedWorkspace; model: W
         <span>
           客户端版本 <BuildTime commitAt={workspace.buildCommitAt} />
         </span>
+        {uptimeSeconds !== undefined && <span>开机时长 {formatUptime(uptimeSeconds)}</span>}
         {!workspace.online && workspace.lastSeen && (
           <span>最后连接 {relative(workspace.lastSeen)}</span>
         )}

@@ -111,6 +111,7 @@ export class WorkspaceGateway {
               sampledAt: resources.sampledAt,
               cpuPercent: resources.cpuPercent,
               memory: resources.memory,
+              uptimeSeconds: resources.uptimeSeconds,
               ageMs: Math.max(0, now - resources.receivedAt),
             }
           : null,
@@ -236,7 +237,7 @@ export class WorkspaceGateway {
             type: 'welcome',
             version: PROTOCOL_VERSION,
             workspaceId: id,
-            capabilities: { hostResources: true },
+            capabilities: { hostResources: true, hostUptime: true },
             ...(peer.privacyWork && {
               privacyWorkEnabled: this.store.get(id)?.privacyWorkEnabled ?? false,
             }),
