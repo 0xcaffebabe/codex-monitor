@@ -31,13 +31,9 @@ export function UsageDashboard(props: UsageDashboardProps) {
   return (
     <section className="usage-dashboard" aria-label="用量统计">
       <div className="usage-page-heading">
-        <div>
-          <span className="eyebrow">USAGE ANALYTICS</span>
-          <h1>
-            用量统计<span className="title-dot">.</span>
-          </h1>
-          <p>每一次请求，都有迹可循。</p>
-        </div>
+        <h1>
+          用量统计<span className="title-dot">.</span>
+        </h1>
         <button
           className="secondary"
           onClick={() => {

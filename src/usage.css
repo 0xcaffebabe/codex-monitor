@@ -17,11 +17,6 @@
   font-size: 30px;
   letter-spacing: 0;
 }
-.usage-page-heading p {
-  color: var(--muted);
-  font-size: var(--font-meta);
-  margin: 8px 0 0;
-}
 .usage-page-heading .secondary {
   flex-shrink: 0;
   display: flex;
