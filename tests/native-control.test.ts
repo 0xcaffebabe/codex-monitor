@@ -118,6 +118,7 @@ function fixture(
       },
       desktop: {
         projects: async () => f.desktopProjects,
+        state: async () => ({ status: 'notLoaded' }),
         create: async (...args) => {
           desktopCreates.push(args);
           if (f.desktopError) throw f.desktopError;

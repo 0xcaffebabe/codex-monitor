@@ -223,10 +223,11 @@ export class MessageQueue {
       return;
     }
     let caller: string, state: Awaited<ReturnType<DesktopControl['state']>>;
+    const stateOptions = row.channel === 'desktop' ? { inspectOwner: true } : undefined;
     try {
       caller = await this.context(threadId);
       if (this.closed) return;
-      state = await this.bridge.state(caller, threadId);
+      state = await this.bridge.state(caller, threadId, stateOptions);
     } catch {
       if (!this.closed) this.waiting(requestId, threadId, '暂时无法连接 Codex，消息保留在队列中。');
       return;
@@ -267,7 +268,7 @@ export class MessageQueue {
         await validateModelSettings(this.bridge, settings);
         if (this.closed) return;
         // Model discovery can take time; only a new turn may change its settings.
-        state = await this.bridge.state(caller, threadId);
+        state = await this.bridge.state(caller, threadId, stateOptions);
       } catch (error) {
         if (!this.closed)
           this.finish(requestId, 'failed', {

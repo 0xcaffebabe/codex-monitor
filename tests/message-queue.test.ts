@@ -52,6 +52,8 @@ const route = `/api/sessions/${ids.modern}/messages`;
 test('a new client resumes a web-created session with an unfinished turn in history', async () => {
   const f = fixture();
   const calls: string[] = [];
+  const desktop = new FixtureDesktop(f);
+  desktop.state = async () => ({ status: 'notLoaded' });
   let writerBusy = false;
   const client = () => {
     let status = 'notLoaded';
@@ -61,6 +63,7 @@ test('a new client resumes a web-created session with an unfinished turn in hist
         activity: () => ({ turnId: 'turn-1', running: true, compacting: true }),
       },
       {
+        desktop,
         owner: async () => {
           throw new ControlError('No desktop owner', false, 409, 'no_owner');
         },
@@ -261,6 +264,56 @@ test('desktop messages append to running desktop turns without waiting and dedup
       assert.equal((await service.request(route, input)).status, 200);
       assert.equal(control.sends, sends + 1, 'a repeated receipt must not send the message twice');
     }
+  } finally {
+    await service.close();
+    f.close();
+    rmSync(f.root, { recursive: true, force: true });
+  }
+});
+
+test('desktop channel appends when only desktop tools can see the live owner', async () => {
+  const f = fixture();
+  const desktop = new FixtureDesktop(f);
+  desktop.owner = undefined;
+  const control = new NativeDesktopControl(
+    { codexHome: f.home, activity: () => ({ turnId: 'turn-1', running: true, compacting: false }) },
+    {
+      desktop,
+      owner: async () => {
+        throw new ControlError('Follower IPC is unavailable', false, 503, 'owner_unavailable');
+      },
+      native: {
+        async request(method, params: { threadId: string }) {
+          assert.equal(method, 'thread/read');
+          return { thread: { id: params.threadId, status: { type: 'notLoaded' } } };
+        },
+        models: async () => [],
+        get: async () => null,
+        set: async () => null,
+        clear: async () => {},
+        close() {},
+      },
+    },
+  );
+  const service = await boot(f, control);
+  try {
+    const input = {
+      requestId: randomUUID(),
+      prompt: 'append through desktop tools',
+      channel: 'desktop',
+    };
+    const response = await service.request(route, input);
+    assert.equal(response.status, 200);
+    const receipt = await response.json();
+    assert.equal(receipt.state, 'succeeded');
+    assert.equal(receipt.mode, 'append');
+    assert.equal(receipt.previousTurnId, 'turn-1');
+
+    const state = await (await service.request(`/api/sessions/${ids.modern}/control`)).json();
+    assert.equal(state.owner, 'desktop');
+    assert.equal(state.messagePermissions, false);
+    assert.equal((await service.request(route, input)).status, 200);
+    assert.equal(desktop.sends, 1);
   } finally {
     await service.close();
     f.close();

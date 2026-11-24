@@ -62,7 +62,7 @@ export class NativeDesktopControl implements DesktopControl {
   readonly approvals = new NativeApprovals();
   private fileChanges = new Map<string, unknown>();
   private native: NativeControl;
-  private desktop: Pick<DesktopControl, 'projects' | 'send' | 'create' | 'markRead' | 'close'>;
+  private desktop: Pick<DesktopControl, 'projects' | 'state' | 'send' | 'create' | 'markRead' | 'close'>;
   private runtimes = new Map<string, NativeControl>();
   private pendingRuntimes = new Set<NativeControl>();
   private turns = new Map<string, { turnId: string; running: boolean; compacting: boolean }>();
@@ -310,11 +310,17 @@ export class NativeDesktopControl implements DesktopControl {
   }
 
   async state(
-    _context: string,
+    context: string,
     threadId: string,
     options?: { inspectOwner?: boolean },
   ): ReturnType<DesktopControl['state']> {
     const runtime = this.runtimes.get(threadId);
+    if (!runtime && options?.inspectOwner) {
+      // Desktop tools can see a loaded thread even when follower IPC is unavailable.
+      const state = await this.desktop.state(context || threadId, threadId).catch(() => undefined);
+      if (state?.status === 'active' || state?.status === 'idle')
+        return { ...state, owner: 'desktop' };
+    }
     let result: any;
     try {
       result = await (runtime ?? this.native).request('thread/read', {
