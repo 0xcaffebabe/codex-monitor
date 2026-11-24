@@ -141,11 +141,6 @@
     width: 15px;
   }
   .session-info > strong {
-    font-size: var(--font-ui);
-    white-space: normal;
-    display: -webkit-box;
-    -webkit-box-orient: vertical;
-    -webkit-line-clamp: 2;
     line-height: 1.65;
   }
   .session-info > div:not(.compact-meta) {
