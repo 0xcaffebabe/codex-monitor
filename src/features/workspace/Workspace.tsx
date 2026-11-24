@@ -270,6 +270,7 @@ export function Workspace(
                   }
                   notify={notify}
                   connected={connected}
+                  reconnect={model.reconnect}
                   result={result}
                   linkedQuestion={attentionRequest ? {
                     workspaceName: props.workspaceName || props.workspaceId,

@@ -1,14 +1,21 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { rmSync } from 'node:fs';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
+import express from 'express';
+import { AuthStore } from '../server/auth.js';
+import { authenticate } from '../server/http/access.js';
 import { NativeDesktopControl } from '../server/native-control.js';
 import { ControlError } from '../server/control-error.js';
-import { EventEmitter } from 'node:events';
+import { installRealtime } from '../server/realtime.js';
+import { CodexSource } from '../server/source.js';
+import { EventEmitter, once } from 'node:events';
 import { PassThrough, Writable } from 'node:stream';
 import { setImmediate as nextTick } from 'node:timers/promises';
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import type { generateSessionTitle } from '../server/session-title.js';
+import { fixture as sessionFixture, ids } from './fixture.js';
 
 class AppServerProcess extends EventEmitter {
   stdout = new PassThrough();
@@ -604,6 +611,105 @@ test('shared app-server sessions wait for human command, file, and permission de
   } finally {
     control.close();
     f.control.close();
+  }
+});
+
+test('app-server retries reach the selected session stream and clear when the turn resumes or ends', async () => {
+  const f = fixture();
+  const data = sessionFixture();
+  const auth = new AuthStore(data.data);
+  const source = new CodexSource(data.home);
+  const app = express();
+  app.use(authenticate(auth));
+  const realtime = installRealtime(app, auth, source, 20);
+  const child = new AppServerProcess(ids.modern);
+  const control = new NativeDesktopControl(
+    { codexHome: data.home, activity: () => undefined, onReconnect: realtime.setReconnect },
+    {
+      native: f.native,
+      launch: () => child as unknown as ChildProcessWithoutNullStreams,
+      generateTitle: async () => undefined,
+    },
+  );
+  const server = app.listen(0, '127.0.0.1');
+  const abort = new AbortController();
+  try {
+    await once(server, 'listening');
+    const { port } = server.address() as { port: number };
+    const owner = await auth.setup('owner', 'a-long-password');
+    const { token } = auth.issue(owner, 'reconnect test');
+    const connect = async (id: string) => {
+      const response = await fetch(`http://127.0.0.1:${port}/api/stream?session=${id}`, {
+        headers: { Authorization: `Bearer ${token}` },
+        signal: AbortSignal.any([abort.signal, AbortSignal.timeout(5000)]),
+      });
+      assert.equal(response.status, 200);
+      const reader = response.body!.getReader();
+      const decoder = new TextDecoder();
+      let pending = '';
+      const next = async () => {
+        while (true) {
+          const end = pending.indexOf('\n\n');
+          if (end !== -1) {
+            const event = pending.slice(0, end);
+            pending = pending.slice(end + 2);
+            return event;
+          }
+          const { done, value } = await reader.read();
+          assert.equal(done, false);
+          pending += decoder.decode(value, { stream: true });
+        }
+      };
+      assert.match(await next(), /^event: ready\n/);
+      return next;
+    };
+    const retryStatus = async (next: Awaited<ReturnType<typeof connect>>) => {
+      for (;;) {
+        const event = await next();
+        if (event.startsWith('event: turn-reconnect\n'))
+          return JSON.parse(event.split('\ndata: ')[1]);
+      }
+    };
+    const params = { threadId: ids.modern, turnId: 'turn' };
+    const retry = (message: string) => {
+      const details = 'stream disconnected before completion: idle timeout waiting for SSE';
+      child.send({ method: 'error', params: {
+        ...params, willRetry: true, error: { message, additionalDetails: details },
+      } });
+      return { turnId: params.turnId, message, details };
+    };
+
+    const selected = await connect(ids.modern);
+    const other = await connect(ids.legacy);
+    await control.create('', 'project', 'task');
+    const first = retry('Reconnecting... 1/5');
+    assert.deepEqual(await retryStatus(selected), first);
+    const second = retry('Reconnecting... 2/5');
+    assert.deepEqual(await retryStatus(selected), second);
+    const reopened = await connect(ids.modern);
+    assert.deepEqual(await retryStatus(reopened), second);
+    for (;;) {
+      const event = await other();
+      assert.doesNotMatch(event, /^event: turn-reconnect\n/);
+      if (event.startsWith('event: heartbeat\n')) break;
+    }
+    child.send({ method: 'item/agentMessage/delta', params });
+    assert.equal(await retryStatus(selected), null);
+
+    const third = retry('Reconnecting... 1/5');
+    assert.deepEqual(await retryStatus(selected), third);
+    child.send({ method: 'turn/completed', params: { threadId: ids.modern, turn: { id: 'turn' } } });
+    assert.equal(await retryStatus(selected), null);
+  } finally {
+    abort.abort();
+    realtime.close();
+    control.close();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    source.close();
+    auth.close();
+    data.close();
+    f.control.close();
+    rmSync(data.root, { recursive: true, force: true });
   }
 });
 

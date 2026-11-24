@@ -9,7 +9,7 @@ import {
   interruptOwnedThread,
   compactOwnedThread,
 } from './native.js';
-import type { SessionMessageSettings, SessionCreationSettings } from '../src/types.js';
+import type { SessionMessageSettings, SessionCreationSettings, SessionReconnect } from '../src/types.js';
 import { sessionPermissionModes, type SessionPermissionMode } from '../src/approval-types.js';
 import { NativeApprovals } from './native-approvals.js';
 import { generateSessionTitle } from './session-title.js';
@@ -19,6 +19,7 @@ type Options = {
   codexHome: string;
   activity: (id: string) => Activity | undefined;
   onCreated?: (id: string) => void;
+  onReconnect?: (threadId: string, reconnect: SessionReconnect | null) => void;
   projectPath?: string;
   permissionDb?: DatabaseSync;
 };
@@ -115,6 +116,12 @@ export class NativeDesktopControl implements DesktopControl {
   private createRuntime() {
     if (this.closed) throw new ControlError('客户端正在停止。', false, 503);
     const identity: { id?: string } = {};
+    let reconnectingTurn: string | undefined;
+    const clearReconnect = (id: string) => {
+      if (!reconnectingTurn) return;
+      reconnectingTurn = undefined;
+      this.options.onReconnect?.(id, null);
+    };
     let runtime: NativeControl;
     runtime =
       this.dependencies.native && !this.dependencies.launch
@@ -133,6 +140,8 @@ export class NativeDesktopControl implements DesktopControl {
               );
             },
             disconnected: () => {
+              const owner = identity.id && this.runtimes.get(identity.id);
+              if (identity.id && (!owner || owner === runtime)) clearReconnect(identity.id);
               if (identity.id)
                 for (const key of this.fileChanges.keys())
                   if (key.startsWith(`${identity.id}:`)) this.fileChanges.delete(key);
@@ -143,6 +152,35 @@ export class NativeDesktopControl implements DesktopControl {
               }
             },
             notification: (method, params) => {
+              const id = identity.id;
+              if (id && params?.threadId === id && this.runtimes.get(id) === runtime) {
+                const eventTurnId: unknown = params.turnId;
+                if (method === 'error' && typeof eventTurnId === 'string') {
+                  const turn = this.turns.get(id);
+                  if (params.willRetry === true && typeof params.error?.message === 'string' &&
+                      (!turn || (turn.turnId === eventTurnId && turn.running))) {
+                    reconnectingTurn = eventTurnId;
+                    const details = params.error.additionalDetails;
+                    this.options.onReconnect?.(id, {
+                      turnId: eventTurnId,
+                      message: params.error.message.slice(0, 1000),
+                      details: typeof details === 'string' ? details.slice(0, 1000) : undefined,
+                    });
+                  } else if (params.willRetry === false && eventTurnId === reconnectingTurn) {
+                    clearReconnect(id);
+                  }
+                }
+                if (reconnectingTurn && (
+                  (method === 'turn/started' && params.turn?.id !== reconnectingTurn) ||
+                  (method === 'turn/completed' && params.turn?.id === reconnectingTurn) ||
+                  (eventTurnId === reconnectingTurn && (
+                    method === 'item/agentMessage/delta' ||
+                    method === 'item/reasoning/textDelta' ||
+                    method === 'item/reasoning/summaryTextDelta' ||
+                    (method === 'item/started' && ['agentMessage', 'reasoning'].includes(params.item?.type))
+                  ))
+                )) clearReconnect(id);
+              }
               if (method === 'item/started' && params.item?.type === 'fileChange') {
                 this.fileChanges.set(
                   `${params.threadId}:${params.turnId}:${params.item.id}`,

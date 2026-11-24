@@ -70,7 +70,7 @@ export async function currentUser() {
 }
 export async function stream(
   session: string | undefined,
-  onEvent: (event: string) => void,
+  onEvent: (event: string, data: string | undefined) => void,
   signal: AbortSignal,
 ) {
   signal = workspaceSignal('/api/stream', signal)!;
@@ -96,15 +96,13 @@ export async function stream(
       while ((index = pending.indexOf('\n\n')) >= 0) {
         const block = pending.slice(0, index);
         pending = pending.slice(index + 2);
-        const event = block
-          .split('\n')
-          .find((l) => l.startsWith('event: '))
-          ?.slice(7);
+        const lines = block.split('\n');
+        const event = lines.find((line) => line.startsWith('event: '))?.slice(7);
         if (event === 'unauthorized') {
           clearToken();
           return;
         }
-        if (event) onEvent(event);
+        if (event) onEvent(event, lines.find((line) => line.startsWith('data: '))?.slice(6));
       }
     }
   } finally {

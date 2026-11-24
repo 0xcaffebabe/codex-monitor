@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type HTMLAttributes } from 'react';
-import type { OutlineEntry, SessionOutline, SessionPage, User } from '../../types';
+import type { OutlineEntry, SessionOutline, SessionPage, SessionReconnect, User } from '../../types';
 import { groupTimelineEvents } from './session-model';
 
 export type DetailProps = {
@@ -17,6 +17,7 @@ export type DetailProps = {
   onOlder: () => Promise<void>;
   notify: (s: string) => void;
   connected: boolean;
+  reconnect?: SessionReconnect;
 };
 export function useTimeline({
   page,
@@ -25,6 +26,7 @@ export function useTimeline({
   error,
   onOlder,
   notify,
+  reconnect,
 }: DetailProps) {
   const [activeEntry, setActiveEntry] = useState(''),
     [jumpingEntry, setJumpingEntry] = useState(''),
@@ -179,7 +181,7 @@ export function useTimeline({
       });
       return () => cancelAnimationFrame(frame);
     }
-  }, [page, follow, session?.id]);
+  }, [page, follow, session?.id, reconnect]);
   useEffect(() => {
     if (!session || page?.before == null || olderBusy || olderFailed || error) return;
     const frame = requestAnimationFrame(() => {

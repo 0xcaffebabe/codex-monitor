@@ -191,6 +191,7 @@ export function Detail(
               syncing={syncing}
               error={error}
               connected={connected}
+              reconnect={props.reconnect}
               model={model}
               copied={actions.copied}
               onOpenFile={user.role === 'admin' ? openFile : undefined}

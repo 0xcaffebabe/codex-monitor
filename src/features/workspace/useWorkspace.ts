@@ -155,7 +155,7 @@ export function useWorkspace(workspaceId: string, workspaces: ManagedWorkspace[]
     loadOverview();
     if (selected && !navigatingOutline.current) void loadDetail(selected);
   };
-  const connected = useRealtime(selected, refreshDetail, loadOverviews, workspaceId);
+  const { connected, reconnect } = useRealtime(selected, refreshDetail, loadOverviews, workspaceId);
   const select = (id: string) => {
     setAttentionRequest(null);
     setResult({ turn: null, observed: 0 });
@@ -256,6 +256,7 @@ export function useWorkspace(workspaceId: string, workspaces: ManagedWorkspace[]
     listWarningLabels,
     detailError,
     connected,
+    reconnect,
     menu,
     setMenu,
     settings,

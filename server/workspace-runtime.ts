@@ -49,12 +49,14 @@ export function installWorkspaceRuntime(
   installUploads(app, uploads, previews);
   const terminals = new ProjectTerminals(auth, source, services.authorization);
   installTerminalRoutes(app, terminals);
+  const realtime = installRealtime(app, auth, source, config.pollMs);
   const desktop =
     services.control ??
     createDesktopControl({
       codexHome: config.codexHome,
       activity: (id) => source.activity(id),
       onCreated: scope.include,
+      onReconnect: realtime.setReconnect,
       projectPath: config.projectPath,
       permissionDb: auth.db,
     });
@@ -71,7 +73,6 @@ export function installWorkspaceRuntime(
     previews,
   );
   installUsageRoutes(app, usage);
-  const closeRealtime = installRealtime(app, auth, source, config.pollMs);
   const desktopWatchdog = config.desktopAutoStart
     ? new DesktopWatchdog({
         intervalMs: config.desktopCheckMs ?? 15000,
@@ -82,7 +83,7 @@ export function installWorkspaceRuntime(
   const close = () => {
     if (closing) return closing;
     control.close();
-    closeRealtime();
+    realtime.close();
     terminals.close();
     git.close();
     uploads.close();

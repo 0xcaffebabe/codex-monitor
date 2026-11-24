@@ -1,4 +1,5 @@
 import type { Express, Response } from 'express';
+import type { SessionReconnect } from '../src/types.js';
 import type { WorkspaceAuth } from './http/access.js';
 import { validId, type CodexSource } from './source.js';
 
@@ -20,6 +21,7 @@ export function installRealtime(
 ) {
   const clients = new Set<Client>(),
     counts = new Map<string, number>();
+  const reconnects = new Map<string, SessionReconnect>();
   let timer: ReturnType<typeof setInterval> | undefined,
     busy = false,
     closed = false;
@@ -31,6 +33,16 @@ export function installRealtime(
       !response.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)
     )
       response.destroy();
+  };
+  const setReconnect = (threadId: string, reconnect: SessionReconnect | null) => {
+    if (closed || !validId(threadId)) return;
+    if (reconnect) reconnects.set(threadId, reconnect);
+    else if (!reconnects.delete(threadId)) return;
+    if (!source.allowsSession(threadId)) return;
+    for (const client of clients) {
+      if (client.threadId === threadId && auth.authenticate(client.token))
+        send(client, 'turn-reconnect', reconnect);
+    }
   };
   const poll = async () => {
     if (busy || closed || !clients.size) return;
@@ -130,14 +142,18 @@ export function installRealtime(
     });
     res.flushHeaders();
     send(client, 'ready', { at: Date.now() });
+    const reconnect = id && source.allowsSession(id) && reconnects.get(id);
+    if (reconnect) send(client, 'turn-reconnect', reconnect);
     timer ??= setInterval(() => void poll(), pollMs);
     timer.unref();
   });
-  return () => {
+  const close = () => {
     closed = true;
     clearInterval(timer);
     for (const client of clients) client.response.end();
     clients.clear();
     counts.clear();
+    reconnects.clear();
   };
+  return { close, setReconnect };
 }

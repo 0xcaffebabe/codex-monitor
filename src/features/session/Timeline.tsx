@@ -1,4 +1,4 @@
-import { ArrowDown, Clock, Code2, LoaderCircle, MessageSquare } from 'lucide-react';
+import { ArrowDown, Clock, Code2, LoaderCircle, MessageSquare, WifiOff } from 'lucide-react';
 import type { ReactNode } from 'react';
 import type { SessionFileLink } from '../../file-preview-types';
 import { date, time } from '../../shared/format';
@@ -14,11 +14,12 @@ export function Timeline({
   syncing,
   error,
   connected,
+  reconnect,
   model,
   copied,
   onOpenFile,
   children,
-}: Pick<DetailProps, 'page' | 'loading' | 'syncing' | 'error' | 'connected'> & {
+}: Pick<DetailProps, 'page' | 'loading' | 'syncing' | 'error' | 'connected' | 'reconnect'> & {
   model: TimelineModel;
   copied: (text: string) => void;
   onOpenFile?: (itemId: string, file: SessionFileLink) => void;
@@ -37,6 +38,10 @@ export function Timeline({
     session,
     loadOlder,
   } = model;
+  const retryCount = reconnect?.message.match(/^Reconnecting(?:\.{3}|…)?\s+(\d+\/\d+)$/i)?.[1];
+  const retryDetail = typeof reconnect?.details === 'string' && reconnect.details
+    ? reconnect.details
+    : retryCount ? undefined : reconnect?.message;
   return (
     <div className="timeline-reader">
       <div
@@ -103,7 +108,15 @@ export function Timeline({
                   />
                 ) : null,
               )}
-              {session?.status === 'running' && (
+              {reconnect ? (
+                <div className="working-indicator turn-reconnect" role="status">
+                  <WifiOff size={17} aria-hidden="true" />
+                  <div>
+                    <div>Codex 正在重新连接{retryCount && ` ${retryCount}`}</div>
+                    {retryDetail && <div className="turn-reconnect-detail">{retryDetail}</div>}
+                  </div>
+                </div>
+              ) : session?.status === 'running' && (
                 <div className="working-indicator">
                   <span className="assistant-avatar">
                     <Code2 size={17} />

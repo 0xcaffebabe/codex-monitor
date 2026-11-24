@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { stream } from '../../api';
+import type { SessionReconnect } from '../../types';
 
 export function useRealtime(
   selected: string | undefined,
@@ -8,12 +9,18 @@ export function useRealtime(
   workspaceId: string,
 ) {
   const [connected, setConnected] = useState(false);
+  const [retryStatus, setRetryStatus] = useState<{
+    workspaceId: string;
+    sessionId: string;
+    reconnect: SessionReconnect;
+  }>();
   const updateRef = useRef(onUpdate),
     reconcileRef = useRef(onReconcile);
   updateRef.current = onUpdate;
   reconcileRef.current = onReconcile;
   useEffect(() => {
     setConnected(false);
+    setRetryStatus(undefined);
     const controller = new AbortController();
     let retry: ReturnType<typeof setTimeout> | undefined,
       delay = 1000;
@@ -21,7 +28,7 @@ export function useRealtime(
       try {
         await stream(
           selected,
-          (event) => {
+          (event, data) => {
             if (controller.signal.aborted) return;
             if (event === 'ready' || event === 'heartbeat') setConnected(true);
             if (event === 'update') {
@@ -30,12 +37,23 @@ export function useRealtime(
               updateRef.current();
             }
             if (event === 'source-error') setConnected(false);
+            if (event === 'turn-reconnect' && selected && data !== undefined) {
+              try {
+                const reconnect: SessionReconnect | null = JSON.parse(data);
+                if (reconnect === null) setRetryStatus(undefined);
+                else if (typeof reconnect?.turnId === 'string' && typeof reconnect.message === 'string')
+                  setRetryStatus({ workspaceId, sessionId: selected, reconnect });
+              } catch {
+                // Ignore a malformed notification without restarting the stream.
+              }
+            }
           },
           controller.signal,
         );
       } catch {
         if (controller.signal.aborted) return;
         setConnected(false);
+        setRetryStatus(undefined);
         retry = setTimeout(connect, delay);
         delay = Math.min(delay * 2, 30000);
       }
@@ -54,5 +72,8 @@ export function useRealtime(
     return () => clearInterval(t);
   }, []);
 
-  return connected;
+  const reconnect = retryStatus?.workspaceId === workspaceId && retryStatus.sessionId === selected
+    ? retryStatus.reconnect
+    : undefined;
+  return { connected, reconnect };
 }

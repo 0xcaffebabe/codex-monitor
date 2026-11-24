@@ -103,6 +103,11 @@ export interface SessionTurnTiming {
   startedAt: number;
   finishedAt: number | null;
 }
+export interface SessionReconnect {
+  turnId: string;
+  message: string;
+  details?: string;
+}
 export interface PendingSession {
   state: 'syncing';
 }
