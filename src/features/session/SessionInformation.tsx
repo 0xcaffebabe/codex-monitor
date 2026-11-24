@@ -18,6 +18,7 @@ export function SessionInformation({
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const { session } = page;
+  const compactions = page.context?.compactionCount;
   useLayoutEffect(() => {
     const element = dialog.current!;
     element.showModal();
@@ -71,6 +72,10 @@ export function SessionInformation({
         <div>
           <dt>会话 ID</dt>
           <dd className="session-information-path">{session.id}</dd>
+        </div>
+        <div>
+          <dt>上下文压缩</dt>
+          <dd>{compactions == null ? '未知' : `${compactions.toLocaleString('zh-CN')} 次`}</dd>
         </div>
       </dl>
       {page.turnTiming?.finishedAt != null && <SessionTurnTimer timing={page.turnTiming} />}

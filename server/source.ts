@@ -1,5 +1,6 @@
 import { existsSync, statSync } from 'node:fs';
 import type {
+  SessionContext,
   SessionOutline,
   SessionPage,
   SessionTurnTiming,
@@ -121,6 +122,35 @@ export class CodexSource {
     }
     return JSON.stringify([s.updatedAt, s.status, s.title, s.cwd, fingerprint]);
   }
+  private async sessionContext(s: InternalSession): Promise<SessionContext | undefined> {
+    const file = this.rollouts.safeFile(s.file);
+    const context = file ? await contextFromRollout(file).catch(() => undefined) : undefined;
+    const { history, historyColumns } = this.databases;
+    if (!history || s.historyMode === 'legacy') return context;
+    try {
+      const itemType = historyColumns.has('item_type')
+        ? 'item_type'
+        : "json_extract(item_json,'$.type')";
+      const counts = history
+        .prepare(
+          `SELECT count(*) AS total, count(*) FILTER (
+             WHERE completed_at_ms IS NOT NULL AND lower(replace(${itemType},'_','')) IN ('contextcompaction','compaction')
+           ) AS compactions FROM thread_items WHERE thread_id=?`,
+        )
+        .get(s.id)!;
+      if (!counts.total) return context;
+      return {
+        usedTokens: null,
+        limitTokens: null,
+        percent: null,
+        updatedAt: null,
+        ...context,
+        compactionCount: Math.max(context?.compactionCount ?? 0, Number(counts.compactions)),
+      };
+    } catch {
+      return context;
+    }
+  }
   async detail(id: string, before?: number, limit = 70): Promise<SessionPage | null> {
     const s = await this.get(id);
     if (!s) return null;
@@ -229,15 +259,7 @@ export class CodexSource {
         events.some((event) => event.computerUse) ||
         this.computerUseReader.has(s, version),
       warnings: [...new Set(warnings)],
-      context: await (async () => {
-        const file = this.rollouts.safeFile(s.file);
-        if (!file) return undefined;
-        try {
-          return await contextFromRollout(file);
-        } catch {
-          return undefined;
-        }
-      })(),
+      context: await this.sessionContext(s),
     };
   }
   async outline(id: string): Promise<SessionOutline | null> {

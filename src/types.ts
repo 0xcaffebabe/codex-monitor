@@ -112,6 +112,7 @@ export interface PendingSession {
   state: 'syncing';
 }
 export interface SessionContext {
+  compactionCount?: number;
   usedTokens: number | null;
   limitTokens: number | null;
   percent: number | null;

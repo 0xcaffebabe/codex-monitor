@@ -1,8 +1,44 @@
 import { randomUUID } from 'node:crypto';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { appendFile, mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { ids } from '../fixture.js';
 import { expect, localTitle, test } from './monitor.js';
+
+test('session information displays the completed context compaction count', async ({
+  signedIn: { browserPage, session },
+  local,
+}) => {
+  const rollout = path.join(local.data.home, 'sessions', `rollout-${ids.modern}.jsonl`);
+  const compaction = { type: 'contextCompaction', id: 'compact-1' };
+  const insert = local.data.hist.prepare('INSERT INTO thread_items VALUES(?,?,?,?,?,?,?,?)');
+  const startedAt = Date.now();
+  insert.run(
+    ids.modern,
+    'turn-1',
+    compaction.id,
+    100,
+    startedAt,
+    JSON.stringify(compaction),
+    startedAt,
+    null,
+  );
+
+  await session.open(local.id, ids.modern);
+  await session.detail.getByRole('button', { name: '更多会话操作' }).click();
+  await session.detail.getByRole('button', { name: '会话信息', exact: true }).click();
+  const dialog = browserPage.getByRole('dialog', { name: '会话信息' });
+  const compactions = dialog.locator('dl > div').filter({ hasText: '上下文压缩' }).locator('dd');
+  await expect(compactions).toHaveText('0 次');
+
+  local.data.hist
+    .prepare('UPDATE thread_items SET completed_at_ms=? WHERE item_id=?')
+    .run(Date.now(), compaction.id);
+  await appendFile(rollout, JSON.stringify({ type: 'compacted', payload: {} }) + '\n');
+  await expect(compactions).toHaveText('1 次');
+
+  await browserPage.setViewportSize({ width: 390, height: 844 });
+  await expect(compactions).toBeInViewport();
+});
 
 test('viewing or closing a completion marks the session read on its workspace', async ({
   signedIn: { browserPage, session },

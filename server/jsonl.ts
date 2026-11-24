@@ -1,8 +1,12 @@
 import { createReadStream } from 'node:fs';
 
-/** Yield an empty line for oversized records, preserving physical line ordinals. */
-export async function* jsonLines(file: string, maxBytes: number) {
-  const input = createReadStream(file);
+/** Preserve line ordinals by yielding an empty string or a bounded prefix for oversized records. */
+export async function* jsonLines(
+  file: string,
+  maxBytes: number,
+  range?: { start: number; end: number; oversizedPrefixBytes?: number },
+) {
+  const input = createReadStream(file, range);
   let parts: Buffer[] = [],
     size = 0,
     skipping = false;
@@ -10,12 +14,13 @@ export async function* jsonLines(file: string, maxBytes: number) {
     if (skipping) return;
     size += part.length;
     if (size > maxBytes) {
-      parts = [];
-      size = 0;
+      const prefixSize = range?.oversizedPrefixBytes ?? 0;
+      parts = prefixSize ? [Buffer.concat([...parts, part], prefixSize)] : [];
+      size = prefixSize;
       skipping = true;
     } else if (part.length) parts.push(part);
   };
-  const text = () => (skipping ? '' : Buffer.concat(parts, size).toString('utf8'));
+  const text = () => Buffer.concat(parts, size).toString('utf8');
   try {
     for await (const raw of input) {
       const chunk = raw as Buffer;
