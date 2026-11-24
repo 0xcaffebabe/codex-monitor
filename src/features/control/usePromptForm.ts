@@ -128,9 +128,10 @@ export function usePromptForm({
   const attachmentPicker = useAttachmentPicker({
     attachments,
     disabled: !allowAttachments || busy || !!draft.requestId || !enabled,
-    onAdd: (attachment) =>
+    onAdd: (attachment, prompt) =>
       setDraft((previous) => ({
         ...previous,
+        prompt: prompt ? [previous.prompt, prompt].filter(Boolean).join('\n\n') : previous.prompt,
         attachments: [...(previous.attachments ?? []), attachment],
       })),
     onRemove: (id) =>

@@ -8,13 +8,14 @@ import type { Attachment } from './types';
 type AttachmentPickerOptions = {
   attachments: Attachment[];
   disabled: boolean;
-  onAdd: (attachment: Attachment) => void;
+  onAdd: (attachment: Attachment, prompt?: string) => void;
   onRemove: (id: string) => void;
   onBusy: (busy: boolean) => void;
   onError: (error: string) => void;
 };
 
-type PendingFile = File | { name: string; load: (signal: AbortSignal) => Promise<File> };
+type PendingFile =
+  File | { name: string; load: (signal: AbortSignal) => Promise<File>; prompt?: string };
 
 function transferFiles(data: DataTransfer) {
   const files = Array.from(data.files);
@@ -58,7 +59,7 @@ export function useAttachmentPicker({
       onError(message);
       return message;
     };
-    if (working.current && !queue.current.length) {
+    if (working.current && (!queue.current.length || 'load' in queue.current[0])) {
       return fail('正在处理附件，请稍后再试。');
     }
     if (!working.current) reservedCount.current = attachments.length;
@@ -86,8 +87,9 @@ export function useAttachmentPicker({
         signal.throwIfAborted();
         if (file.size > maxBytes) throw new Error('单个附件不能超过 20 MB。');
         setProgress(`正在上传 ${file.name}（剩余 ${queue.current.length} 个）`);
-        onAdd(
-          await api<Attachment>(uploadUrl + '?name=' + encodeURIComponent(file.name), {
+        const attachment = await api<Attachment>(
+          uploadUrl + '?name=' + encodeURIComponent(file.name),
+          {
             method: 'POST',
             signal,
             headers: {
@@ -95,8 +97,10 @@ export function useAttachmentPicker({
               'X-Upload-Type': file.type || 'application/octet-stream',
             },
             body: file,
-          }),
+          },
         );
+        signal.throwIfAborted();
+        onAdd(attachment, 'load' in pending ? pending.prompt : undefined);
         queue.current.shift();
       }
     } catch (error) {
@@ -112,7 +116,8 @@ export function useAttachmentPicker({
     }
   }
   const upload = (files: File[]) => enqueue(files);
-  const reference = (session: WorkspaceSession) => {
+  const reference = (session: WorkspaceSession, prompt?: string) => {
+    if (working.current) return Promise.resolve('正在处理附件，请稍后再试。');
     const name =
       `会话-${session.workspaceName}-${session.title}`
         .replace(/[<>:"/\\|?*\u0000-\u001f\u007f]/g, '_')
@@ -120,6 +125,7 @@ export function useAttachmentPicker({
     return enqueue([
       {
         name: session.title,
+        prompt,
         load: async (signal) => {
           const content = await apiBlob(
             workspaceUrl(

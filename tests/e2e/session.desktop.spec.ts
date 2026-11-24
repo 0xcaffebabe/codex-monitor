@@ -274,6 +274,57 @@ test('new-session tabs preserve workspace drafts and create in the selected proj
   expect(local.control.creates).toBe(0);
 });
 
+test('prepares a new conversation to take over a referenced session', async ({
+  signedIn: { browserPage, newSession },
+  monitor,
+  local,
+}) => {
+  const title = '待接手的会话';
+  const remote = await monitor.addWorkspace('远程工作空间', title);
+  await newSession.open();
+  await expect(newSession.project('work')).toBeChecked();
+  const draft = '请先检查现有改动';
+  await newSession.draft.fill(draft);
+
+  const dialog = browserPage.getByRole('dialog', { name: '引用会话' });
+  const attachments = browserPage.getByRole('list', { name: '待发送附件' });
+  async function openReference() {
+    await browserPage.getByRole('button', { name: '添加内容', exact: true }).click();
+    await browserPage.getByRole('button', { name: '引用会话', exact: true }).click();
+  }
+
+  await openReference();
+  await dialog.getByRole('button', { name: `引用会话 ${title}（远程工作空间）` }).click();
+  await expect(dialog).toBeHidden();
+  await expect(attachments).toContainText(`会话-远程工作空间-${title}.md`);
+  await expect(newSession.draft).toHaveValue(draft);
+  await attachments.getByRole('button', { name: /移除附件/ }).click();
+  await expect(attachments).toHaveCount(0);
+
+  const exportPath = `/api/workspaces/${remote.id}/sessions/${ids.modern}/export`;
+  await browserPage.route(
+    `**${exportPath}`,
+    (route) => route.fulfill({ status: 500, json: { error: '会话导出失败' } }),
+    { times: 1 },
+  );
+  await openReference();
+  const takeover = dialog.getByRole('button', { name: `接手会话 ${title}（远程工作空间）` });
+  await takeover.click();
+  await expect(dialog.getByRole('alert')).toContainText('会话导出失败');
+  await expect(newSession.draft).toHaveValue(draft);
+  await expect(attachments).toHaveCount(0);
+
+  await takeover.click();
+  await expect(dialog).toBeHidden();
+  await expect(newSession.draft).toHaveValue(
+    new RegExp(`^${draft}\\n\\n请阅读附上的旧会话记录.*继续。$`),
+  );
+  await expect(attachments.getByRole('listitem')).toHaveCount(1);
+  await expect(attachments).toContainText(`会话-远程工作空间-${title}.md`);
+  expect(local.control.creates).toBe(0);
+  expect(remote.control.creates).toBe(0);
+});
+
 test('creates a session and waits for one explicit approval before writing the requested file', async ({
   signedIn: { newSession, session },
   local,

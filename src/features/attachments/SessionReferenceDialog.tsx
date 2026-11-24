@@ -6,6 +6,8 @@ import { Status } from '../../shared/ui/Status';
 import { workspaceSessionKey, type WorkspaceSession } from '../workspace/session-list-model';
 import { useSessionReference } from './useSessionReference';
 
+type ReferenceAction = 'reference' | 'takeover';
+
 export function SessionReferenceDialog({
   disabled,
   progress,
@@ -14,7 +16,7 @@ export function SessionReferenceDialog({
 }: {
   disabled: boolean;
   progress: string;
-  onReference: (session: WorkspaceSession) => Promise<string | undefined>;
+  onReference: (session: WorkspaceSession, action: ReferenceAction) => Promise<string | undefined>;
   onClose: () => void;
 }) {
   const model = useSessionReference();
@@ -22,7 +24,7 @@ export function SessionReferenceDialog({
   const search = useRef<HTMLInputElement>(null);
   const mounted = useRef(false);
   const titleId = useId();
-  const [pending, setPending] = useState('');
+  const [pending, setPending] = useState<{ key: string; action: ReferenceAction }>();
   const [error, setError] = useState('');
   const busy = !!pending || !!progress;
   useEffect(() => {
@@ -34,13 +36,13 @@ export function SessionReferenceDialog({
       previous?.focus();
     };
   }, []);
-  async function reference(session: WorkspaceSession) {
+  async function reference(session: WorkspaceSession, action: ReferenceAction) {
     if (busy || disabled) return;
-    setPending(workspaceSessionKey(session));
+    setPending({ key: workspaceSessionKey(session), action });
     setError('');
-    const failure = await onReference(session);
+    const failure = await onReference(session, action);
     if (!mounted.current) return;
-    setPending('');
+    setPending(undefined);
     if (failure) setError(failure);
     else onClose();
   }
@@ -143,42 +145,61 @@ export function SessionReferenceDialog({
             </p>
           ) : (
             <ul aria-label="可引用的会话">
-              {model.sessions.map((session) => (
-                <li key={workspaceSessionKey(session)}>
-                  <button
-                    type="button"
-                    className="session-reference-row"
-                    aria-label={`引用会话 ${session.title}（${session.workspaceName}）`}
-                    disabled={disabled || busy || model.loading}
-                    onClick={() => void reference(session)}
-                  >
-                    {pending === workspaceSessionKey(session) ? (
-                      <LoaderCircle className="spin" size={18} />
-                    ) : (
-                      <MessageSquareQuote size={18} />
-                    )}
-                    <span className="session-reference-info">
-                      <strong title={session.title}>{session.title}</strong>
-                      <span className="session-reference-meta">
-                        <span title={session.workspaceName}>
-                          <Monitor size={12} />
-                          {session.workspaceName}
+              {model.sessions.map((session) => {
+                const key = workspaceSessionKey(session);
+                const pendingAction = pending?.key === key ? pending.action : undefined;
+                const rowDisabled = disabled || busy || model.loading;
+                return (
+                  <li className="session-reference-result" key={key}>
+                    <button
+                      type="button"
+                      className="session-reference-row"
+                      aria-label={`引用会话 ${session.title}（${session.workspaceName}）`}
+                      disabled={rowDisabled}
+                      onClick={() => void reference(session, 'reference')}
+                    >
+                      {pendingAction === 'reference' ? (
+                        <LoaderCircle className="spin" size={18} />
+                      ) : (
+                        <MessageSquareQuote size={18} />
+                      )}
+                      <span className="session-reference-info">
+                        <strong title={session.title}>{session.title}</strong>
+                        <span className="session-reference-meta">
+                          <span title={session.workspaceName}>
+                            <Monitor size={12} />
+                            {session.workspaceName}
+                          </span>
+                          <span title={session.cwd}>
+                            <Folder size={12} />
+                            {session.project}
+                          </span>
+                          {session.archived && <span>已归档</span>}
                         </span>
-                        <span title={session.cwd}>
-                          <Folder size={12} />
-                          {session.project}
-                        </span>
-                        {session.archived && <span>已归档</span>}
+                        <small>{session.preview || session.id}</small>
                       </span>
-                      <small>{session.preview || session.id}</small>
-                    </span>
-                    <span className="session-reference-state">
-                      <Status status={session.status} />
+                    </button>
+                    <div className="session-reference-state">
+                      <div className="session-reference-actions">
+                        <button
+                          type="button"
+                          className="secondary session-reference-takeover"
+                          aria-label={`接手会话 ${session.title}（${session.workspaceName}）`}
+                          disabled={rowDisabled}
+                          onClick={() => void reference(session, 'takeover')}
+                        >
+                          {pendingAction === 'takeover' && (
+                            <LoaderCircle className="spin" size={12} />
+                          )}
+                          接手
+                        </button>
+                        <Status status={session.status} />
+                      </div>
                       <small>{relative(session.updatedAt)}</small>
-                    </span>
-                  </button>
-                </li>
-              ))}
+                    </div>
+                  </li>
+                );
+              })}
             </ul>
           )}
         </div>
