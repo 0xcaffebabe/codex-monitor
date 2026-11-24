@@ -56,6 +56,70 @@ test('the desktop dock stays fixed on usage and opens a running session across w
   await expect(remoteSession).toHaveAttribute('aria-current', 'page');
 });
 
+test('running overview follows and sends messages independently across workspaces', async ({
+  signedIn: { browserPage: page, workspace },
+  local,
+  monitor,
+}) => {
+  const remote = await monitor.addWorkspace('远程全览工作空间', '远程全览任务');
+  const third = await monitor.addWorkspace('第三个全览工作空间', '第三个全览任务');
+  const trigger = page.getByRole('button', { name: '查看运行中的会话' });
+  await expect(trigger).toHaveText('3');
+  await trigger.click();
+  await page.getByRole('button', { name: '全览', exact: true }).click();
+  const overview = page.getByRole('dialog', { name: '任务全览' });
+  const localPane = overview.getByRole('region', { name: `本机工作空间 · ${localTitle}` });
+  const remotePane = overview.getByRole('region', { name: '远程全览工作空间 · 远程全览任务' });
+  const thirdPane = overview.getByRole('region', { name: '第三个全览工作空间 · 第三个全览任务' });
+  await expect(overview.getByRole('region', { name: '会话输出' })).toHaveCount(3);
+  await expect(remotePane.locator('.overview-message').first()).toBeVisible();
+  const localInput = localPane.getByRole('textbox');
+  const remoteInput = remotePane.getByRole('textbox');
+
+  await localInput.fill('本机分屏草稿');
+  await remoteInput.fill('远程分屏草稿');
+  local.data.append('来自本机的实时进展');
+  remote.data.hist.prepare('INSERT INTO thread_realtime_items VALUES(?,?,?,?,?)').run(
+    ids.modern,
+    'overview-realtime-progress',
+    100,
+    Date.now(),
+    JSON.stringify({ type: 'agentMessage', text: '来自远程的实时进展', phase: 'commentary' }),
+  );
+  await expect(localPane.getByText('来自本机的实时进展')).toBeVisible();
+  await expect(remotePane.getByText('来自远程的实时进展')).toBeVisible();
+  await expect(localInput).toHaveValue('本机分屏草稿');
+  await expect(remoteInput).toHaveValue('远程分屏草稿');
+
+  await remotePane.getByRole('button', { name: '放大此会话' }).click();
+  await expect(localPane).toBeHidden();
+  await expect(remoteInput).toHaveValue('远程分屏草稿');
+  await page.keyboard.press('Escape');
+  await expect(localInput).toHaveValue('本机分屏草稿');
+
+  await page.setViewportSize({ width: 800, height: 500 });
+  await expect(overview.getByRole('region', { name: '会话输出' })).toHaveCount(2);
+  await overview.getByRole('button', { name: '下一页' }).click();
+  await expect(overview.getByRole('region', { name: '会话输出' })).toHaveCount(1);
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await expect(thirdPane).toBeVisible();
+  await expect(localInput).toHaveValue('本机分屏草稿');
+  await expect(remoteInput).toHaveValue('远程分屏草稿');
+
+  await localPane.getByRole('button', { name: '追加消息' }).click();
+  await remotePane.getByRole('button', { name: '追加消息' }).click();
+  await expect(localPane.getByText('测试回复：本机分屏草稿')).toBeVisible();
+  await expect(remotePane.getByText('测试回复：远程分屏草稿')).toBeVisible();
+  expect(local.control.sends).toBe(1);
+  expect(remote.control.sends).toBe(1);
+  expect(third.control.sends).toBe(0);
+  await expect(workspace.workspaceSelector).toHaveValue(local.id);
+
+  await page.keyboard.press('Escape');
+  await expect(overview).toBeHidden();
+  await expect(trigger).toBeFocused();
+});
+
 test('a slow workspace leaves other session lists visible and refreshing', async ({
   app: { browserPage: page, account, workspace },
   monitor,

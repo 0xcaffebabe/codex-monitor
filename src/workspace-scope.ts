@@ -25,8 +25,8 @@ export function workspaceSignal(url: string, signal?: AbortSignal | null) {
   if (!scopedRoute.test(url)) return signal ?? undefined;
   return signal ? AbortSignal.any([signal, requests.signal]) : requests.signal;
 }
-export function workspaceStorageKey(key: string) {
-  return active && active !== 'local' ? `codex-monitor.workspace.${active}.${key}` : key;
+export function workspaceStorageKey(key: string, id = active) {
+  return id && id !== 'local' ? `codex-monitor.workspace.${id}.${key}` : key;
 }
 export function subscribeNavigation(listener: () => void) {
   if (!navigationListeners.size) {

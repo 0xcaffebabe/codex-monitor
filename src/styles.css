@@ -40,4 +40,5 @@
 @import './styles/attention.css';
 @import './styles/session-header.css';
 @import './styles/task-dock.css';
+@import './styles/running-overview.css';
 @import './styles/completion-notifications.css';

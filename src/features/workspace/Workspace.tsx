@@ -302,6 +302,7 @@ export function Workspace(
       </main>
       <TaskDock
         mobile={mobile}
+        user={user}
         groups={props.attention.groups}
         workspaceId={props.workspaceId}
         selected={selected}

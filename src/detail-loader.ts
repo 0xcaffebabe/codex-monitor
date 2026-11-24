@@ -1,5 +1,6 @@
 import { api } from './api';
 import type { PendingSession, SessionPage } from './types';
+import { workspaceUrl } from './workspace-scope';
 
 type Job = {
   id: string;
@@ -24,6 +25,7 @@ export class DetailLoader {
       onSettled: (id: string) => void;
       onPending?: (id: string) => void;
     },
+    private workspaceId?: string,
   ) {}
 
   load(id: string, older = false, before?: number, limit = 70): Promise<void> {
@@ -81,9 +83,10 @@ export class DetailLoader {
       const params = new URLSearchParams();
       if (job.before !== undefined) params.set('before', String(job.before));
       if (job.limit !== 70) params.set('limit', String(job.limit));
+      const route = `/api/sessions/${encodeURIComponent(job.id)}${params.size ? '?' + params : ''}`;
       while (this.active === job && !job.controller.signal.aborted) {
         const page = await api<SessionPage | PendingSession>(
-          `/api/sessions/${encodeURIComponent(job.id)}${params.size ? '?' + params : ''}`,
+          this.workspaceId ? workspaceUrl(route, this.workspaceId) : route,
           { signal: job.controller.signal },
         );
         if (this.active !== job || job.controller.signal.aborted) break;

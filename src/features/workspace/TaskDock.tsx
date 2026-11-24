@@ -1,11 +1,14 @@
-import { ChevronRight, Layers3, ListTodo, Radio, X } from 'lucide-react';
+import { ChevronRight, LayoutGrid, Layers3, ListTodo, Radio, X } from 'lucide-react';
 import { useLayoutEffect, useRef, useState } from 'react';
 import { cx, relative } from '../../shared/format';
 import { navigateWorkspace } from '../../workspace-scope';
 import type { AttentionWorkspace } from '../attention/useAttention';
+import type { User } from '../../types';
+import { RunningOverview } from './RunningOverview';
 
 export function TaskDock({
   mobile,
+  user,
   groups,
   workspaceId,
   selected,
@@ -15,6 +18,7 @@ export function TaskDock({
   sessions,
 }: {
   mobile: boolean;
+  user: User;
   groups: AttentionWorkspace[];
   workspaceId: string;
   selected?: string;
@@ -23,7 +27,9 @@ export function TaskDock({
   onSessions: () => void;
   sessions: boolean;
 }) {
-  const [opened, setOpened] = useState(false);
+  const [view, setView] = useState<'list' | 'overview'>();
+  const opened = view !== undefined;
+  const overview = view === 'overview';
   const trigger = useRef<HTMLButtonElement>(null);
   const dialog = useRef<HTMLDialogElement>(null);
   const running = groups
@@ -42,8 +48,11 @@ export function TaskDock({
   const close = () => {
     dialog.current?.close();
     trigger.current?.focus({ preventScroll: true });
-    setOpened(false);
+    setView(undefined);
   };
+  useLayoutEffect(() => {
+    if (mobile && overview) close();
+  }, [mobile, overview]);
   useLayoutEffect(() => {
     if (!opened || !dialog.current) return;
     const element = dialog.current;
@@ -96,7 +105,7 @@ export function TaskDock({
           aria-expanded={opened}
           aria-controls={opened ? 'running-sessions' : undefined}
           title={mobile ? undefined : '运行中的会话'}
-          onClick={() => setOpened(true)}
+          onClick={() => setView('list')}
         >
           <Radio size={18} aria-hidden="true" />
           {mobile && '运行中'}
@@ -106,9 +115,9 @@ export function TaskDock({
       {opened && (
         <dialog
           ref={dialog}
-          className="running-sessions-dialog"
+          className={overview ? 'running-overview-dialog' : 'running-sessions-dialog'}
           id="running-sessions"
-          aria-labelledby="running-sessions-heading"
+          aria-labelledby={overview ? 'running-overview-heading' : 'running-sessions-heading'}
           onCancel={(event) => {
             event.preventDefault();
             close();
@@ -117,46 +126,75 @@ export function TaskDock({
             if (event.target === event.currentTarget) close();
           }}
         >
-          <div className="running-sessions-inner">
-            <header>
-              <h2 id="running-sessions-heading">运行中的会话</h2>
-              <span>全部工作空间</span>
-              {!mobile && closeButton}
-            </header>
-            <div className="running-sessions-list">
-              {unavailable.length > 0 && <p role="status">未同步：{unavailable.join('、')}</p>}
-              {!running.length && <p>已同步的工作空间中暂无运行中的会话。</p>}
-              {running.map(({ workspace, session }) => {
-                const current = workspace.id === workspaceId && session.id === selected;
-                return (
+          {overview ? (
+            <RunningOverview
+              user={user}
+              running={running}
+              groups={groups}
+              unavailable={unavailable}
+              onClose={close}
+              onOpenSession={(taskWorkspaceId, sessionId) => {
+                close();
+                if (workspaceId !== taskWorkspaceId || selected !== sessionId)
+                  navigateWorkspace(
+                    taskWorkspaceId,
+                    sessionId,
+                    new URLSearchParams({ view: 'all' }),
+                  );
+              }}
+            />
+          ) : (
+            <div className="running-sessions-inner">
+              <header>
+                <h2 id="running-sessions-heading">运行中的会话</h2>
+                <span>全部工作空间</span>
+                {!mobile && (
                   <button
                     type="button"
-                    key={`${workspace.id}:${session.id}`}
-                    className={cx(current && 'active')}
-                    aria-current={current ? 'page' : undefined}
-                    onClick={() => {
-                      close();
-                      if (!current)
-                        navigateWorkspace(
-                          workspace.id,
-                          session.id,
-                          new URLSearchParams({ view: 'all' }),
-                        );
-                    }}
+                    className="running-overview-trigger"
+                    onClick={() => setView('overview')}
                   >
-                    <div>
-                      <strong>{session.title || '未命名会话'}</strong>
-                      <small>
-                        {workspace.name} · {session.project} · {relative(session.updatedAt)}
-                      </small>
-                    </div>
-                    <ChevronRight size={16} aria-hidden="true" />
+                    <LayoutGrid size={15} aria-hidden="true" />
+                    全览
                   </button>
-                );
-              })}
+                )}
+                {!mobile && closeButton}
+              </header>
+              <div className="running-sessions-list">
+                {unavailable.length > 0 && <p role="status">未同步：{unavailable.join('、')}</p>}
+                {!running.length && <p>已同步的工作空间中暂无运行中的会话。</p>}
+                {running.map(({ workspace, session }) => {
+                  const current = workspace.id === workspaceId && session.id === selected;
+                  return (
+                    <button
+                      type="button"
+                      key={`${workspace.id}:${session.id}`}
+                      className={cx(current && 'active')}
+                      aria-current={current ? 'page' : undefined}
+                      onClick={() => {
+                        close();
+                        if (!current)
+                          navigateWorkspace(
+                            workspace.id,
+                            session.id,
+                            new URLSearchParams({ view: 'all' }),
+                          );
+                      }}
+                    >
+                      <div>
+                        <strong>{session.title || '未命名会话'}</strong>
+                        <small>
+                          {workspace.name} · {session.project} · {relative(session.updatedAt)}
+                        </small>
+                      </div>
+                      <ChevronRight size={16} aria-hidden="true" />
+                    </button>
+                  );
+                })}
+              </div>
+              {mobile && <footer>{closeButton}</footer>}
             </div>
-            {mobile && <footer>{closeButton}</footer>}
-          </div>
+          )}
         </dialog>
       )}
     </>

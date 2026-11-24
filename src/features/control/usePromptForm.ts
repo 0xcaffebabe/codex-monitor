@@ -4,12 +4,13 @@ import { useAttachmentPicker } from '../attachments/useAttachmentPicker';
 import { newRequestId } from './request-id';
 import type { Draft, Receipt } from './types';
 import type { ComposerAction, PromptShortcut } from './prompt-shortcuts';
-import { workspaceStorageKey } from '../../workspace-scope';
+import { workspaceStorageKey, workspaceUrl } from '../../workspace-scope';
 import { appendProjectFilePaths } from '../attachments/project-file-model';
 import { sessionPermissionModes, type SessionPermissionMode } from '../../approval-types';
 
 export type PromptFormProps = {
   storageKey: string;
+  workspaceId?: string;
   url: string;
   extra?: object;
   label: string;
@@ -39,6 +40,7 @@ export type PromptFormProps = {
 };
 export function usePromptForm({
   storageKey: unscopedKey,
+  workspaceId,
   url,
   extra,
   enabled,
@@ -52,7 +54,9 @@ export function usePromptForm({
   allowPermissionChanges,
   maxLength = 12000,
 }: PromptFormProps) {
-  const storageKey = workspaceStorageKey(unscopedKey);
+  const storageKey = workspaceStorageKey(unscopedKey, workspaceId);
+  const scopeUrl = (route: string) => workspaceId ? workspaceUrl(route, workspaceId) : route;
+  const receiptUrl = (id: string) => scopeUrl('/api/control/requests/' + encodeURIComponent(id));
   const [draft, setDraft] = useState<Draft>(() => {
     try {
       const stored = sessionStorage.getItem(storageKey);
@@ -262,7 +266,7 @@ export function usePromptForm({
     setDraft(payload);
     try {
       accept(
-        await post<Receipt>(url, {
+        await post<Receipt>(scopeUrl(url), {
           ...extra,
           prompt: payload.prompt,
           requestId: payload.requestId,
@@ -288,7 +292,7 @@ export function usePromptForm({
     if (!draft.requestId || busy) return;
     setBusy(true);
     try {
-      accept(await api<Receipt>('/api/control/requests/' + draft.requestId));
+      accept(await api<Receipt>(receiptUrl(draft.requestId)));
     } catch (error) {
       if (error instanceof ApiError && error.status === 404) {
         if (draft.creation?.threadId) setError('找不到创建回执，请打开已创建会话核对目标。');
@@ -307,7 +311,7 @@ export function usePromptForm({
     setBusy(true);
     setError('');
     try {
-      accept(await post<Receipt>(`/api/control/requests/${draft.requestId}/goal`));
+      accept(await post<Receipt>(receiptUrl(draft.requestId) + '/goal'));
     } catch (error) {
       setError((error as Error).message);
     } finally {
@@ -341,7 +345,7 @@ export function usePromptForm({
       timer: ReturnType<typeof setTimeout>;
     const poll = async () => {
       try {
-        const result = await api<Receipt>('/api/control/requests/' + requestId, {
+        const result = await api<Receipt>(receiptUrl(requestId), {
           signal: controller.signal,
         });
         if (!stopped && currentRequest.current === requestId) accept(result);
@@ -362,12 +366,12 @@ export function usePromptForm({
       clearTimeout(timer);
       controller.abort();
     };
-  }, [draft.requestId, draft.queued]);
+  }, [draft.requestId, draft.queued, workspaceId]);
   async function cancelQueued() {
     if (!draft.requestId || busy) return;
     setBusy(true);
     try {
-      accept(await post<Receipt>(`/api/control/requests/${draft.requestId}/cancel`));
+      accept(await post<Receipt>(receiptUrl(draft.requestId) + '/cancel'));
     } catch (error) {
       setError((error as Error).message);
     } finally {
