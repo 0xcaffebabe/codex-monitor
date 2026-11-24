@@ -51,6 +51,18 @@ export function TaskDock({
     return () => element.close();
   }, [opened]);
 
+  const closeButton = (
+    <button
+      autoFocus
+      className="icon-button running-sessions-close"
+      type="button"
+      title="关闭运行中列表"
+      onClick={close}
+    >
+      <X size={20} />
+    </button>
+  );
+
   return (
     <>
       <nav
@@ -109,6 +121,7 @@ export function TaskDock({
             <header>
               <h2 id="running-sessions-heading">运行中的会话</h2>
               <span>全部工作空间</span>
+              {!mobile && closeButton}
             </header>
             <div className="running-sessions-list">
               {unavailable.length > 0 && <p role="status">未同步：{unavailable.join('、')}</p>}
@@ -142,17 +155,7 @@ export function TaskDock({
                 );
               })}
             </div>
-            <footer>
-              <button
-                autoFocus
-                className="icon-button"
-                type="button"
-                title="关闭运行中列表"
-                onClick={close}
-              >
-                <X size={20} />
-              </button>
-            </footer>
+            {mobile && <footer>{closeButton}</footer>}
           </div>
         </dialog>
       )}

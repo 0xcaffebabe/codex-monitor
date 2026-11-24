@@ -30,9 +30,20 @@ test('the desktop dock stays fixed on usage and opens a running session across w
   await expect(dialog.getByRole('button', { name: new RegExp(localTitle) })).toBeVisible();
   const dialogBounds = (await dialog.boundingBox())!;
   expect(dialogBounds.x + dialogBounds.width).toBeLessThan(bounds.x);
+  const close = dialog.getByRole('button', { name: '关闭运行中列表' });
+  const closeBounds = (await close.boundingBox())!;
+  expect(closeBounds.y - dialogBounds.y).toBeLessThanOrEqual(10);
+  expect(
+    dialogBounds.x + dialogBounds.width - closeBounds.x - closeBounds.width,
+  ).toBeLessThanOrEqual(16);
   const remoteSession = dialog.getByRole('button', { name: new RegExp(remoteTitle) });
   await expect(remoteSession).toContainText(remoteName);
   await page.keyboard.press('Escape');
+  await expect(dialog).toBeHidden();
+  await expect(trigger).toBeFocused();
+
+  await trigger.click();
+  await close.click();
   await expect(dialog).toBeHidden();
   await expect(trigger).toBeFocused();
 

@@ -94,7 +94,7 @@
   justify-content: flex-end;
   padding-block: 0;
 }
-.running-sessions-inner > footer > button {
+.running-sessions-close {
   width: 44px;
   height: 44px;
 }
@@ -137,6 +137,13 @@
   }
   .running-sessions-dialog::backdrop {
     background: #0002;
+  }
+  .running-sessions-inner > header {
+    padding-block: 0;
+    padding-inline-end: 8px;
+  }
+  .running-sessions-inner > header span {
+    margin-inline-start: auto;
   }
 }
 
