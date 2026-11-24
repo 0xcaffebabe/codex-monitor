@@ -68,6 +68,32 @@ test('a touch viewport can open a session and return to the list without horizon
   await expect(workspace.sessionRow(localTitle)).toBeVisible();
 });
 
+test('the mobile session header keeps desktop ownership and the timer on one line', async ({
+  signedIn: { browserPage, session, workspace },
+}) => {
+  await workspace.tapSession(localTitle);
+  const header = session.detail.locator('.detail-header');
+  const meta = header.locator('.detail-heading-meta');
+  const owner = meta.getByRole('img', { name: 'Codex 桌面端持有' });
+  const project = meta.getByText('project', { exact: true });
+  const status = meta.getByText('进行中', { exact: true });
+  const timer = meta.getByRole('timer');
+  await expect(owner).toBeVisible();
+  await expect(owner).toBeEmpty();
+  await expect(timer).toBeVisible();
+  const compactHeight = (await header.boundingBox())!.height;
+
+  for (const width of [320, 390, 440]) {
+    await browserPage.setViewportSize({ width, height: 844 });
+    expect((await header.boundingBox())!.height).toBe(compactHeight);
+    const metaBox = (await meta.boundingBox())!;
+    const timerBox = (await timer.boundingBox())!;
+    expect(metaBox.height).toBe((await status.boundingBox())!.height);
+    expect(timerBox.x + timerBox.width).toBeLessThanOrEqual(metaBox.x + metaBox.width + 1);
+    await expect(project).toBeVisible();
+  }
+});
+
 test('branch switching is available from the new session composer and existing session menu on mobile', async ({
   signedIn: { browserPage, newSession, session },
   local,

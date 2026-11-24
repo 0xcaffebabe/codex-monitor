@@ -26,6 +26,7 @@ export function DetailHeader({
   onGitDiff,
   onBranches,
   taskWatch,
+  mobile,
   mobileOutline,
   workspaceName,
   desktopOwned,
@@ -37,13 +38,17 @@ export function DetailHeader({
   onGitDiff?: () => void;
   onBranches?: () => void;
   taskWatch?: { watched: boolean; busy: boolean; toggle: () => void };
+  mobile: boolean;
   mobileOutline?: ReactNode;
   workspaceName?: string;
   desktopOwned?: boolean;
   creating?: boolean;
 }) {
   const [showInfo, setShowInfo] = useState(false);
-  const location = [workspaceName, session?.project].filter(Boolean).join(' · ');
+  const location = mobile
+    ? session?.project || workspaceName
+    : [workspaceName, session?.project].filter(Boolean).join(' · ');
+  const desktopOwnerLabel = 'Codex 桌面端持有';
 
   return (
     <header className="detail-header">
@@ -62,9 +67,14 @@ export function DetailHeader({
                 </span>
               )}
               {desktopOwned && (
-                <span className="detail-desktop-owner">
+                <span
+                  className="detail-desktop-owner"
+                  role={mobile ? 'img' : undefined}
+                  aria-label={mobile ? desktopOwnerLabel : undefined}
+                  title={mobile ? desktopOwnerLabel : undefined}
+                >
                   <Monitor size={13} aria-hidden="true" />
-                  Codex 桌面端持有
+                  {!mobile && desktopOwnerLabel}
                 </span>
               )}
               {page?.turnTiming?.finishedAt === null && (

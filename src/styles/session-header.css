@@ -180,16 +180,12 @@
   .detail-heading h1 {
     font-size: 1.0625rem;
   }
+  .detail-actions {
+    gap: 0;
+    margin-inline-end: -8px;
+  }
   .detail-heading-meta {
     gap: 5px;
-  }
-  .detail-desktop-owner {
-    flex-shrink: 1;
-    min-width: 0;
-    white-space: normal;
-  }
-  .detail-desktop-owner svg {
-    flex-shrink: 0;
   }
   .detail-heading-row > .back-button {
     margin-left: -8px;

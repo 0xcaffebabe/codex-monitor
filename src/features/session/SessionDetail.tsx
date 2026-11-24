@@ -81,6 +81,7 @@ export function Detail(
         creating={!!newSession}
         page={page}
         onBack={onBack}
+        mobile={mobile}
         workspaceName={props.workspaceName}
         session={session}
         desktopOwned={control.state?.owner === 'desktop'}

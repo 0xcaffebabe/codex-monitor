@@ -48,7 +48,8 @@ test('the session header and composer follow desktop ownership after a turn comp
   await expect(meta).toContainText('已完成');
   await expect(owner).toBeVisible();
   await browserPage.setViewportSize({ width: 390, height: 844 });
-  await expect(owner).toBeInViewport();
+  const ownerIcon = meta.getByRole('img', { name: 'Codex 桌面端持有' });
+  await expect(ownerIcon).toBeInViewport();
   await session.detail.getByRole('button', { name: '发送设置', exact: true }).click();
   const desktopChannel = session.detail.getByRole('checkbox', { name: '桌面通道', exact: true });
   await expect(desktopChannel).toBeVisible();
@@ -57,7 +58,7 @@ test('the session header and composer follow desktop ownership after a turn comp
 
   local.control.owner = 'monitor';
   await browserPage.clock.fastForward(10000);
-  await expect(owner).toHaveCount(0);
+  await expect(ownerIcon).toHaveCount(0);
   await expect(desktopChannel).not.toBeChecked();
   await expect(desktopChannel).toBeEnabled();
   await desktopChannel.check();
