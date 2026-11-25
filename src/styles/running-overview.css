@@ -257,7 +257,7 @@
 
 .running-overview-composer .prompt-form {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   gap: 4px 6px;
   align-items: start;
 }
@@ -302,11 +302,14 @@
 
 .running-overview-composer .control-error,
 .running-overview-composer .control-notice,
-.running-overview-composer .has-receipt .prompt-label,
 .running-overview-composer .has-receipt .prompt-actions {
   grid-column: 1 / -1;
   margin: 0;
   overflow-wrap: anywhere;
+}
+
+.running-overview-composer .has-receipt .prompt-label {
+  grid-column: 2 / -1;
 }
 
 .running-overview-composer .has-receipt .prompt-actions {

@@ -163,10 +163,15 @@ test('the overview composer floats over the remote pane and retains its draft an
   const overview = page.getByRole('dialog', { name: '任务全览' });
   const pane = overview.getByRole('region', { name: '远程编辑工作空间 · 远程编辑任务' });
   const expand = pane.getByRole('button', { name: '展开消息编辑器' });
+  const compactInput = pane.getByRole('textbox');
   const composer = page.getByRole('dialog', { name: '远程编辑工作空间 · 远程编辑任务' });
   const input = composer.getByRole('textbox', { name: '发送给 Codex 的消息' });
   await expect(pane.getByRole('button', { name: '快捷操作' })).toHaveCount(0);
-  await pane.getByRole('textbox').fill('远程编辑草稿');
+  await compactInput.fill('远程编辑草稿');
+  const expandBounds = (await expand.boundingBox())!;
+  const compactInputBounds = (await compactInput.boundingBox())!;
+  expect(expandBounds.x + expandBounds.width).toBeLessThan(compactInputBounds.x);
+  expect(expandBounds.y).toBeCloseTo(compactInputBounds.y, 0);
   await expand.click();
   await expect(input).toHaveValue('远程编辑草稿');
   await expect(input).toBeFocused();

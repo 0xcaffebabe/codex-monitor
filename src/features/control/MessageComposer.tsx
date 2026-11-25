@@ -130,23 +130,22 @@ function SessionMessageComposer(props: ComposerProps) {
         form={form}
         allowAttachments={false}
         inputLabel={overview.inputLabel}
-        submitActions={
-          <button
-            ref={expandButton}
-            type="button"
-            className="icon-button overview-compose-expand"
-            aria-label="展开消息编辑器"
-            aria-description={expandedSettings || undefined}
-            aria-haspopup="dialog"
-            aria-expanded={expanded}
-            title={expandedSettings ? `展开消息编辑器（${expandedSettings}）` : '展开消息编辑器'}
-            onClick={() => setExpanded(true)}
-          >
-            <Pencil size={16} aria-hidden="true" />
-            {expandedSettings && <span className="composer-tool-dot" />}
-          </button>
-        }
-      />
+      >
+        <button
+          ref={expandButton}
+          type="button"
+          className="icon-button overview-compose-expand"
+          aria-label="展开消息编辑器"
+          aria-description={expandedSettings || undefined}
+          aria-haspopup="dialog"
+          aria-expanded={expanded}
+          title={expandedSettings ? `展开消息编辑器（${expandedSettings}）` : '展开消息编辑器'}
+          onClick={() => setExpanded(true)}
+        >
+          <Pencil size={16} aria-hidden="true" />
+          {expandedSettings && <span className="composer-tool-dot" />}
+        </button>
+      </PromptFormFields>
     </div>
   );
 
