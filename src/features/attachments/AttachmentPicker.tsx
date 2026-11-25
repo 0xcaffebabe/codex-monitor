@@ -6,7 +6,7 @@ import { ProjectFilePicker, type ProjectFileOptions } from './ProjectFilePicker'
 import { Thumbnail } from './Thumbnail';
 import type { Attachment } from './types';
 import type { useAttachmentPicker } from './useAttachmentPicker';
-import { SessionReferenceDialog } from './SessionReferenceDialog';
+import { SessionPickerDialog } from '../workspace/SessionPickerDialog';
 
 const takeoverPrompt =
   '请阅读附上的旧会话记录并接手当前任务。沿用旧会话中已确认的目标、约束和决定，核对已经完成的工作，然后从尚未完成的地方继续。';
@@ -130,7 +130,8 @@ export function AttachmentPicker({
         </p>
       )}
       {referencing && (
-        <SessionReferenceDialog
+        <SessionPickerDialog
+          mode="reference"
           portalContainer={input.current?.closest('dialog') ?? undefined}
           disabled={disabled || attachments.length >= maxAttachments}
           progress={progress}

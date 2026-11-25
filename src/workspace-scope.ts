@@ -2,6 +2,7 @@ let active = '';
 let requests = new AbortController();
 const scopedRoute = /^\/api\/(?:overview|sessions|control|uploads|usage|stream)(?:[/?]|$)/;
 const navigationEvent = 'monitor:navigate';
+const overviewPath = '/overview';
 const navigationListeners = new Set<() => void>();
 export const currentWorkspace = () => active;
 const notifyNavigation = () => {
@@ -42,6 +43,24 @@ export function subscribeNavigation(listener: () => void) {
     }
   };
 }
+export const isOverviewRoute = () => location.pathname === overviewPath;
+
+export function openOverview() {
+  if (isOverviewRoute()) return;
+  history.pushState({ openedFromWorkspace: true }, '', overviewPath + location.search);
+  window.dispatchEvent(new Event(navigationEvent));
+}
+
+export function closeOverview() {
+  if (!isOverviewRoute()) return;
+  if (history.state?.openedFromWorkspace === true) {
+    history.back();
+    return;
+  }
+  history.replaceState(null, '', '/' + location.search);
+  window.dispatchEvent(new Event(navigationEvent));
+}
+
 export function navigateWorkspace(id: string, sessionId?: string, search?: URLSearchParams) {
   const params = new URLSearchParams(search);
   params.set('workspace', id);
@@ -49,7 +68,7 @@ export function navigateWorkspace(id: string, sessionId?: string, search?: URLSe
     params.set('session', sessionId);
     if (params.get('view') === 'new') params.delete('view');
   } else params.delete('session');
-  const url = location.pathname + '?' + params.toString();
+  const url = (isOverviewRoute() ? '/' : location.pathname) + '?' + params.toString();
   if (url !== location.pathname + location.search) history.pushState(null, '', url);
   window.dispatchEvent(new Event(navigationEvent));
 }

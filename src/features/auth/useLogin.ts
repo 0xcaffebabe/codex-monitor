@@ -15,7 +15,8 @@ export function useLogin({ configured, onLogin, notice }: LoginProps) {
     [error, setError] = useState(notice),
     [busy, setBusy] = useState(false);
   useEffect(() => {
-    if (location.hash.startsWith('#setup=')) history.replaceState(null, '', location.pathname);
+    if (location.hash.startsWith('#setup='))
+      history.replaceState(history.state, '', location.pathname + location.search);
   }, []);
   async function submit(e: React.FormEvent) {
     e.preventDefault();

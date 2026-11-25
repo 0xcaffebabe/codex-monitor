@@ -57,6 +57,52 @@ test('the desktop dock stays fixed on usage and opens a running session across w
   await expect(remoteSession).toHaveAttribute('aria-current', 'page');
 });
 
+test('the overview URL survives reload and follows browser navigation', async ({
+  signedIn: { browserPage: page, usage },
+  context,
+}) => {
+  await usage.open();
+  await expect(page.locator('.usage-dashboard')).toBeVisible();
+  const dashboardUrl = page.url();
+  const trigger = page.getByRole('button', { name: '查看运行中的会话' });
+  const overview = page.getByRole('dialog', { name: '任务全览' });
+  const pane = overview.getByRole('region', { name: `本机工作空间 · ${localTitle}` });
+  await trigger.click();
+  await page.getByRole('button', { name: '全览', exact: true }).click();
+  await expect(page).toHaveURL(/\/overview\?/);
+  await expect(pane).toBeVisible();
+
+  await page.reload();
+  await expect(page).toHaveURL(/\/overview\?/);
+  await expect(pane).toBeVisible();
+  await page.goBack();
+  await expect(page).toHaveURL(dashboardUrl);
+  await expect(overview).toBeHidden();
+  await expect(page.locator('.usage-dashboard')).toBeVisible();
+  await page.goForward();
+  await expect(pane).toBeVisible();
+  await overview.getByRole('button', { name: '退出全览' }).click();
+  await expect(page).toHaveURL(dashboardUrl);
+
+  const direct = await context.newPage();
+  await direct.setViewportSize({ width: 390, height: 844 });
+  await direct.goto(new URL('/overview', page.url()).href);
+  const directOverview = direct.getByRole('dialog', { name: '任务全览' });
+  const directPane = directOverview.getByRole('region', { name: `本机工作空间 · ${localTitle}` });
+  await expect(directPane).toBeVisible();
+  await direct.reload();
+  await expect(directPane).toBeVisible();
+  await directPane.getByRole('button', { name: '打开会话详情' }).click();
+  await expect(direct).toHaveURL(/\/\?[^#]*session=/);
+  await expect(directOverview).toBeHidden();
+  await expect(direct.getByRole('heading', { name: localTitle, exact: true })).toBeVisible();
+  await direct.goBack();
+  await expect(directPane).toBeVisible();
+  await directOverview.getByRole('button', { name: '退出全览' }).click();
+  await expect(direct).toHaveURL(/\/\?workspace=/);
+  await expect(directOverview).toBeHidden();
+});
+
 test('running overview follows and sends messages independently across workspaces', async ({
   signedIn: { browserPage: page, workspace },
   local,
@@ -208,6 +254,60 @@ test('creating from the overview adds a remote session pane even before attentio
   expect(local.control.creates).toBe(0);
   await pane.getByRole('button', { name: '打开会话详情' }).click();
   await expect(workspace.workspaceSelector).toHaveValue(remote.id);
+});
+
+test('the overview continues an existing remote session without adding duplicate panes', async ({
+  signedIn: { browserPage: page, workspace },
+  monitor,
+  local,
+}) => {
+  const remoteName = '远程历史工作空间';
+  const title = '远程历史开发任务';
+  const remote = await monitor.addWorkspace(remoteName, title);
+  remote.data.hist
+    .prepare("UPDATE thread_turns SET status='completed',completed_at=? WHERE thread_id=?")
+    .run(Math.floor(Date.now() / 1000), ids.modern);
+
+  await page.getByRole('button', { name: '查看运行中的会话' }).click();
+  await page.getByRole('button', { name: '全览', exact: true }).click();
+  const overview = page.getByRole('dialog', { name: '任务全览' });
+  const open = overview.getByRole('button', { name: '继续历史会话', exact: true });
+  const picker = overview.getByRole('dialog', { name: '继续历史会话' });
+  const search = picker.getByRole('textbox', { name: '搜索历史会话' });
+  const row = picker.getByRole('button', { name: `继续会话 ${title}（${remoteName}）` });
+  const pane = overview.getByRole('region', { name: `${remoteName} · ${title}` });
+  await expect(pane).toHaveCount(0);
+
+  await open.click();
+  await expect(search).toBeFocused();
+  await picker.getByRole('combobox', { name: '历史会话工作空间' }).selectOption(remote.id);
+  await expect(picker.getByRole('list', { name: '可继续的会话' })).toBeVisible();
+  await expect(picker.getByRole('button', { name: /已归档的历史会话|内部子代理任务/ })).toHaveCount(0);
+  await search.fill(title);
+  await expect(row).toBeEnabled();
+  await row.click();
+  await expect(picker).toBeHidden();
+  await expect(open).toBeFocused();
+  await expect(pane.getByRole('region', { name: '会话输出' })).toBeVisible();
+
+  await open.click();
+  await row.click();
+  await expect(pane).toHaveCount(1);
+
+  const message = '从全览继续这条历史会话';
+  await pane.getByRole('textbox').fill(message);
+  const sent = page.waitForResponse((response) =>
+    new URL(response.url()).pathname === `/api/workspaces/${remote.id}/sessions/${ids.modern}/messages` &&
+    response.request().method() === 'POST',
+  );
+  await pane.getByRole('button', { name: '发送消息', exact: true }).click();
+  expect((await sent).ok()).toBe(true);
+  await expect(pane.getByText(`测试回复：${message}`)).toBeVisible();
+  await expect(overview).toBeVisible();
+  await expect(workspace.workspaceSelector).toHaveValue(local.id);
+  expect(remote.control.sends).toBe(1);
+  expect(remote.control.creates).toBe(0);
+  expect(local.control.sends).toBe(0);
 });
 
 test('the overview composer floats over the remote pane and retains its draft and controls', async ({

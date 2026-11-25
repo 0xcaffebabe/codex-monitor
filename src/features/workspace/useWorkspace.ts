@@ -149,7 +149,7 @@ export function useWorkspace(workspaceId: string, workspaces: ManagedWorkspace[]
       if (value) params.set(key, value);
       else params.delete(key);
     }
-    history.replaceState(null, '', location.pathname + (params.size ? '?' + params : ''));
+    history.replaceState(history.state, '', location.pathname + (params.size ? '?' + params : ''));
   }, [workspaceId, selected, tab, q, project, workspaceScope, subagents, group, creating, result.turn, attentionRequest]);
   const refreshDetail = () => {
     loadOverview();

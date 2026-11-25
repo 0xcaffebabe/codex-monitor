@@ -1,33 +1,45 @@
-import { Folder, LoaderCircle, MessageSquareQuote, Monitor, Search, X } from 'lucide-react';
+import { Folder, History, LoaderCircle, MessageSquareQuote, Monitor, Search, X } from 'lucide-react';
 import { useEffect, useId, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { relative } from '../../shared/format';
 import { Status } from '../../shared/ui/Status';
-import { workspaceSessionKey, type WorkspaceSession } from '../workspace/session-list-model';
-import { useSessionReference } from './useSessionReference';
+import type { ManagedWorkspace } from '../../workspaces';
+import { workspaceSessionKey, type WorkspaceSession } from './session-list-model';
+import { useSessionPicker } from './useSessionPicker';
 
 type ReferenceAction = 'reference' | 'takeover';
 
-export function SessionReferenceDialog({
-  disabled,
-  progress,
-  onReference,
-  onClose,
-  portalContainer = document.body,
-}: {
-  disabled: boolean;
-  progress: string;
-  onReference: (session: WorkspaceSession, action: ReferenceAction) => Promise<string | undefined>;
+type SessionPickerProps = {
   onClose: () => void;
   portalContainer?: HTMLElement;
-}) {
-  const model = useSessionReference();
+} & (
+  | {
+      mode: 'reference';
+      disabled: boolean;
+      progress: string;
+      onReference: (session: WorkspaceSession, action: ReferenceAction) => Promise<string | undefined>;
+    }
+  | {
+      mode: 'history';
+      workspaces: ManagedWorkspace[];
+      onSelect: (session: WorkspaceSession) => void;
+    }
+);
+
+export function SessionPickerDialog(props: SessionPickerProps) {
+  const { onClose, portalContainer = document.body } = props;
+  const history = props.mode === 'history';
+  const model = useSessionPicker(!history, history ? props.workspaces : undefined);
+  const title = history ? '继续历史会话' : '引用会话';
+  const Icon = history ? History : MessageSquareQuote;
   const dialog = useRef<HTMLDivElement>(null);
   const search = useRef<HTMLInputElement>(null);
   const mounted = useRef(false);
   const titleId = useId();
   const [pending, setPending] = useState<{ key: string; action: ReferenceAction }>();
   const [error, setError] = useState('');
+  const progress = history ? '' : props.progress;
+  const disabled = !history && props.disabled;
   const busy = !!pending || !!progress;
   useEffect(() => {
     mounted.current = true;
@@ -39,10 +51,10 @@ export function SessionReferenceDialog({
     };
   }, []);
   async function reference(session: WorkspaceSession, action: ReferenceAction) {
-    if (busy || disabled) return;
+    if (props.mode !== 'reference' || busy || disabled) return;
     setPending({ key: workspaceSessionKey(session), action });
     setError('');
-    const failure = await onReference(session, action);
+    const failure = await props.onReference(session, action);
     if (!mounted.current) return;
     setPending(undefined);
     if (failure) setError(failure);
@@ -83,19 +95,21 @@ export function SessionReferenceDialog({
         }}
       >
         <header>
-          <MessageSquareQuote size={21} />
-          <h2 id={titleId}>引用会话</h2>
-          <button type="button" className="icon-button" aria-label="关闭引用会话" onClick={onClose}>
+          <Icon size={21} aria-hidden="true" />
+          <h2 id={titleId}>{title}</h2>
+          <button type="button" className="icon-button" aria-label={`关闭${title}`} onClick={onClose}>
             <X size={18} />
           </button>
         </header>
-        <p className="control-hint">选择会话，将完整记录作为 Markdown 附件添加到当前消息。</p>
+        {!history && (
+          <p className="control-hint">选择会话，将完整记录作为 Markdown 附件添加到当前消息。</p>
+        )}
         <div className="session-reference-filters">
           <div className="search-box">
             <Search size={16} />
             <input
               ref={search}
-              aria-label="搜索要引用的会话"
+              aria-label={history ? '搜索历史会话' : '搜索要引用的会话'}
               placeholder="搜索标题、项目、首条消息或会话 ID…"
               maxLength={200}
               value={model.query}
@@ -104,7 +118,7 @@ export function SessionReferenceDialog({
             />
           </div>
           <select
-            aria-label="引用会话工作空间"
+            aria-label={history ? '历史会话工作空间' : '引用会话工作空间'}
             value={model.workspaceId}
             disabled={busy}
             onChange={(event) => model.setWorkspaceId(event.target.value)}
@@ -141,12 +155,10 @@ export function SessionReferenceDialog({
                   <LoaderCircle className="spin" size={16} />
                   正在读取会话…
                 </>
-              ) : (
-                '没有找到可引用的会话'
-              )}
+              ) : history ? '没有找到可继续的会话' : '没有找到可引用的会话'}
             </p>
           ) : (
-            <ul aria-label="可引用的会话">
+            <ul aria-label={history ? '可继续的会话' : '可引用的会话'}>
               {model.sessions.map((session) => {
                 const key = workspaceSessionKey(session);
                 const pendingAction = pending?.key === key ? pending.action : undefined;
@@ -156,14 +168,17 @@ export function SessionReferenceDialog({
                     <button
                       type="button"
                       className="session-reference-row"
-                      aria-label={`引用会话 ${session.title}（${session.workspaceName}）`}
+                      aria-label={`${history ? '继续会话' : '引用会话'} ${session.title}（${session.workspaceName}）`}
                       disabled={rowDisabled}
-                      onClick={() => void reference(session, 'reference')}
+                      onClick={() => {
+                        if (props.mode === 'history') props.onSelect(session);
+                        else void reference(session, 'reference');
+                      }}
                     >
                       {pendingAction === 'reference' ? (
                         <LoaderCircle className="spin" size={18} />
                       ) : (
-                        <MessageSquareQuote size={18} />
+                        <Icon size={18} aria-hidden="true" />
                       )}
                       <span className="session-reference-info">
                         <strong title={session.title}>{session.title}</strong>
@@ -183,18 +198,20 @@ export function SessionReferenceDialog({
                     </button>
                     <div className="session-reference-state">
                       <div className="session-reference-actions">
-                        <button
-                          type="button"
-                          className="secondary session-reference-takeover"
-                          aria-label={`接手会话 ${session.title}（${session.workspaceName}）`}
-                          disabled={rowDisabled}
-                          onClick={() => void reference(session, 'takeover')}
-                        >
-                          {pendingAction === 'takeover' && (
-                            <LoaderCircle className="spin" size={12} />
-                          )}
-                          接手
-                        </button>
+                        {!history && (
+                          <button
+                            type="button"
+                            className="secondary session-reference-takeover"
+                            aria-label={`接手会话 ${session.title}（${session.workspaceName}）`}
+                            disabled={rowDisabled}
+                            onClick={() => void reference(session, 'takeover')}
+                          >
+                            {pendingAction === 'takeover' && (
+                              <LoaderCircle className="spin" size={12} />
+                            )}
+                            接手
+                          </button>
+                        )}
                         <Status status={session.status} />
                       </div>
                       <small>{relative(session.updatedAt)}</small>
@@ -207,7 +224,7 @@ export function SessionReferenceDialog({
         </div>
         <footer>
           <span className="muted" role="status">
-            {progress || `${model.total} 个会话 · 包含已归档会话`}
+            {progress || `${model.total} 个会话${history ? '' : ' · 包含已归档会话'}`}
           </span>
           {model.sessions.length < model.total && (
             <button

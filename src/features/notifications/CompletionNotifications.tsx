@@ -1,6 +1,6 @@
 import { ArrowUpRight, CheckCircle2, X } from 'lucide-react';
 import { time } from '../../shared/format';
-import { navigateWorkspace } from '../../workspace-scope';
+import { isOverviewRoute, navigateWorkspace } from '../../workspace-scope';
 import { useCompletionNotifications } from './useCompletionNotifications';
 
 export function CompletionNotifications() {
@@ -39,7 +39,7 @@ export function CompletionNotifications() {
             <article className="completion-notification" key={item.id}>
               <CheckCircle2 className="completion-notification-icon" size={21} aria-hidden="true" />
               <a
-                href={`${location.pathname}?${params}`}
+                href={`${isOverviewRoute() ? '/' : location.pathname}?${params}`}
                 aria-disabled={pending}
                 onClick={async (event) => {
                   event.preventDefault();

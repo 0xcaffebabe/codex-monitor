@@ -3,6 +3,7 @@ import {
   ArrowUpRight,
   ChevronLeft,
   ChevronRight,
+  History,
   LayoutGrid,
   LoaderCircle,
   Maximize2,
@@ -18,6 +19,7 @@ import { Markdown } from '../../shared/ui/Markdown';
 import { Status } from '../../shared/ui/Status';
 import type { SessionPage, TimelineEvent, User } from '../../types';
 import type { ManagedWorkspace } from '../../workspaces';
+import { closeOverview, navigateWorkspace } from '../../workspace-scope';
 import type { AttentionWorkspace } from '../attention/useAttention';
 import { MessageComposer } from '../control/MessageComposer';
 import { useSessionControl } from '../control/useSessionControl';
@@ -25,19 +27,87 @@ import { ActivityGroup } from '../session/ActivityGroup';
 import { groupTimelineEvents } from '../session/session-model';
 import { useSessionActions } from '../session/useSessionActions';
 import { OverviewNewSession } from './OverviewNewSession';
+import { SessionPickerDialog } from './SessionPickerDialog';
+import type { WorkspaceSession } from './session-list-model';
 
 type RunningTask = {
   workspace: ManagedWorkspace;
   session: Pick<AttentionSession, 'id' | 'updatedAt'> &
     Partial<Pick<AttentionSession, 'title' | 'project' | 'status'>>;
 };
+
+export function runningTasks(groups: AttentionWorkspace[]): RunningTask[] {
+  return groups
+    .flatMap(({ workspace, snapshot, fresh }) => {
+      if (!fresh || !snapshot) return [];
+      const pending = new Set([
+        ...snapshot.approvals.requests.map((request) => request.threadId),
+        ...(snapshot.questions ?? []).map((request) => request.session.id),
+      ]);
+      return snapshot.running
+        .filter((session) => !pending.has(session.id))
+        .map((session) => ({ workspace, session }));
+    })
+    .sort((left, right) => right.session.updatedAt - left.session.updatedAt);
+}
+
+export function RunningOverviewDialog({
+  user,
+  groups,
+  workspaceId,
+  onRefresh,
+}: {
+  user: User;
+  groups: AttentionWorkspace[];
+  workspaceId: string;
+  onRefresh: () => void;
+}) {
+  const dialog = useRef<HTMLDialogElement>(null);
+  useLayoutEffect(() => {
+    const element = dialog.current!;
+    element.showModal();
+    return () => element.close();
+  }, []);
+
+  return (
+    <dialog
+      ref={dialog}
+      className="running-overview-dialog"
+      aria-labelledby="running-overview-heading"
+      onCancel={(event) => {
+        if (event.target !== event.currentTarget) return;
+        event.preventDefault();
+        closeOverview();
+      }}
+    >
+      <RunningOverview
+        user={user}
+        running={runningTasks(groups)}
+        groups={groups}
+        workspaceId={workspaceId}
+        unavailable={groups.filter(({ fresh }) => !fresh).map(({ workspace }) => workspace.name)}
+        onRefresh={onRefresh}
+        onClose={closeOverview}
+        onOpenSession={(targetWorkspaceId, sessionId) => {
+          const params = new URLSearchParams(location.search);
+          if (workspaceId === targetWorkspaceId && params.get('session') === sessionId) {
+            closeOverview();
+          } else {
+            navigateWorkspace(targetWorkspaceId, sessionId, new URLSearchParams({ view: 'all' }));
+          }
+        }}
+      />
+    </dialog>
+  );
+}
+
 const taskKey = ({ workspace, session }: RunningTask) => JSON.stringify([workspace.id, session.id]);
 const gap = 12;
 const paneMinWidth = 340;
 const paneMinHeight = 280;
 const pagerHeight = 40;
 
-export function RunningOverview({
+function RunningOverview({
   user,
   running,
   groups,
@@ -59,12 +129,11 @@ export function RunningOverview({
   const [tasks, setTasks] = useState(running);
   const [page, setPage] = useState(0);
   const [expanded, setExpanded] = useState<string>();
-  const [creating, setCreating] = useState(false);
+  const [picker, setPicker] = useState<'new' | 'history'>();
   const [size, setSize] = useState({ width: 0, height: 0 });
   const [notice, setNotice] = useState('');
   const { copied } = useSessionActions(setNotice);
   const area = useRef<HTMLDivElement>(null);
-  const closeButton = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     setTasks((previous) => {
@@ -74,7 +143,6 @@ export function RunningOverview({
     });
   }, [running]);
   useLayoutEffect(() => {
-    closeButton.current?.focus();
     const element = area.current!;
     const measure = () => {
       const width = element.clientWidth;
@@ -117,8 +185,7 @@ export function RunningOverview({
     return () => clearTimeout(timer);
   }, [notice]);
 
-  function showCreatedSession(workspace: ManagedWorkspace, sessionId: string) {
-    const task = { workspace, session: { id: sessionId, updatedAt: Date.now() } };
+  function showTask(task: RunningTask) {
     const key = taskKey(task);
     setTasks((previous) => [
       previous.find((item) => taskKey(item) === key) ?? task,
@@ -126,7 +193,18 @@ export function RunningOverview({
     ]);
     setExpanded(undefined);
     setPage(0);
+  }
+
+  function showCreatedSession(workspace: ManagedWorkspace, sessionId: string) {
+    showTask({ workspace, session: { id: sessionId, updatedAt: Date.now() } });
     onRefresh();
+  }
+
+  function showHistorySession(session: WorkspaceSession) {
+    const workspace = observations.get(session.workspaceId)?.workspace;
+    if (!workspace?.online) return;
+    showTask({ workspace, session });
+    setPicker(undefined);
   }
 
   return (
@@ -150,17 +228,28 @@ export function RunningOverview({
         </div>
         <div className="running-overview-actions">
           {user.role === 'admin' && (
-            <button
-              type="button"
-              className="primary"
-              aria-haspopup="dialog"
-              onClick={() => setCreating(true)}
-            >
-              <SquarePen size={16} aria-hidden="true" />
-              新建会话
-            </button>
+            <>
+              <button
+                type="button"
+                className="secondary"
+                aria-haspopup="dialog"
+                onClick={() => setPicker('history')}
+              >
+                <History size={16} aria-hidden="true" />
+                继续历史会话
+              </button>
+              <button
+                type="button"
+                className="primary"
+                aria-haspopup="dialog"
+                onClick={() => setPicker('new')}
+              >
+                <SquarePen size={16} aria-hidden="true" />
+                新建会话
+              </button>
+            </>
           )}
-          <button ref={closeButton} type="button" className="secondary" onClick={onClose}>
+          <button autoFocus type="button" className="secondary" onClick={onClose}>
             <X size={16} aria-hidden="true" />
             退出全览
           </button>
@@ -240,13 +329,22 @@ export function RunningOverview({
           {notice}
         </div>
       )}
-      {creating && (
+      {picker === 'new' && (
         <OverviewNewSession
           user={user}
           workspaceId={workspaceId}
           groups={groups}
-          onClose={() => setCreating(false)}
+          onClose={() => setPicker(undefined)}
           onCreated={showCreatedSession}
+        />
+      )}
+      {picker === 'history' && (
+        <SessionPickerDialog
+          mode="history"
+          workspaces={groups.map(({ workspace }) => workspace)}
+          portalContainer={area.current?.closest('dialog') ?? undefined}
+          onSelect={showHistorySession}
+          onClose={() => setPicker(undefined)}
         />
       )}
     </div>

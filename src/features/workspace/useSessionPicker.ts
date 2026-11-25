@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react';
 import { api } from '../../api';
 import type { ManagedWorkspace } from '../../workspaces';
-import { useSessionList } from '../workspace/useSessionList';
+import { useSessionList } from './useSessionList';
 
-export function useSessionReference() {
-  const [workspaces, setWorkspaces] = useState<ManagedWorkspace[]>([]);
+export function useSessionPicker(includeArchived: boolean, providedWorkspaces?: ManagedWorkspace[]) {
+  const [loadedWorkspaces, setWorkspaces] = useState<ManagedWorkspace[]>([]);
+  const workspaces = providedWorkspaces ?? loadedWorkspaces;
+  const fetchWorkspaces = providedWorkspaces === undefined;
   const [workspaceId, setWorkspaceId] = useState('');
   const [query, setQuery] = useState('');
   const [search, setSearch] = useState('');
@@ -12,6 +14,7 @@ export function useSessionReference() {
   const [error, setError] = useState('');
   const [refresh, setRefresh] = useState(0);
   useEffect(() => {
+    if (!fetchWorkspaces) return;
     const controller = new AbortController();
     let busy = false;
     const load = async () => {
@@ -36,7 +39,7 @@ export function useSessionReference() {
       controller.abort();
       clearInterval(timer);
     };
-  }, [refresh]);
+  }, [fetchWorkspaces, refresh]);
   useEffect(() => {
     const timer = setTimeout(() => setSearch(query.trim()), 200);
     return () => clearTimeout(timer);
@@ -45,8 +48,9 @@ export function useSessionReference() {
     query: search,
     project: '',
     tab: 'all',
-    subagents: true,
-    archived: 'all',
+    subagents: includeArchived,
+    archived: includeArchived ? 'all' : 'false',
+    sort: includeArchived ? 'running' : 'recent',
     workspaces: workspaceId
       ? workspaces.filter((workspace) => workspace.id === workspaceId)
       : workspaces,
@@ -58,7 +62,7 @@ export function useSessionReference() {
     setWorkspaceId,
     query,
     setQuery,
-    loading: loading || list.listBusy || query.trim() !== search,
+    loading: (fetchWorkspaces && loading) || list.listBusy || query.trim() !== search,
     error: error || list.error,
     retry: () => {
       setRefresh((value) => value + 1);

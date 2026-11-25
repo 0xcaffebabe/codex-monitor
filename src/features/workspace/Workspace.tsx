@@ -302,9 +302,7 @@ export function Workspace(
       </main>
       <TaskDock
         mobile={mobile}
-        user={user}
         groups={props.attention.groups}
-        onRefresh={props.attention.refresh}
         workspaceId={props.workspaceId}
         selected={selected}
         onHome={() => changeTab('attention')}

@@ -43,7 +43,7 @@ export function useWorkspaces(userId: string) {
             : result.workspaces.find((item) => item.online);
         selected.current = (defaultWorkspace ?? result.workspaces[0]).id;
         params.set('workspace', selected.current);
-        history.replaceState(null, '', location.pathname + '?' + params.toString());
+        history.replaceState(history.state, '', location.pathname + '?' + params.toString());
         setActiveId(selected.current);
       }
       if (selected.current) initializeWorkspace(selected.current);

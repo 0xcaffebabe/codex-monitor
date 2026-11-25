@@ -4,15 +4,18 @@ import type { WorkspaceProps } from '../workspace/useWorkspace';
 import { useWorkspaces } from './useWorkspaces';
 import { ClientManager } from './ClientManager';
 import { Brand } from '../../shared/ui/Brand';
-import { useState } from 'react';
+import { useState, useSyncExternalStore } from 'react';
 import { Settings } from '../settings/Settings';
 import { useAttention } from '../attention/useAttention';
 import { useTaskWatches } from '../attention/useTaskWatches';
 import { CompletionNotifications } from '../notifications/CompletionNotifications';
+import { RunningOverviewDialog } from '../workspace/RunningOverview';
+import { isOverviewRoute, subscribeNavigation } from '../../workspace-scope';
 
 export function WorkspaceHost(props: WorkspaceProps) {
   const model = useWorkspaces(props.user.id);
   const attention = useAttention(model.workspaces, props.user.id);
+  const overview = useSyncExternalStore(subscribeNavigation, isOverviewRoute);
   const taskWatches = useTaskWatches(props.user.role === 'admin');
   const [accessOpen, setAccessOpen] = useState(false);
   const controls = (
@@ -91,6 +94,14 @@ export function WorkspaceHost(props: WorkspaceProps) {
           <button onClick={() => setAccessOpen(true)}>设置与访问管理</button>
           <button onClick={props.onLogout}>退出登录</button>
         </div>
+      )}
+      {overview && (
+        <RunningOverviewDialog
+          user={props.user}
+          groups={attention.groups}
+          workspaceId={model.activeId}
+          onRefresh={attention.refresh}
+        />
       )}
       <CompletionNotifications key={props.user.id} />
       {model.managing && <ClientManager model={model} />}
