@@ -241,6 +241,10 @@ test('creating from the overview adds a remote session pane even before attentio
   const localPane = overview.getByRole('region', { name: `本机工作空间 · ${localTitle}` });
   await localPane.getByRole('textbox').fill('原会话草稿');
   await start.click();
+  await expect(editor.locator('.overview-compose-header')).toHaveCSS('padding-inline', '16px');
+  await expect(editor.locator('.new-session-workspaces')).toHaveCSS('padding-inline', '16px');
+  await expect(editor.locator('.new-session-projects')).toHaveCSS('padding-inline', '16px');
+  await expect(editor.locator('.new-session-composer')).toHaveCSS('padding-inline', '16px');
   await expect(editor.getByRole('tab', { name: '本机工作空间' })).toHaveAttribute('aria-selected', 'true');
   await editor.getByRole('tab', { name: remoteName }).click();
   await expect(editor.getByRole('radio', { name: 'work', exact: true })).toBeChecked();

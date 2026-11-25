@@ -380,6 +380,7 @@
 }
 
 .overview-new-session {
+  --new-session-gutter: var(--mobile-gutter, 16px);
   position: fixed;
   width: min(780px, calc(100% - 32px));
   max-width: none;

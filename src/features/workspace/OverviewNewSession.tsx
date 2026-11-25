@@ -36,7 +36,7 @@ export function OverviewNewSession({
   return (
     <dialog
       ref={dialog}
-      className="new-session-detail overview-new-session"
+      className="overview-new-session"
       aria-labelledby="overview-new-session-heading"
       onCancel={(event) => {
         if (event.target !== event.currentTarget) return;
