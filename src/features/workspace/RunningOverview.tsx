@@ -264,6 +264,7 @@ function OverviewPane({
   const [page, setPage] = useState<SessionPage>();
   const [error, setError] = useState('');
   const [follow, setFollow] = useState(true);
+  const pane = useRef<HTMLElement>(null);
   const scroll = useRef<HTMLDivElement>(null);
   const loader = useMemo(
     () =>
@@ -327,6 +328,7 @@ function OverviewPane({
   return (
     <section
       className="running-overview-pane"
+      ref={pane}
       aria-label={`${workspaceName} · ${title}`}
       hidden={hidden}
     >
@@ -437,7 +439,13 @@ function OverviewPane({
           workspaceId={workspace.id}
           control={control}
           context={page?.context}
-          overview={{ title: `${workspaceName} · ${title}`, inputLabel: `向 ${title} 发送消息`, online, hidden }}
+          overview={{
+            title: `${workspaceName} · ${title}`,
+            inputLabel: `向 ${title} 发送消息`,
+            online,
+            hidden,
+            anchor: pane,
+          }}
           onAccepted={() => setFollow(true)}
         />
       )}

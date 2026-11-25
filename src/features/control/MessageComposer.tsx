@@ -1,5 +1,5 @@
-import { Maximize2, Minimize2, Pause, Pencil, Play, RefreshCw, Square, Target } from 'lucide-react';
-import { useId, useLayoutEffect, useRef, useState } from 'react';
+import { Minimize2, Pause, Pencil, Play, RefreshCw, Square, Target, X } from 'lucide-react';
+import { useId, useLayoutEffect, useRef, useState, type RefObject } from 'react';
 import { CommandButton } from './CommandButton';
 import { goalDuration, goalStatuses } from './goal';
 import { GoalDialog } from './GoalDialog';
@@ -13,7 +13,13 @@ import { promptShortcuts } from './prompt-shortcuts';
 import { ContextUsageRing } from './ContextUsageRing';
 
 type ComposerProps = MessageComposerProps & {
-  overview?: { title: string; inputLabel: string; online: boolean; hidden: boolean };
+  overview?: {
+    title: string;
+    inputLabel: string;
+    online: boolean;
+    hidden: boolean;
+    anchor: RefObject<HTMLElement | null>;
+  };
 };
 
 export function MessageComposer(props: ComposerProps) {
@@ -27,6 +33,7 @@ function SessionMessageComposer(props: ComposerProps) {
   const expandButton = useRef<HTMLButtonElement>(null);
   const restoreFocus = useRef(false);
   const titleId = useId();
+  const anchorRef = overview?.anchor;
   const full = !overview || expanded;
   const {
     state,
@@ -68,56 +75,80 @@ function SessionMessageComposer(props: ComposerProps) {
   const form = usePromptForm(formProps);
   useLayoutEffect(() => {
     const element = dialog.current;
-    if (!element) {
+    const anchor = anchorRef?.current;
+    if (!element || !anchor) {
       if (restoreFocus.current) expandButton.current?.focus({ preventScroll: true });
       restoreFocus.current = false;
       return;
     }
+    const position = () => {
+      const pane = anchor.getBoundingClientRect();
+      const { offsetWidth, offsetHeight } = element;
+      const gutter = 12;
+      const left = pane.left + (pane.width - offsetWidth) / 2;
+      const top = pane.bottom - offsetHeight - 8;
+      element.style.left = `${Math.max(gutter, Math.min(left, innerWidth - offsetWidth - gutter))}px`;
+      element.style.top = `${Math.max(gutter, Math.min(top, innerHeight - offsetHeight - gutter))}px`;
+    };
     element.showModal();
+    position();
     restoreFocus.current = true;
-    element.querySelector<HTMLTextAreaElement>('textarea:not(:disabled)')?.focus();
-    return () => element.close();
-  }, [expanded]);
+    element
+      .querySelector<HTMLTextAreaElement>('textarea:not(:disabled)')
+      ?.focus({ preventScroll: true });
+    const observer = new ResizeObserver(position);
+    observer.observe(anchor);
+    observer.observe(element);
+    window.addEventListener('resize', position);
+    window.addEventListener('scroll', position, true);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('resize', position);
+      window.removeEventListener('scroll', position, true);
+      element.close();
+    };
+  }, [anchorRef, expanded]);
 
   const controlHint = state?.reason || '正在连接 Codex…';
-  if (overview && !expanded) {
-    const expandedSettings = [
-      form.attachments.length > 0 && `${form.attachments.length} 个附件`,
-      form.draft.desktopChannel && '桌面通道',
-      form.draft.permissionMode && '会话权限',
-      modelSummary,
-    ].filter(Boolean).join(' · ');
-    return (
-      <div className="running-overview-composer">
-        {overview.online && !overview.hidden && (!state?.available || state.compacting) && (
-          <p className="running-overview-control-note" role="status" title={state?.reason}>
-            {controlHint}
-          </p>
-        )}
-        <PromptFormFields
-          {...formProps}
-          form={form}
-          allowAttachments={false}
-          inputLabel={overview.inputLabel}
-          submitActions={
-            <button
-              ref={expandButton}
-              type="button"
-              className="icon-button overview-compose-expand"
-              aria-label="全屏编辑消息"
-              aria-description={expandedSettings || undefined}
-              aria-haspopup="dialog"
-              title={expandedSettings ? `全屏编辑消息（${expandedSettings}）` : '全屏编辑消息'}
-              onClick={() => setExpanded(true)}
-            >
-              <Maximize2 size={16} aria-hidden="true" />
-              {expandedSettings && <span className="composer-tool-dot" />}
-            </button>
-          }
-        />
-      </div>
-    );
-  }
+  const expandedSettings = [
+    form.attachments.length > 0 && `${form.attachments.length} 个附件`,
+    form.draft.desktopChannel && '桌面通道',
+    form.draft.permissionMode && '会话权限',
+    modelSummary,
+  ]
+    .filter(Boolean)
+    .join(' · ');
+  const compactComposer = overview && (
+    <div className="running-overview-composer" inert={expanded}>
+      {overview.online && !overview.hidden && (!state?.available || state.compacting) && (
+        <p className="running-overview-control-note" role="status" title={state?.reason}>
+          {controlHint}
+        </p>
+      )}
+      <PromptFormFields
+        {...formProps}
+        form={form}
+        allowAttachments={false}
+        inputLabel={overview.inputLabel}
+        submitActions={
+          <button
+            ref={expandButton}
+            type="button"
+            className="icon-button overview-compose-expand"
+            aria-label="展开消息编辑器"
+            aria-description={expandedSettings || undefined}
+            aria-haspopup="dialog"
+            aria-expanded={expanded}
+            title={expandedSettings ? `展开消息编辑器（${expandedSettings}）` : '展开消息编辑器'}
+            onClick={() => setExpanded(true)}
+          >
+            <Pencil size={16} aria-hidden="true" />
+            {expandedSettings && <span className="composer-tool-dot" />}
+          </button>
+        }
+      />
+    </div>
+  );
 
   const composer = (
     <div
@@ -332,34 +363,40 @@ function SessionMessageComposer(props: ComposerProps) {
   if (!overview) return composer;
 
   return (
-    <dialog
-      className="overview-compose-dialog"
-      ref={dialog}
-      aria-labelledby={titleId}
-      onKeyDown={(event) => {
-        if (event.key === 'Escape') event.stopPropagation();
-      }}
-      onCancel={(event) => {
-        if (event.target !== event.currentTarget) return;
-        event.preventDefault();
-        event.stopPropagation();
-        setExpanded(false);
-      }}
-    >
-      <header className="overview-compose-header">
-        <h2 id={titleId}>{overview.title}</h2>
-        <button
-          type="button"
-          autoFocus
-          className="icon-button"
-          title="退出消息全屏"
-          aria-label="退出消息全屏"
-          onClick={() => setExpanded(false)}
+    <>
+      {compactComposer}
+      {expanded && (
+        <dialog
+          className="overview-compose-dialog"
+          ref={dialog}
+          closedby="any"
+          aria-labelledby={titleId}
+          onKeyDown={(event) => {
+            if (event.key === 'Escape') event.stopPropagation();
+          }}
+          onCancel={(event) => {
+            if (event.target !== event.currentTarget) return;
+            event.preventDefault();
+            event.stopPropagation();
+            setExpanded(false);
+          }}
         >
-          <Minimize2 size={18} aria-hidden="true" />
-        </button>
-      </header>
-      {composer}
-    </dialog>
+          <header className="overview-compose-header">
+            <h2 id={titleId}>{overview.title}</h2>
+            <button
+              type="button"
+              autoFocus
+              className="icon-button"
+              title="收起消息编辑器"
+              aria-label="收起消息编辑器"
+              onClick={() => setExpanded(false)}
+            >
+              <X size={18} aria-hidden="true" />
+            </button>
+          </header>
+          {composer}
+        </dialog>
+      )}
+    </>
   );
 }

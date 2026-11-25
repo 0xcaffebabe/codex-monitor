@@ -150,7 +150,7 @@ test('running overview follows and sends messages independently across workspace
   await expect(trigger).toBeFocused();
 });
 
-test('the overview full-screen composer retains the remote draft and uses remote controls', async ({
+test('the overview composer floats over the remote pane and retains its draft and controls', async ({
   signedIn: { browserPage: page },
   local,
   monitor,
@@ -162,14 +162,26 @@ test('the overview full-screen composer retains the remote draft and uses remote
   await page.getByRole('button', { name: '全览', exact: true }).click();
   const overview = page.getByRole('dialog', { name: '任务全览' });
   const pane = overview.getByRole('region', { name: '远程编辑工作空间 · 远程编辑任务' });
-  const expand = pane.getByRole('button', { name: '全屏编辑消息' });
+  const expand = pane.getByRole('button', { name: '展开消息编辑器' });
   const composer = page.getByRole('dialog', { name: '远程编辑工作空间 · 远程编辑任务' });
   const input = composer.getByRole('textbox', { name: '发送给 Codex 的消息' });
   await expect(pane.getByRole('button', { name: '快捷操作' })).toHaveCount(0);
-  await pane.getByRole('textbox').fill('远程全屏草稿');
+  await pane.getByRole('textbox').fill('远程编辑草稿');
   await expand.click();
-  await expect(input).toHaveValue('远程全屏草稿');
+  await expect(input).toHaveValue('远程编辑草稿');
   await expect(input).toBeFocused();
+  const paneBounds = (await pane.boundingBox())!;
+  const composerBounds = (await composer.boundingBox())!;
+  const inputBounds = (await input.boundingBox())!;
+  expect(composerBounds.width).toBeLessThan(720);
+  expect(composerBounds.height).toBeLessThan(260);
+  expect(composerBounds.x).toBeGreaterThan(paneBounds.x);
+  expect(composerBounds.x + composerBounds.width).toBeLessThan(paneBounds.x + paneBounds.width);
+  expect(composerBounds.y + composerBounds.height).toBeCloseTo(
+    paneBounds.y + paneBounds.height - 8,
+    0,
+  );
+  expect(inputBounds.height).toBeLessThan(100);
   await expect(composer.getByRole('button', { name: '上下文用量' })).toBeVisible();
   await expect(composer.getByRole('button', { name: '发送设置' })).toBeVisible();
 
@@ -205,18 +217,22 @@ test('the overview full-screen composer retains the remote draft and uses remote
   });
   expect((await upload).status()).toBe(201);
   await expect(composer.getByText('draft.txt', { exact: true })).toBeVisible();
-  await input.fill('修改后的远程全屏草稿');
+  await input.fill('修改后的远程编辑草稿');
   await page.keyboard.press('Escape');
   await expect(composer).toBeHidden();
   await expect(expand).toBeFocused();
-  await expect(pane.getByRole('textbox')).toHaveValue('修改后的远程全屏草稿');
+  await expect(pane.getByRole('textbox')).toHaveValue('修改后的远程编辑草稿');
   await expand.click();
   await expect(composer.getByText('draft.txt', { exact: true })).toBeVisible();
+  await page.mouse.click(composerBounds.x - 5, composerBounds.y);
+  await expect(composer).toBeHidden();
+  await expect(expand).toBeFocused();
+  await expand.click();
   await composer.getByRole('button', { name: '追加消息' }).click();
   await expect(input).toHaveValue('');
   expect(remote.control.sends).toBe(1);
   expect(local.control.sends).toBe(0);
-  await composer.getByRole('button', { name: '退出消息全屏' }).click();
+  await composer.getByRole('button', { name: '收起消息编辑器' }).click();
   await expect(pane.getByRole('textbox')).toHaveValue('');
   await expect(overview).toBeVisible();
 });
