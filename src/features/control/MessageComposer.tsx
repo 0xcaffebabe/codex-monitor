@@ -1,17 +1,33 @@
-import { Minimize2, Pause, Pencil, Play, RefreshCw, Square, Target } from 'lucide-react';
+import { Maximize2, Minimize2, Pause, Pencil, Play, RefreshCw, Square, Target } from 'lucide-react';
+import { useId, useLayoutEffect, useRef, useState } from 'react';
 import { CommandButton } from './CommandButton';
 import { goalDuration, goalStatuses } from './goal';
 import { GoalDialog } from './GoalDialog';
-import { PromptForm } from './PromptForm';
+import { PromptFormFields } from './PromptForm';
+import { usePromptForm, type PromptFormProps } from './usePromptForm';
 import { MessageComposerProps, useMessageComposer } from './useMessageComposer';
 import { ModelSettings, modelSettingsSummary } from './ModelSettings';
 import { ApprovalPanel } from './ApprovalPanel';
-import { currentWorkspace } from '../../workspace-scope';
+import { currentWorkspace, workspaceUrl } from '../../workspace-scope';
 import { promptShortcuts } from './prompt-shortcuts';
 import { ContextUsageRing } from './ContextUsageRing';
 
-export function MessageComposer(props: MessageComposerProps) {
-  const { user, threadId, onAccepted, context, contextControls } = props;
+type ComposerProps = MessageComposerProps & {
+  overview?: { title: string; inputLabel: string; online: boolean; hidden: boolean };
+};
+
+export function MessageComposer(props: ComposerProps) {
+  return props.user.role === 'admin' ? <SessionMessageComposer {...props} /> : null;
+}
+
+function SessionMessageComposer(props: ComposerProps) {
+  const { user, threadId, workspaceId, onAccepted, context, contextControls, overview } = props;
+  const [expanded, setExpanded] = useState(false);
+  const dialog = useRef<HTMLDialogElement>(null);
+  const expandButton = useRef<HTMLButtonElement>(null);
+  const restoreFocus = useRef(false);
+  const titleId = useId();
+  const full = !overview || expanded;
   const {
     state,
     canChangeModel,
@@ -27,9 +43,83 @@ export function MessageComposer(props: MessageComposerProps) {
     controlNotice,
     setControlNotice,
     stopDone,
-  } = useMessageComposer(props);
-  if (user.role !== 'admin') return null;
-  return (
+  } = useMessageComposer(props, full);
+  const sessionUrl = `/api/sessions/${encodeURIComponent(threadId)}`;
+  const modelSummary = canChangeModel ? modelSettingsSummary(modelSettings) : undefined;
+  const formProps: PromptFormProps = {
+    workspaceId,
+    storageKey: `codex-monitor.${overview ? 'overview-draft' : 'draft'}.${user.id}.${threadId}`,
+    url: sessionUrl + '/messages',
+    enabled: !!state?.available && (!overview || (overview.online && !overview.hidden)),
+    label: state?.compacting ? '加入队列' : state?.running ? '追加消息' : '发送消息',
+    submitOnEnter: true,
+    allowAttachments: true,
+    allowDesktopChannel: !!state?.desktopChannel,
+    desktopOwned: state?.owner === 'desktop',
+    allowPermissionChanges: canChangeModel && !!state?.messagePermissions,
+    extra: canChangeModel ? modelSettings.overrides : undefined,
+    onSubmitStart: () => setControlNotice(''),
+    onAccepted: () => {
+      modelSettings.reset();
+      setRefresh((value) => value + 1);
+      onAccepted();
+    },
+  };
+  const form = usePromptForm(formProps);
+  useLayoutEffect(() => {
+    const element = dialog.current;
+    if (!element) {
+      if (restoreFocus.current) expandButton.current?.focus({ preventScroll: true });
+      restoreFocus.current = false;
+      return;
+    }
+    element.showModal();
+    restoreFocus.current = true;
+    element.querySelector<HTMLTextAreaElement>('textarea:not(:disabled)')?.focus();
+    return () => element.close();
+  }, [expanded]);
+
+  const controlHint = state?.reason || '正在连接 Codex…';
+  if (overview && !expanded) {
+    const expandedSettings = [
+      form.attachments.length > 0 && `${form.attachments.length} 个附件`,
+      form.draft.desktopChannel && '桌面通道',
+      form.draft.permissionMode && '会话权限',
+      modelSummary,
+    ].filter(Boolean).join(' · ');
+    return (
+      <div className="running-overview-composer">
+        {overview.online && !overview.hidden && (!state?.available || state.compacting) && (
+          <p className="running-overview-control-note" role="status" title={state?.reason}>
+            {controlHint}
+          </p>
+        )}
+        <PromptFormFields
+          {...formProps}
+          form={form}
+          allowAttachments={false}
+          inputLabel={overview.inputLabel}
+          submitActions={
+            <button
+              ref={expandButton}
+              type="button"
+              className="icon-button overview-compose-expand"
+              aria-label="全屏编辑消息"
+              aria-description={expandedSettings || undefined}
+              aria-haspopup="dialog"
+              title={expandedSettings ? `全屏编辑消息（${expandedSettings}）` : '全屏编辑消息'}
+              onClick={() => setExpanded(true)}
+            >
+              <Maximize2 size={16} aria-hidden="true" />
+              {expandedSettings && <span className="composer-tool-dot" />}
+            </button>
+          }
+        />
+      </div>
+    );
+  }
+
+  const composer = (
     <div
       className={'message-composer' + (!state?.available ? ' unavailable' : '')}
       aria-label="向会话发送消息"
@@ -46,9 +136,9 @@ export function MessageComposer(props: MessageComposerProps) {
           <RefreshCw size={13} />
         </button>
       </div>
-      <ApprovalPanel key={threadId} threadId={threadId} userId={props.user.id} workspaceId={currentWorkspace()} />
+      <ApprovalPanel key={threadId} threadId={threadId} userId={user.id} workspaceId={workspaceId ?? currentWorkspace()} />
       {(!state?.available || state.compacting) && (
-        <p className="control-hint">{state?.reason || '正在连接 Codex…'}</p>
+        <p className="control-hint">{controlHint}</p>
       )}
       {goal && goal.status !== 'complete' && (
         <div className="session-goal-strip" aria-label="会话目标" data-status={goal.status}>
@@ -88,6 +178,7 @@ export function MessageComposer(props: MessageComposerProps) {
                 key="pause"
                 user={user}
                 threadId={threadId}
+                workspaceId={workspaceId}
                 command="goal.pause"
                 label="暂停目标"
                 iconOnly
@@ -101,6 +192,7 @@ export function MessageComposer(props: MessageComposerProps) {
                 key="resume"
                 user={user}
                 threadId={threadId}
+                workspaceId={workspaceId}
                 command="goal.resume"
                 label="继续目标"
                 disabled={!state?.available || !!state?.compacting}
@@ -114,6 +206,7 @@ export function MessageComposer(props: MessageComposerProps) {
             <CommandButton
               user={user}
               threadId={threadId}
+              workspaceId={workspaceId}
               command="goal.clear"
               label="停止目标"
               iconOnly
@@ -138,14 +231,10 @@ export function MessageComposer(props: MessageComposerProps) {
           </button>
         </p>
       )}
-      <PromptForm
-        storageKey={`codex-monitor.draft.${user.id}.${threadId}`}
-        submitOnEnter
-        allowAttachments
-        projectFilesUrl={`/api/sessions/${threadId}/files`}
-        allowDesktopChannel={!!state?.desktopChannel}
-        desktopOwned={state?.owner === 'desktop'}
-        allowPermissionChanges={canChangeModel && !!state?.messagePermissions}
+      <PromptFormFields
+        {...formProps}
+        form={form}
+        projectFilesUrl={workspaceId ? workspaceUrl(sessionUrl + '/files', workspaceId) : sessionUrl + '/files'}
         currentPermissionMode={state?.permissionMode}
         promptShortcuts={promptShortcuts}
         shortcutActions={[
@@ -157,6 +246,7 @@ export function MessageComposer(props: MessageComposerProps) {
               <CommandButton
                 user={user}
                 threadId={threadId}
+                workspaceId={workspaceId}
                 command="compact"
                 disabled={!state?.available || !!state?.running || !!state?.compacting}
                 label="压缩上下文"
@@ -195,6 +285,7 @@ export function MessageComposer(props: MessageComposerProps) {
           <CommandButton
             user={user}
             threadId={threadId}
+            workspaceId={workspaceId}
             command="interrupt"
             turnId={state?.turnId}
             label="停止当前执行"
@@ -217,17 +308,7 @@ export function MessageComposer(props: MessageComposerProps) {
             />
           ) : undefined
         }
-        modelSummary={canChangeModel ? modelSettingsSummary(modelSettings) : undefined}
-        url={`/api/sessions/${threadId}/messages`}
-        extra={canChangeModel ? modelSettings.overrides : undefined}
-        enabled={!!state?.available}
-        onSubmitStart={() => setControlNotice('')}
-        label={state?.compacting ? '加入队列' : state?.running ? '追加消息' : '发送消息'}
-        onAccepted={() => {
-          modelSettings.reset();
-          setRefresh((value) => value + 1);
-          onAccepted();
-        }}
+        modelSummary={modelSummary}
       />
       {controlNotice && (
         <p className="control-notice" role="status">
@@ -238,6 +319,7 @@ export function MessageComposer(props: MessageComposerProps) {
         <GoalDialog
           user={user}
           threadId={threadId}
+          workspaceId={workspaceId}
           goal={goal}
           error={goalError}
           onRefresh={() => setRefresh((value) => value + 1)}
@@ -246,5 +328,38 @@ export function MessageComposer(props: MessageComposerProps) {
         />
       )}
     </div>
+  );
+  if (!overview) return composer;
+
+  return (
+    <dialog
+      className="overview-compose-dialog"
+      ref={dialog}
+      aria-labelledby={titleId}
+      onKeyDown={(event) => {
+        if (event.key === 'Escape') event.stopPropagation();
+      }}
+      onCancel={(event) => {
+        if (event.target !== event.currentTarget) return;
+        event.preventDefault();
+        event.stopPropagation();
+        setExpanded(false);
+      }}
+    >
+      <header className="overview-compose-header">
+        <h2 id={titleId}>{overview.title}</h2>
+        <button
+          type="button"
+          autoFocus
+          className="icon-button"
+          title="退出消息全屏"
+          aria-label="退出消息全屏"
+          onClick={() => setExpanded(false)}
+        >
+          <Minimize2 size={18} aria-hidden="true" />
+        </button>
+      </header>
+      {composer}
+    </dialog>
   );
 }

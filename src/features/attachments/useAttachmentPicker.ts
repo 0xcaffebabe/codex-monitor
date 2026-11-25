@@ -6,6 +6,7 @@ import { maxAttachments, maxBytes } from './attachment-model';
 import type { Attachment } from './types';
 
 type AttachmentPickerOptions = {
+  workspaceId?: string;
   attachments: Attachment[];
   disabled: boolean;
   onAdd: (attachment: Attachment, prompt?: string) => void;
@@ -32,6 +33,7 @@ function transferFiles(data: DataTransfer) {
 const hasFiles = (data: DataTransfer) => Array.from(data.types).includes('Files');
 
 export function useAttachmentPicker({
+  workspaceId,
   attachments,
   disabled,
   onAdd,
@@ -77,8 +79,8 @@ export function useAttachmentPicker({
     working.current = true;
     onBusy(true);
     // Keep both the export and upload bound to the composer that started them.
-    const signal = workspaceSignal('/api/uploads', lifetime.current.signal)!;
-    const uploadUrl = workspaceUrl('/api/uploads');
+    const uploadUrl = workspaceUrl('/api/uploads', workspaceId);
+    const signal = workspaceSignal(workspaceId ? uploadUrl : '/api/uploads', lifetime.current.signal)!;
     try {
       while (queue.current.length) {
         const pending = queue.current[0];
@@ -176,7 +178,10 @@ export function useAttachmentPicker({
     onBusy(true);
     onError('');
     try {
-      await api(`/api/uploads/${id}`, { method: 'DELETE', signal: lifetime.current.signal });
+      const route = `/api/uploads/${id}`;
+      await api(workspaceId ? workspaceUrl(route, workspaceId) : route, {
+        method: 'DELETE', signal: lifetime.current.signal,
+      });
       onRemove(id);
     } catch (error) {
       onError((error as Error).message);

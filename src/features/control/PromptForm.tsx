@@ -16,10 +16,19 @@ const permissionLabels: Record<SessionPermissionMode, string> = {
 };
 
 export function PromptForm(props: PromptFormProps) {
+  const form = usePromptForm(props);
+  return <PromptFormFields {...props} form={form} />;
+}
+
+export function PromptFormFields({
+  form,
+  ...props
+}: PromptFormProps & { form: ReturnType<typeof usePromptForm> }) {
   const input = useRef<HTMLTextAreaElement>(null);
   const isMobile = useMediaQuery('(max-width: 760px)');
   const {
     label,
+    workspaceId,
     enabled,
     children,
     inputLabel = '发送给 Codex 的消息',
@@ -69,7 +78,7 @@ export function PromptForm(props: PromptFormProps) {
     retryGoal,
     openCreated,
     reset,
-  } = usePromptForm(props);
+  } = form;
   const submitLabel = asGoal ? '创建并执行目标' : label;
   const promptLabel = asGoal ? '目标内容' : inputLabel;
   const busyLabel = draft.creation ? '正在保存目标…' : '正在发送…';
@@ -99,7 +108,7 @@ export function PromptForm(props: PromptFormProps) {
         void submit();
       }}
     >
-      {attachmentPicker.dragging && (
+      {allowAttachments && attachmentPicker.dragging && (
         <div className="attachment-drop-hint" role="status">
           <span>松开即可添加图片或文件</span>
         </div>
@@ -160,6 +169,7 @@ export function PromptForm(props: PromptFormProps) {
       </label>
       {allowAttachments && (
         <AttachmentPicker
+          workspaceId={workspaceId}
           attachments={attachments}
           disabled={busy || !!draft.requestId || !enabled}
           picker={attachmentPicker}

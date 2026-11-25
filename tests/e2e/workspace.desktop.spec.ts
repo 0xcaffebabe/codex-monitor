@@ -1,3 +1,4 @@
+import { writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { ids } from '../fixture.js';
 import { expect, localTitle, test } from './monitor.js';
@@ -147,6 +148,77 @@ test('running overview follows and sends messages independently across workspace
   await page.keyboard.press('Escape');
   await expect(overview).toBeHidden();
   await expect(trigger).toBeFocused();
+});
+
+test('the overview full-screen composer retains the remote draft and uses remote controls', async ({
+  signedIn: { browserPage: page },
+  local,
+  monitor,
+}) => {
+  const remote = await monitor.addWorkspace('远程编辑工作空间', '远程编辑任务');
+  await writeFile(path.join(remote.data.root, 'project', 'remote-notes.txt'), 'remote notes');
+  await expect(page.getByRole('button', { name: '查看运行中的会话' })).toHaveText('2');
+  await page.getByRole('button', { name: '查看运行中的会话' }).click();
+  await page.getByRole('button', { name: '全览', exact: true }).click();
+  const overview = page.getByRole('dialog', { name: '任务全览' });
+  const pane = overview.getByRole('region', { name: '远程编辑工作空间 · 远程编辑任务' });
+  const expand = pane.getByRole('button', { name: '全屏编辑消息' });
+  const composer = page.getByRole('dialog', { name: '远程编辑工作空间 · 远程编辑任务' });
+  const input = composer.getByRole('textbox', { name: '发送给 Codex 的消息' });
+  await expect(pane.getByRole('button', { name: '快捷操作' })).toHaveCount(0);
+  await pane.getByRole('textbox').fill('远程全屏草稿');
+  await expand.click();
+  await expect(input).toHaveValue('远程全屏草稿');
+  await expect(input).toBeFocused();
+  await expect(composer.getByRole('button', { name: '上下文用量' })).toBeVisible();
+  await expect(composer.getByRole('button', { name: '发送设置' })).toBeVisible();
+
+  await composer.getByRole('button', { name: '快捷操作' }).click();
+  await composer.getByRole('button', { name: '目标', exact: true }).click();
+  await expect(composer.getByRole('dialog', { name: '目标管理' })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(composer.getByRole('dialog', { name: '目标管理' })).toBeHidden();
+
+  await composer.getByRole('button', { name: '添加内容' }).click();
+  await composer.getByRole('button', { name: '引用会话', exact: true }).click();
+  const reference = composer.getByRole('dialog', { name: '引用会话' });
+  await expect(reference.getByRole('textbox')).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(reference).toBeHidden();
+
+  await composer.getByRole('button', { name: '添加内容' }).click();
+  await composer.getByRole('button', { name: '项目文件' }).click();
+  const files = page.getByRole('dialog', { name: '选择项目文件' });
+  await expect(files.getByRole('checkbox', { name: '选择文件 remote-notes.txt' })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(files).toBeHidden();
+  await expect(input).toBeVisible();
+
+  const upload = page.waitForResponse((response) =>
+    new URL(response.url()).pathname === `/api/workspaces/${remote.id}/uploads` &&
+    response.request().method() === 'POST',
+  );
+  await composer.getByLabel('上传图片或文件').setInputFiles({
+    name: 'draft.txt',
+    mimeType: 'text/plain',
+    buffer: Buffer.from('attachment content'),
+  });
+  expect((await upload).status()).toBe(201);
+  await expect(composer.getByText('draft.txt', { exact: true })).toBeVisible();
+  await input.fill('修改后的远程全屏草稿');
+  await page.keyboard.press('Escape');
+  await expect(composer).toBeHidden();
+  await expect(expand).toBeFocused();
+  await expect(pane.getByRole('textbox')).toHaveValue('修改后的远程全屏草稿');
+  await expand.click();
+  await expect(composer.getByText('draft.txt', { exact: true })).toBeVisible();
+  await composer.getByRole('button', { name: '追加消息' }).click();
+  await expect(input).toHaveValue('');
+  expect(remote.control.sends).toBe(1);
+  expect(local.control.sends).toBe(0);
+  await composer.getByRole('button', { name: '退出消息全屏' }).click();
+  await expect(pane.getByRole('textbox')).toHaveValue('');
+  await expect(overview).toBeVisible();
 });
 
 test('a slow workspace leaves other session lists visible and refreshing', async ({

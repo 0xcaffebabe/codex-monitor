@@ -3,11 +3,12 @@ import { api, ApiError, post } from '../../api';
 import type { User } from '../../types';
 import { newRequestId } from './request-id';
 import type { Receipt } from './types';
-import { workspaceStorageKey } from '../../workspace-scope';
+import { workspaceStorageKey, workspaceUrl } from '../../workspace-scope';
 
 export type CommandButtonProps = {
   user: User;
   threadId: string;
+  workspaceId?: string;
   command: string;
   label: string;
   disabled?: boolean;
@@ -21,12 +22,14 @@ export type CommandButtonProps = {
 export function useCommand({
   user,
   threadId,
+  workspaceId,
   command,
   turnId,
   onDone,
   onFeedback,
 }: CommandButtonProps) {
-  const key = workspaceStorageKey(`codex-monitor.command.${user.id}.${threadId}.${command}`);
+  const key = workspaceStorageKey(`codex-monitor.command.${user.id}.${threadId}.${command}`, workspaceId);
+  const scopeUrl = (route: string) => workspaceId ? workspaceUrl(route, workspaceId) : route;
   const [requestId, setRequestId] = useState(() => sessionStorage.getItem(key) || '');
   const [busy, setBusy] = useState(false),
     [message, setMessage] = useState('');
@@ -49,13 +52,13 @@ export function useCommand({
     setBusy(true);
     report('');
     try {
-      if (requestId) receive(await api<Receipt>('/api/control/requests/' + requestId));
+      if (requestId) receive(await api<Receipt>(scopeUrl('/api/control/requests/' + requestId)));
       else {
         const id = newRequestId();
         sessionStorage.setItem(key, id);
         setRequestId(id);
         receive(
-          await post<Receipt>(`/api/sessions/${threadId}/commands`, {
+          await post<Receipt>(scopeUrl(`/api/sessions/${encodeURIComponent(threadId)}/commands`), {
             requestId: id,
             command,
             ...(turnId ? { turnId } : {}),

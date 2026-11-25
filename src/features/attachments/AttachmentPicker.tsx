@@ -12,12 +12,14 @@ const takeoverPrompt =
   '请阅读附上的旧会话记录并接手当前任务。沿用旧会话中已确认的目标、约束和决定，核对已经完成的工作，然后从尚未完成的地方继续。';
 
 export function AttachmentPicker({
+  workspaceId,
   attachments,
   disabled,
   picker,
   projectFiles,
   children,
 }: {
+  workspaceId?: string;
   attachments: Attachment[];
   disabled: boolean;
   picker: ReturnType<typeof useAttachmentPicker>;
@@ -102,7 +104,7 @@ export function AttachmentPicker({
           {attachments.map((attachment) => (
             <li key={attachment.id}>
               <span className="attachment-thumbnail">
-                <Thumbnail attachment={attachment} />
+                <Thumbnail attachment={attachment} workspaceId={workspaceId} />
               </span>
               <span className="attachment-meta">
                 <strong title={attachment.name}>{attachment.name}</strong>
@@ -129,6 +131,7 @@ export function AttachmentPicker({
       )}
       {referencing && (
         <SessionReferenceDialog
+          portalContainer={input.current?.closest('dialog') ?? undefined}
           disabled={disabled || attachments.length >= maxAttachments}
           progress={progress}
           onReference={(session, action) =>

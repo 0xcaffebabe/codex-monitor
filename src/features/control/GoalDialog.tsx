@@ -9,6 +9,7 @@ import type { Receipt, SessionGoal } from './types';
 export function GoalDialog({
   user,
   threadId,
+  workspaceId,
   goal,
   error,
   onRefresh,
@@ -17,6 +18,7 @@ export function GoalDialog({
 }: {
   user: User;
   threadId: string;
+  workspaceId?: string;
   goal: SessionGoal | null | undefined;
   error: string;
   onRefresh: () => void;
@@ -44,7 +46,11 @@ export function GoalDialog({
         ref={dialog}
         tabIndex={-1}
         onKeyDown={(event) => {
-          if (event.key === 'Escape') onClose();
+          if (event.key === 'Escape') {
+            event.preventDefault();
+            event.stopPropagation();
+            onClose();
+          }
           if (event.key === 'Tab') {
             const nodes = dialog.current?.querySelectorAll<HTMLElement>(
               'button:not(:disabled),textarea:not(:disabled)',
@@ -98,6 +104,7 @@ export function GoalDialog({
               <CommandButton
                 user={user}
                 threadId={threadId}
+                workspaceId={workspaceId}
                 command="goal.pause"
                 label="暂停目标"
                 onDone={onDone}
@@ -107,6 +114,7 @@ export function GoalDialog({
               <CommandButton
                 user={user}
                 threadId={threadId}
+                workspaceId={workspaceId}
                 command="goal.resume"
                 label="继续目标"
                 onDone={onDone}
@@ -115,6 +123,7 @@ export function GoalDialog({
             <CommandButton
               user={user}
               threadId={threadId}
+              workspaceId={workspaceId}
               command="goal.clear"
               label="清除目标"
               onDone={onDone}
@@ -123,8 +132,9 @@ export function GoalDialog({
         )}
         {goal !== undefined && (
           <PromptForm
+            workspaceId={workspaceId}
             storageKey={`codex-monitor.draft.${user.id}.${threadId}.goal`}
-            url={`/api/sessions/${threadId}/commands`}
+            url={`/api/sessions/${encodeURIComponent(threadId)}/commands`}
             extra={{ command: 'goal.set' }}
             inputLabel="目标内容"
             initialPrompt={goal?.objective || ''}

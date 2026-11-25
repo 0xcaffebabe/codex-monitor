@@ -4,10 +4,12 @@ import type { SessionContext, User } from '../../types';
 import type { Receipt, SessionGoal } from './types';
 import { useModelSettings } from './useModelSettings';
 import type { useSessionControl } from './useSessionControl';
+import { workspaceUrl } from '../../workspace-scope';
 
 export type MessageComposerProps = {
   user: User;
   threadId: string;
+  workspaceId?: string;
   control: ReturnType<typeof useSessionControl>;
   context?: SessionContext;
   contextControls?: ReactNode;
@@ -16,19 +18,20 @@ export type MessageComposerProps = {
 export function useMessageComposer({
   user,
   threadId,
+  workspaceId,
   control: { state, refresh, setRefresh, markStopped },
   onAccepted,
-}: MessageComposerProps) {
+}: MessageComposerProps, full: boolean) {
   const [goalOpen, setGoalOpen] = useState(false);
   const [controlNotice, setControlNotice] = useState('');
   const canChangeModel =
     user.role === 'admin' && !!state?.available && !state.running && !state.compacting;
-  const modelSettings = useModelSettings(canChangeModel, threadId, refresh);
+  const modelSettings = useModelSettings(full && canChangeModel, threadId, refresh, workspaceId);
   const [goal, setGoal] = useState<SessionGoal | null>(),
     [goalError, setGoalError] = useState(''),
     [goalNotice, setGoalNotice] = useState('');
   useEffect(() => {
-    if (user.role !== 'admin') return;
+    if (user.role !== 'admin' || !full) return;
     const controller = new AbortController();
     let stopped = false,
       busy = false;
@@ -36,9 +39,11 @@ export function useMessageComposer({
       if (busy) return;
       busy = true;
       try {
-        const data = await api<{ goal: SessionGoal | null }>(`/api/sessions/${threadId}/goal`, {
-          signal: controller.signal,
-        });
+        const route = `/api/sessions/${encodeURIComponent(threadId)}/goal`;
+        const data = await api<{ goal: SessionGoal | null }>(
+          workspaceId ? workspaceUrl(route, workspaceId) : route,
+          { signal: controller.signal },
+        );
         if (!stopped) {
           setGoal(data.goal);
           setGoalError('');
@@ -57,7 +62,7 @@ export function useMessageComposer({
       clearInterval(timer);
       controller.abort();
     };
-  }, [threadId, user.role, refresh]);
+  }, [threadId, user.role, refresh, workspaceId, full]);
   const goalDone = (receipt: Receipt) => {
     if ('goal' in receipt) setGoal(receipt.goal);
     setGoalNotice(receipt.message || '目标已更新。');

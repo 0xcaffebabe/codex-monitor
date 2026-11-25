@@ -18,7 +18,7 @@ import { Status } from '../../shared/ui/Status';
 import type { SessionPage, TimelineEvent, User } from '../../types';
 import type { ManagedWorkspace } from '../../workspaces';
 import type { AttentionWorkspace } from '../attention/useAttention';
-import { PromptForm } from '../control/PromptForm';
+import { MessageComposer } from '../control/MessageComposer';
 import { useSessionControl } from '../control/useSessionControl';
 import { ActivityGroup } from '../session/ActivityGroup';
 import { groupTimelineEvents } from '../session/session-model';
@@ -316,7 +316,6 @@ function OverviewPane({
     updatedAt,
   ) ?? updatedAt;
   const lastActive = new Date(lastActiveAt);
-  const sessionUrl = `/api/sessions/${encodeURIComponent(sessionId)}`;
   const blocks = groupTimelineEvents(
     (page?.events ?? []).filter(
       (event) =>
@@ -325,12 +324,6 @@ function OverviewPane({
           event.text.trim()),
     ),
   );
-  const composeLabel = control.state?.compacting
-    ? '加入队列'
-    : control.state?.running
-      ? '追加消息'
-      : '发送消息';
-
   return (
     <section
       className="running-overview-pane"
@@ -438,33 +431,15 @@ function OverviewPane({
         )}
       </div>
       {canWrite && (
-        <div className="running-overview-composer">
-          {online && !hidden && (!control.state?.available || control.state.compacting) && (
-            <p
-              className="running-overview-control-note"
-              role="status"
-              title={control.state?.reason}
-            >
-              {control.state?.reason || '正在连接 Codex…'}
-            </p>
-          )}
-          <PromptForm
-            workspaceId={workspace.id}
-            storageKey={`codex-monitor.overview-draft.${user.id}.${sessionId}`}
-            url={sessionUrl + '/messages'}
-            enabled={online && !hidden && !!control.state?.available}
-            label={composeLabel}
-            inputLabel={`向 ${title} 发送消息`}
-            submitOnEnter
-            allowDesktopChannel={!!control.state?.desktopChannel}
-            desktopOwned={control.state?.owner === 'desktop'}
-            onAccepted={() => {
-              if (hidden || !online) return;
-              setFollow(true);
-              control.setRefresh((value) => value + 1);
-            }}
-          />
-        </div>
+        <MessageComposer
+          user={user}
+          threadId={sessionId}
+          workspaceId={workspace.id}
+          control={control}
+          context={page?.context}
+          overview={{ title: `${workspaceName} · ${title}`, inputLabel: `向 ${title} 发送消息`, online, hidden }}
+          onAccepted={() => setFollow(true)}
+        />
       )}
     </section>
   );

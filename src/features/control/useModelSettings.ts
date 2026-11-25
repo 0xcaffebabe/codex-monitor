@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
 import { api } from '../../api';
 import type { CodexModel, ReasoningEffort, SessionModelSettings } from '../../types';
+import { workspaceUrl } from '../../workspace-scope';
 
-export function useModelSettings(enabled: boolean, scope: string, refresh: number) {
+export function useModelSettings(enabled: boolean, scope: string, refresh: number, workspaceId?: string) {
   const [models, setModels] = useState<CodexModel[]>([]),
     [model, setModel] = useState(''),
     [thinking, setThinking] = useState<ReasoningEffort | ''>(''),
@@ -14,14 +15,15 @@ export function useModelSettings(enabled: boolean, scope: string, refresh: numbe
   };
   useEffect(() => {
     reset();
-  }, [scope]);
+  }, [scope, workspaceId]);
   useEffect(() => {
     if (!enabled) return;
     let stopped = false;
     const controller = new AbortController();
     setLoading(true);
     setError('');
-    api<{ available: boolean; models: CodexModel[]; reason?: string }>('/api/control/models', {
+    const route = '/api/control/models';
+    api<{ available: boolean; models: CodexModel[]; reason?: string }>(workspaceId ? workspaceUrl(route, workspaceId) : route, {
       signal: controller.signal,
     })
       .then((result) => {
@@ -39,7 +41,7 @@ export function useModelSettings(enabled: boolean, scope: string, refresh: numbe
       stopped = true;
       controller.abort();
     };
-  }, [enabled, scope, refresh]);
+  }, [enabled, scope, refresh, workspaceId]);
   const selectModel = (value: string) => {
     setModel(value);
     setThinking('');

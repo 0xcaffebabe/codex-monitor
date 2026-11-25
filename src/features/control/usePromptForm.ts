@@ -130,6 +130,7 @@ export function usePromptForm({
     setDraft((previous) => ({ ...previous, permissionMode: mode === 'inherit' ? undefined : mode }));
   }
   const attachmentPicker = useAttachmentPicker({
+    workspaceId,
     attachments,
     disabled: !allowAttachments || busy || !!draft.requestId || !enabled,
     onAdd: (attachment, prompt) =>

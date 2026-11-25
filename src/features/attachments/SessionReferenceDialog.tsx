@@ -13,11 +13,13 @@ export function SessionReferenceDialog({
   progress,
   onReference,
   onClose,
+  portalContainer = document.body,
 }: {
   disabled: boolean;
   progress: string;
   onReference: (session: WorkspaceSession, action: ReferenceAction) => Promise<string | undefined>;
   onClose: () => void;
+  portalContainer?: HTMLElement;
 }) {
   const model = useSessionReference();
   const dialog = useRef<HTMLDivElement>(null);
@@ -220,6 +222,6 @@ export function SessionReferenceDialog({
         </footer>
       </div>
     </div>,
-    document.body,
+    portalContainer,
   );
 }

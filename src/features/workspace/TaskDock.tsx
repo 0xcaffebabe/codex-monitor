@@ -119,6 +119,7 @@ export function TaskDock({
           id="running-sessions"
           aria-labelledby={overview ? 'running-overview-heading' : 'running-sessions-heading'}
           onCancel={(event) => {
+            if (event.target !== event.currentTarget) return;
             event.preventDefault();
             close();
           }}
