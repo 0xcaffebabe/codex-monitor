@@ -67,6 +67,7 @@ function SessionMessageComposer(props: ComposerProps) {
     extra: canChangeModel ? modelSettings.overrides : undefined,
     onSubmitStart: () => setControlNotice(''),
     onAccepted: () => {
+      setExpanded(false);
       modelSettings.reset();
       setRefresh((value) => value + 1);
       onAccepted();
@@ -130,6 +131,7 @@ function SessionMessageComposer(props: ComposerProps) {
         form={form}
         allowAttachments={false}
         inputLabel={overview.inputLabel}
+        leadingActions={<ContextUsageRing context={context} />}
       >
         <button
           ref={expandButton}

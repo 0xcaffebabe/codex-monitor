@@ -1,4 +1,4 @@
-import { writeFile } from 'node:fs/promises';
+import { appendFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { ids } from '../fixture.js';
 import { expect, localTitle, test } from './monitor.js';
@@ -170,8 +170,30 @@ test('running overview follows and sends messages independently across workspace
   await remotePane.getByRole('button', { name: '放大此会话' }).click();
   await expect(localPane).toBeHidden();
   await expect(remoteInput).toHaveValue('远程分屏草稿');
+  const contextUsage = remotePane.getByRole('button', { name: '上下文用量' });
+  await contextUsage.click();
+  const usageDetails = remotePane.getByRole('dialog', { name: '上下文用量' });
+  await expect(usageDetails.getByText('上下文窗口上限未知')).toBeVisible();
+  await appendFile(
+    path.join(remote.data.home, 'sessions', `rollout-${ids.modern}.jsonl`),
+    JSON.stringify({
+      type: 'event_msg',
+      timestamp: new Date().toISOString(),
+      payload: {
+        type: 'token_count',
+        info: { model_context_window: 200000, last_token_usage: { total_tokens: 150000 } },
+      },
+    }) + '\n',
+  );
+  await expect(usageDetails.getByRole('meter')).toHaveText('已用 75.0%');
+  await expect(usageDetails.getByText('150,000 / 200,000 tokens')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(usageDetails).toBeHidden();
+  await expect(localPane).toBeHidden();
   await page.keyboard.press('Escape');
   await expect(localInput).toHaveValue('本机分屏草稿');
+  await expect(localPane.getByRole('button', { name: '上下文用量' }))
+    .toHaveAccessibleDescription(/上下文窗口上限未知/);
 
   await page.setViewportSize({ width: 800, height: 500 });
   await expect(overview.getByRole('region', { name: '会话输出' })).toHaveCount(2);
@@ -394,11 +416,12 @@ test('the overview composer floats over the remote pane and retains its draft an
   await expect(expand).toBeFocused();
   await expand.click();
   await composer.getByRole('button', { name: '追加消息' }).click();
-  await expect(input).toHaveValue('');
+  await expect(composer).toBeHidden();
+  await expect(expand).toBeFocused();
+  await expect(compactInput).toHaveValue('');
+  await expect(pane.getByText(/Codex 已接收/)).toBeVisible();
   expect(remote.control.sends).toBe(1);
   expect(local.control.sends).toBe(0);
-  await composer.getByRole('button', { name: '收起消息编辑器' }).click();
-  await expect(pane.getByRole('textbox')).toHaveValue('');
   await expect(overview).toBeVisible();
 });
 

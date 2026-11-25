@@ -293,6 +293,10 @@
   font-size: var(--font-meta);
 }
 
+.running-overview-composer .prompt-actions .context-ring-trigger {
+  padding: 0;
+}
+
 .overview-compose-expand {
   position: relative;
   width: 36px;

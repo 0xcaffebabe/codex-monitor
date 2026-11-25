@@ -211,7 +211,12 @@ function RunningOverview({
     <div
       className="running-overview"
       onKeyDown={(event) => {
-        if (event.key === 'Escape' && !event.nativeEvent.isComposing && expandedTask) {
+        if (
+          event.key === 'Escape' &&
+          !event.nativeEvent.isComposing &&
+          expandedTask &&
+          !event.currentTarget.querySelector(':popover-open')
+        ) {
           event.preventDefault();
           setExpanded(undefined);
         }
