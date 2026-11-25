@@ -9,11 +9,13 @@ export function ActivityGroup({
   onCopy,
   sessionId,
   onOpenFile,
+  anchorEvents = true,
 }: {
   events: TimelineEvent[];
   onCopy: (s: string) => void;
   sessionId?: string;
   onOpenFile?: (itemId: string, file: SessionFileLink) => void;
+  anchorEvents?: boolean;
 }) {
   const tools = events.filter((event) => event.kind === 'tool'),
     failed = tools.filter((event) => event.status === 'failed').length,
@@ -57,6 +59,7 @@ export function ActivityGroup({
             key={event.id}
             sessionId={sessionId}
             event={event}
+            anchor={anchorEvents}
             onCopy={onCopy}
             onOpenFile={onOpenFile}
           />

@@ -60,6 +60,7 @@ test('running overview follows and sends messages independently across workspace
   signedIn: { browserPage: page, workspace },
   local,
   monitor,
+  context,
 }) => {
   const remote = await monitor.addWorkspace('远程全览工作空间', '远程全览任务');
   const third = await monitor.addWorkspace('第三个全览工作空间', '第三个全览任务');
@@ -73,6 +74,19 @@ test('running overview follows and sends messages independently across workspace
   const thirdPane = overview.getByRole('region', { name: '第三个全览工作空间 · 第三个全览任务' });
   await expect(overview.getByRole('region', { name: '会话输出' })).toHaveCount(3);
   await expect(remotePane.locator('.overview-message').first()).toBeVisible();
+  const lastActive = remotePane.getByTitle(/^最后活跃时间/);
+  await expect(lastActive).toHaveText('刚刚');
+  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+  const localTools = localPane.locator('.activity-group').filter({ hasText: '2 次工具调用' });
+  await expect(localTools).not.toHaveAttribute('open');
+  await localTools.locator(':scope > summary').click();
+  await expect(localTools.getByLabel('执行失败')).toBeVisible();
+  const command = localTools.locator('.tool-card').filter({ hasText: 'npm test' });
+  await command.locator('summary').click();
+  await expect(command.locator('pre')).toHaveText('npm test');
+  await command.getByRole('button', { name: '复制工具调用' }).click();
+  await expect(overview.getByText('已复制到剪贴板')).toBeVisible();
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('npm test');
   const localInput = localPane.getByRole('textbox');
   const remoteInput = remotePane.getByRole('textbox');
 
@@ -81,13 +95,28 @@ test('running overview follows and sends messages independently across workspace
   local.data.append('来自本机的实时进展');
   remote.data.hist.prepare('INSERT INTO thread_realtime_items VALUES(?,?,?,?,?)').run(
     ids.modern,
+    'overview-realtime-tool',
+    99,
+    Date.now(),
+    JSON.stringify({ type: 'commandExecution', command: 'echo remote-only', status: 'inProgress' }),
+  );
+  const remoteProgressAt = Date.now();
+  remote.data.hist.prepare('INSERT INTO thread_realtime_items VALUES(?,?,?,?,?)').run(
+    ids.modern,
     'overview-realtime-progress',
     100,
-    Date.now(),
+    remoteProgressAt,
     JSON.stringify({ type: 'agentMessage', text: '来自远程的实时进展', phase: 'commentary' }),
   );
   await expect(localPane.getByText('来自本机的实时进展')).toBeVisible();
   await expect(remotePane.getByText('来自远程的实时进展')).toBeVisible();
+  await expect(lastActive).toHaveAttribute('datetime', new Date(remoteProgressAt).toISOString());
+  await expect(command.locator('pre')).toBeVisible();
+  const remoteTools = remotePane.locator('.activity-group').filter({ hasText: '正在执行' });
+  await remoteTools.locator(':scope > summary').click();
+  await expect(remoteTools.locator('.tool-preview')).toHaveText('echo remote-only');
+  await expect(remoteTools.getByLabel('执行中')).toBeVisible();
+  await expect(localPane.getByText('echo remote-only')).toHaveCount(0);
   await expect(localInput).toHaveValue('本机分屏草稿');
   await expect(remoteInput).toHaveValue('远程分屏草稿');
 

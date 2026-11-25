@@ -65,7 +65,8 @@
 
 .running-overview-scope,
 .running-overview-pager,
-.running-overview-pane-name > span {
+.running-overview-pane-name > span,
+.running-overview-pane-title time {
   color: var(--muted);
   font-size: var(--font-meta);
 }
@@ -134,7 +135,8 @@
   min-width: 0;
 }
 
-.running-overview-pane-name > * {
+.running-overview-pane-name > span,
+.running-overview-pane-title h3 {
   display: block;
   overflow: hidden;
   white-space: nowrap;
@@ -142,10 +144,23 @@
   line-height: 1.35;
 }
 
-.running-overview-pane-name h3 {
-  margin: 0 0 2px;
+.running-overview-pane-title {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 2px;
+}
+
+.running-overview-pane-title h3 {
+  min-width: 0;
+  margin: 0;
   font-size: var(--font-ui);
   font-weight: 600;
+}
+
+.running-overview-pane-title time {
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
 .running-overview-pane-header .icon-button {

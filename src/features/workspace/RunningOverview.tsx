@@ -12,7 +12,7 @@ import {
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { AttentionSession } from '../../attention-types';
 import { DetailLoader } from '../../detail-loader';
-import { time } from '../../shared/format';
+import { relative, time } from '../../shared/format';
 import { Markdown } from '../../shared/ui/Markdown';
 import { Status } from '../../shared/ui/Status';
 import type { SessionPage, TimelineEvent, User } from '../../types';
@@ -20,6 +20,9 @@ import type { ManagedWorkspace } from '../../workspaces';
 import type { AttentionWorkspace } from '../attention/useAttention';
 import { PromptForm } from '../control/PromptForm';
 import { useSessionControl } from '../control/useSessionControl';
+import { ActivityGroup } from '../session/ActivityGroup';
+import { groupTimelineEvents } from '../session/session-model';
+import { useSessionActions } from '../session/useSessionActions';
 
 type RunningTask = { workspace: ManagedWorkspace; session: AttentionSession };
 const taskKey = ({ workspace, session }: RunningTask) => JSON.stringify([workspace.id, session.id]);
@@ -47,6 +50,8 @@ export function RunningOverview({
   const [page, setPage] = useState(0);
   const [expanded, setExpanded] = useState<string>();
   const [size, setSize] = useState({ width: 0, height: 0 });
+  const [notice, setNotice] = useState('');
+  const { copied } = useSessionActions(setNotice);
   const area = useRef<HTMLDivElement>(null);
   const closeButton = useRef<HTMLButtonElement>(null);
 
@@ -95,6 +100,11 @@ export function RunningOverview({
   useEffect(() => {
     if (page !== activePage) setPage(activePage);
   }, [page, activePage]);
+  useEffect(() => {
+    if (!notice) return;
+    const timer = setTimeout(() => setNotice(''), 3000);
+    return () => clearTimeout(timer);
+  }, [notice]);
 
   return (
     <div
@@ -149,6 +159,7 @@ export function RunningOverview({
                   dismissible={!!observation?.fresh && !current.has(key)}
                   hidden={!!expandedTask && expanded !== key}
                   expanded={expanded === key}
+                  onCopy={copied}
                   onExpand={() => setExpanded(expanded === key ? undefined : key)}
                   onOpen={() => onOpenSession(task.workspace.id, session.id)}
                   onDismiss={() => {
@@ -188,6 +199,11 @@ export function RunningOverview({
           </footer>
         )}
       </div>
+      {notice && (
+        <div className="toast" role="status">
+          {notice}
+        </div>
+      )}
     </div>
   );
 }
@@ -228,6 +244,7 @@ function OverviewPane({
   dismissible,
   hidden,
   expanded,
+  onCopy,
   onExpand,
   onOpen,
   onDismiss,
@@ -239,6 +256,7 @@ function OverviewPane({
   dismissible: boolean;
   hidden: boolean;
   expanded: boolean;
+  onCopy: (text: string) => void;
   onExpand: () => void;
   onOpen: () => void;
   onDismiss: () => void;
@@ -292,11 +310,20 @@ function OverviewPane({
   }, [page, expanded, follow, hidden]);
 
   const title = session.title || page?.session.title || '未命名会话';
+  const updatedAt = Math.max(session.updatedAt, page?.session.updatedAt ?? 0);
+  const lastActiveAt = page?.events.reduce(
+    (latest, event) => Math.max(latest, event.timestamp),
+    updatedAt,
+  ) ?? updatedAt;
+  const lastActive = new Date(lastActiveAt);
   const sessionUrl = `/api/sessions/${encodeURIComponent(sessionId)}`;
-  const messages = page?.events.filter(
-    (event) =>
-      (event.kind === 'assistant' || event.kind === 'user' || event.kind === 'plan') &&
-      event.text.trim(),
+  const blocks = groupTimelineEvents(
+    (page?.events ?? []).filter(
+      (event) =>
+        event.kind === 'tool' ||
+        ((event.kind === 'assistant' || event.kind === 'user' || event.kind === 'plan') &&
+          event.text.trim()),
+    ),
   );
   const composeLabel = control.state?.compacting
     ? '加入队列'
@@ -312,7 +339,15 @@ function OverviewPane({
     >
       <header className="running-overview-pane-header">
         <div className="running-overview-pane-name">
-          <h3 title={title}>{title}</h3>
+          <div className="running-overview-pane-title">
+            <h3 title={title}>{title}</h3>
+            <time
+              dateTime={lastActive.toISOString()}
+              title={`最后活跃时间：${lastActive.toLocaleString('zh-CN')}`}
+            >
+              {relative(lastActiveAt)}
+            </time>
+          </div>
           <span title={`${workspaceName} · ${session.project}`}>
             {workspaceName} · {session.project}
           </span>
@@ -360,10 +395,22 @@ function OverviewPane({
             if (!element.clientHeight) return;
             setFollow(element.scrollHeight - element.scrollTop - element.clientHeight < 24);
           }}
+          onToggle={(event) => {
+            if (event.target instanceof HTMLDetailsElement && event.target.open) setFollow(false);
+          }}
         >
-          {messages?.map((event) => (
-            <Message key={event.id} event={event} />
-          ))}
+          {blocks.map((block) =>
+            block.kind === 'event' ? (
+              <Message key={block.id} event={block.event} />
+            ) : (
+              <ActivityGroup
+                key={block.id}
+                events={block.events}
+                onCopy={onCopy}
+                anchorEvents={false}
+              />
+            ),
+          )}
           {error || !online ? (
             <p className="running-overview-pane-note" role="status">
               {online ? error : '工作空间已离线，等待重新连接。'}
@@ -375,7 +422,7 @@ function OverviewPane({
             </p>
           ) : status === 'running' ? (
             <p className="running-overview-pane-note">Codex 正在工作</p>
-          ) : messages?.length === 0 ? (
+          ) : blocks.length === 0 ? (
             <p className="running-overview-pane-note">暂无会话输出</p>
           ) : null}
         </div>

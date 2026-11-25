@@ -23,12 +23,15 @@ export const EventCard = React.memo(function EventCard({
   sessionId,
   onCopy,
   onOpenFile,
+  anchor = true,
 }: {
   event: TimelineEvent;
   sessionId?: string;
   onCopy: (s: string) => void;
   onOpenFile?: (itemId: string, file: SessionFileLink) => void;
+  anchor?: boolean;
 }) {
+  const id = anchor ? 'event-' + e.id : undefined;
   const renderImage = (offset: number | undefined, alt: string) => {
     const image =
       offset === undefined ? undefined : e.images?.find((image) => image.offset === offset);
@@ -40,7 +43,7 @@ export const EventCard = React.memo(function EventCard({
     return (
       <details
         className={cx('tool-card', e.status === 'failed' && 'tool-error')}
-        id={'event-' + e.id}
+        id={id}
       >
         <summary>
           <span className="tool-icon">
@@ -86,7 +89,7 @@ export const EventCard = React.memo(function EventCard({
     );
   if (e.kind === 'system')
     return (
-      <div className="system-event" id={'event-' + e.id}>
+      <div className="system-event" id={id}>
         <CheckCheck size={13} />
         {e.text}
         <small>{time(e.timestamp)}</small>
@@ -107,7 +110,7 @@ export const EventCard = React.memo(function EventCard({
   const markdown = <Markdown text={e.text} renderImage={renderImage} renderFile={e.files ? renderFile : undefined} />;
   if (e.kind === 'reasoning')
     return (
-      <details className="reasoning-card" id={'event-' + e.id}>
+      <details className="reasoning-card" id={id}>
         <summary>
           <Activity size={14} />
           思考摘要
@@ -119,7 +122,7 @@ export const EventCard = React.memo(function EventCard({
   return (
     <article
       className={cx('message', e.kind === 'user' ? 'user-message' : 'assistant-message')}
-      id={'event-' + e.id}
+      id={id}
     >
       <div className="message-top">
         <span className={e.kind === 'user' ? 'user-avatar' : 'assistant-avatar'}>
