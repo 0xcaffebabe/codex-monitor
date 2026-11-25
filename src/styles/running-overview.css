@@ -59,8 +59,12 @@
   font-weight: 600;
 }
 
-.running-overview-header .secondary {
+.running-overview-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   margin-inline-start: auto;
+  white-space: nowrap;
 }
 
 .running-overview-scope,
@@ -369,4 +373,34 @@
   overflow: visible;
   border-top: 0;
   padding: 6px 12px 12px;
+}
+
+.overview-new-session {
+  position: fixed;
+  width: min(780px, calc(100% - 32px));
+  max-width: none;
+  max-height: calc(100dvh - 32px);
+  padding: 0;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: var(--shadow);
+  overscroll-behavior: contain;
+}
+
+.overview-new-session[open] {
+  display: grid;
+  grid-template-rows: auto auto minmax(70px, 1fr) auto;
+}
+
+.overview-new-session .overview-compose-header {
+  min-height: 44px;
+  padding-inline: var(--new-session-gutter);
+}
+
+.overview-new-session .overview-compose-header h2 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }

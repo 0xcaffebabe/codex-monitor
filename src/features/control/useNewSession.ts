@@ -6,6 +6,7 @@ import { useModelSettings } from './useModelSettings';
 import { readNewSessionPreference, writeNewSessionPreference } from './new-session-preferences';
 import { sessionPermissionModes, type SessionPermissionMode } from '../../approval-types';
 import type { ManagedWorkspace } from '../../workspaces';
+import { workspaceUrl } from '../../workspace-scope';
 
 export type NewSessionProps = {
   user: User;
@@ -48,9 +49,10 @@ export function useNewSession({
     writeNewSessionPreference(mode, 'permission', user.id, workspaceId);
     writeNewSessionPreference(workspaceId, 'workspace', user.id);
   }
-  const modelSettings = useModelSettings(true, 'new', refresh);
+  const modelSettings = useModelSettings(true, 'new', refresh, workspaceId);
   useEffect(() => {
     let stopped = false;
+    const controller = new AbortController();
     setLoading(true);
     setError('');
     api<{
@@ -58,7 +60,7 @@ export function useNewSession({
       projects: Project[];
       reason?: string;
       creationPermissions?: boolean;
-    }>('/api/control')
+    }>(workspaceUrl('/api/control', workspaceId), { signal: controller.signal })
       .then((result) => {
         if (stopped) return;
         setProjects(result.projects);
@@ -73,8 +75,9 @@ export function useNewSession({
       });
     return () => {
       stopped = true;
+      controller.abort();
     };
-  }, [refresh]);
+  }, [refresh, workspaceId]);
   return {
     projects,
     selected,

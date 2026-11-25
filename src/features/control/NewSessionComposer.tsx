@@ -8,8 +8,12 @@ import { writeNewSessionPreference } from './new-session-preferences';
 import type { SessionPermissionMode } from '../../approval-types';
 import type { AttentionSession } from '../../attention-types';
 import { GitBranchSelector } from '../git/GitBranchSelector';
+import { workspaceUrl } from '../../workspace-scope';
 
-export function NewSessionComposer(props: NewSessionProps & { activeSessions?: AttentionSession[] }) {
+export function NewSessionComposer(props: NewSessionProps & {
+  activeSessions?: AttentionSession[];
+  draftKey?: string;
+}) {
   const { user, workspaceId, workspaces, onWorkspaceChange, onCreated } = props;
   const workspace = workspaces.find((item) => item.id === workspaceId);
   const online = !!workspace?.online;
@@ -86,16 +90,20 @@ export function NewSessionComposer(props: NewSessionProps & { activeSessions?: A
           <GitBranchSelector
             key={project.id}
             projectId={project.id}
+            workspaceId={workspaceId}
             projectPath={project.path}
             workspaceName={workspace.name}
             activeSessions={props.activeSessions}
           />
         )}
         <PromptForm
-          storageKey={`codex-monitor.draft.${user.id}.new`}
+          storageKey={props.draftKey ?? `codex-monitor.draft.${user.id}.new`}
+          workspaceId={workspaceId}
           submitOnEnter
           allowAttachments
-          projectFilesUrl={selected ? `/api/control/projects/${selected}/files` : undefined}
+          projectFilesUrl={
+            selected ? workspaceUrl(`/api/control/projects/${selected}/files`, workspaceId) : undefined
+          }
           allowGoal
           attachmentControls={
             <ModelSettings compact settings={modelSettings} prefix="新会话" onRetry={refresh} />

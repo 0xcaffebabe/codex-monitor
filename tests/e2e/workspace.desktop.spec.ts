@@ -150,6 +150,66 @@ test('running overview follows and sends messages independently across workspace
   await expect(trigger).toBeFocused();
 });
 
+test('creating from the overview adds a remote session pane even before attention sync', async ({
+  signedIn: { browserPage: page, workspace },
+  local,
+  monitor,
+}) => {
+  const remoteName = '远程新建工作空间';
+  const remote = await monitor.addWorkspace(remoteName, '已有远程会话');
+  await page.route(`**/api/workspaces/${remote.id}/sessions/attention`, async (route) => {
+    const response = await route.fetch();
+    const snapshot = await response.json();
+    snapshot.running = snapshot.running?.filter(({ id }: { id: string }) => id === ids.modern);
+    await route.fulfill({ response, json: snapshot });
+  });
+  const trigger = page.getByRole('button', { name: '查看运行中的会话' });
+  await expect(trigger).toHaveText('2');
+  await trigger.click();
+  await page.getByRole('button', { name: '全览', exact: true }).click();
+  const overview = page.getByRole('dialog', { name: '任务全览' });
+  const start = overview.getByRole('button', { name: '新建会话', exact: true });
+  const editor = overview.getByRole('dialog', { name: '新建会话', exact: true });
+  const localPane = overview.getByRole('region', { name: `本机工作空间 · ${localTitle}` });
+  await localPane.getByRole('textbox').fill('原会话草稿');
+  await start.click();
+  await expect(editor.getByRole('tab', { name: '本机工作空间' })).toHaveAttribute('aria-selected', 'true');
+  await editor.getByRole('tab', { name: remoteName }).click();
+  await expect(editor.getByRole('radio', { name: 'work', exact: true })).toBeChecked();
+  const prompt = '从全览启动远程会话';
+  const input = editor.getByRole('textbox', { name: '发送给 Codex 的消息' });
+  await input.fill(prompt);
+  await page.keyboard.press('Escape');
+  await expect(editor).toBeHidden();
+  await expect(start).toBeFocused();
+  await start.click();
+  await expect(input).toHaveValue(prompt);
+
+  let rejectCreation = true;
+  await page.route(`**/api/workspaces/${remote.id}/sessions`, (route) => {
+    if (route.request().method() !== 'POST' || !rejectCreation) return route.fallback();
+    rejectCreation = false;
+    return route.fulfill({ status: 400, json: { error: '暂时无法创建' } });
+  });
+  const send = editor.getByRole('button', { name: '创建并发送' });
+  await send.click();
+  await expect(editor.getByRole('alert')).toHaveText('暂时无法创建');
+  await expect(input).toHaveValue(prompt);
+  await expect(overview.getByRole('region', { name: `${remoteName} · ${prompt}` })).toHaveCount(0);
+  await send.click();
+
+  await expect(editor).toBeHidden();
+  await expect(overview).toBeVisible();
+  const pane = overview.getByRole('region', { name: `${remoteName} · ${prompt}` });
+  await expect(pane.getByText(`测试回复：${prompt}`)).toBeVisible();
+  await expect(localPane.getByRole('textbox')).toHaveValue('原会话草稿');
+  await expect(overview.getByRole('region', { name: '会话输出' })).toHaveCount(3);
+  expect(remote.control.creates).toBe(1);
+  expect(local.control.creates).toBe(0);
+  await pane.getByRole('button', { name: '打开会话详情' }).click();
+  await expect(workspace.workspaceSelector).toHaveValue(remote.id);
+});
+
 test('the overview composer floats over the remote pane and retains its draft and controls', async ({
   signedIn: { browserPage: page },
   local,

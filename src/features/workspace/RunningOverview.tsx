@@ -7,6 +7,7 @@ import {
   LoaderCircle,
   Maximize2,
   Minimize2,
+  SquarePen,
   X,
 } from 'lucide-react';
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
@@ -23,8 +24,13 @@ import { useSessionControl } from '../control/useSessionControl';
 import { ActivityGroup } from '../session/ActivityGroup';
 import { groupTimelineEvents } from '../session/session-model';
 import { useSessionActions } from '../session/useSessionActions';
+import { OverviewNewSession } from './OverviewNewSession';
 
-type RunningTask = { workspace: ManagedWorkspace; session: AttentionSession };
+type RunningTask = {
+  workspace: ManagedWorkspace;
+  session: Pick<AttentionSession, 'id' | 'updatedAt'> &
+    Partial<Pick<AttentionSession, 'title' | 'project' | 'status'>>;
+};
 const taskKey = ({ workspace, session }: RunningTask) => JSON.stringify([workspace.id, session.id]);
 const gap = 12;
 const paneMinWidth = 340;
@@ -35,20 +41,25 @@ export function RunningOverview({
   user,
   running,
   groups,
+  workspaceId,
   unavailable,
   onClose,
   onOpenSession,
+  onRefresh,
 }: {
   user: User;
   running: RunningTask[];
   groups: AttentionWorkspace[];
+  workspaceId: string;
   unavailable: string[];
   onClose: () => void;
   onOpenSession: (workspaceId: string, sessionId: string) => void;
+  onRefresh: () => void;
 }) {
   const [tasks, setTasks] = useState(running);
   const [page, setPage] = useState(0);
   const [expanded, setExpanded] = useState<string>();
+  const [creating, setCreating] = useState(false);
   const [size, setSize] = useState({ width: 0, height: 0 });
   const [notice, setNotice] = useState('');
   const { copied } = useSessionActions(setNotice);
@@ -106,6 +117,18 @@ export function RunningOverview({
     return () => clearTimeout(timer);
   }, [notice]);
 
+  function showCreatedSession(workspace: ManagedWorkspace, sessionId: string) {
+    const task = { workspace, session: { id: sessionId, updatedAt: Date.now() } };
+    const key = taskKey(task);
+    setTasks((previous) => [
+      previous.find((item) => taskKey(item) === key) ?? task,
+      ...previous.filter((item) => taskKey(item) !== key),
+    ]);
+    setExpanded(undefined);
+    setPage(0);
+    onRefresh();
+  }
+
   return (
     <div
       className="running-overview"
@@ -125,10 +148,23 @@ export function RunningOverview({
           <span>全部工作空间</span>
           <span>{running.length} 个运行中</span>
         </div>
-        <button ref={closeButton} type="button" className="secondary" onClick={onClose}>
-          <X size={16} aria-hidden="true" />
-          退出全览
-        </button>
+        <div className="running-overview-actions">
+          {user.role === 'admin' && (
+            <button
+              type="button"
+              className="primary"
+              aria-haspopup="dialog"
+              onClick={() => setCreating(true)}
+            >
+              <SquarePen size={16} aria-hidden="true" />
+              新建会话
+            </button>
+          )}
+          <button ref={closeButton} type="button" className="secondary" onClick={onClose}>
+            <X size={16} aria-hidden="true" />
+            退出全览
+          </button>
+        </div>
       </header>
       {!!unavailable.length && (
         <p className="running-overview-warning" role="status">
@@ -203,6 +239,15 @@ export function RunningOverview({
         <div className="toast" role="status">
           {notice}
         </div>
+      )}
+      {creating && (
+        <OverviewNewSession
+          user={user}
+          workspaceId={workspaceId}
+          groups={groups}
+          onClose={() => setCreating(false)}
+          onCreated={showCreatedSession}
+        />
       )}
     </div>
   );
@@ -310,7 +355,10 @@ function OverviewPane({
     if (follow && !hidden && scroll.current) scroll.current.scrollTop = scroll.current.scrollHeight;
   }, [page, expanded, follow, hidden]);
 
-  const title = session.title || page?.session.title || '未命名会话';
+  const title =
+    session.title || page?.session.title || (page || session.status ? '未命名会话' : '新会话');
+  const project = session.project || page?.session.project;
+  const location = project ? `${workspaceName} · ${project}` : workspaceName;
   const updatedAt = Math.max(session.updatedAt, page?.session.updatedAt ?? 0);
   const lastActiveAt = page?.events.reduce(
     (latest, event) => Math.max(latest, event.timestamp),
@@ -343,11 +391,9 @@ function OverviewPane({
               {relative(lastActiveAt)}
             </time>
           </div>
-          <span title={`${workspaceName} · ${session.project}`}>
-            {workspaceName} · {session.project}
-          </span>
+          <span title={location}>{location}</span>
         </div>
-        {online ? <Status status={status} /> : <span className="muted">离线</span>}
+        {online ? status && <Status status={status} /> : <span className="muted">离线</span>}
         <button
           type="button"
           className="icon-button"
@@ -366,7 +412,7 @@ function OverviewPane({
         >
           <ArrowUpRight size={16} />
         </button>
-        {dismissible && (
+        {dismissible && (session.status || (page && status !== 'running')) && (
           <button
             type="button"
             className="icon-button"

@@ -10,6 +10,7 @@ export function TaskDock({
   mobile,
   user,
   groups,
+  onRefresh,
   workspaceId,
   selected,
   onHome,
@@ -20,6 +21,7 @@ export function TaskDock({
   mobile: boolean;
   user: User;
   groups: AttentionWorkspace[];
+  onRefresh: () => void;
   workspaceId: string;
   selected?: string;
   onHome: () => void;
@@ -132,7 +134,9 @@ export function TaskDock({
               user={user}
               running={running}
               groups={groups}
+              workspaceId={workspaceId}
               unavailable={unavailable}
+              onRefresh={onRefresh}
               onClose={close}
               onOpenSession={(taskWorkspaceId, sessionId) => {
                 close();

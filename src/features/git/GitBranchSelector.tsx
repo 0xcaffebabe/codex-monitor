@@ -2,6 +2,7 @@ import { ChevronDown, GitBranch, LoaderCircle, RefreshCw, X } from 'lucide-react
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { AttentionSession } from '../../attention-types';
 import type { Session } from '../../types';
+import { workspaceUrl } from '../../workspace-scope';
 import { useGitBranches } from './useGitBranches';
 
 type ProjectBranchLocation = {
@@ -12,9 +13,10 @@ type ProjectBranchLocation = {
 
 export function GitBranchSelector({
   projectId,
+  workspaceId,
   ...location
-}: ProjectBranchLocation & { projectId: string }) {
-  const model = useGitBranches(`/api/control/projects/${projectId}/git`);
+}: ProjectBranchLocation & { projectId: string; workspaceId: string }) {
+  const model = useGitBranches(workspaceUrl(`/api/control/projects/${projectId}/git`, workspaceId));
   const [open, setOpen] = useState(false);
   const { data, loading } = model;
   const branch = data
