@@ -97,9 +97,9 @@ export function larkReply(config: NotificationConfig, event: unknown) {
 }
 
 /** The same incoming Lark message always uses the same Monitor queue receipt. */
-export function larkRequestId(destination: string, messageId: string, purpose: 'submit' | 'reply') {
+export function larkRequestId(destination: string, messageId: string) {
   const hash = createHash('sha256')
-    .update(JSON.stringify([destination, messageId, purpose]))
+    .update(JSON.stringify([destination, messageId, 'submit']))
     .digest('hex');
   return `${hash.slice(0, 8)}-${hash.slice(8, 12)}-8${hash.slice(13, 16)}-8${hash.slice(17, 20)}-${hash.slice(20, 32)}`;
 }
@@ -124,19 +124,39 @@ export type LarkReplySubmission = {
 };
 
 export const replyReceipts = {
-  sent: '已发送到 Codex 会话。',
-  queued: '已加入 Monitor 消息队列。',
-  unavailable: '此会话已不可发送消息。',
-  offline: '工作空间已离线。客户端重新连接后，可以重新引用通知发送。',
-  upgrade: '请更新此工作空间的 Monitor 客户端，再重新引用通知发送。',
-  failed: '提交失败。请在 Monitor 中查看会话和发送回执。',
-  unknown: '暂时无法确认发送结果，请在 Monitor 中查看会话和发送回执。',
-  unsupported: '请引用通知发送文字或图片，文字最多 12000 字符。',
-  imagesTooLarge: '每条回复最多发送 5 张图片，合计不超过 20 MB。',
-  imageFailed: '无法读取回复里的图片，消息未提交。请检查机器人图片权限或重新上传图片。',
-  busy: '当前处理的回复过多，请稍后重新引用通知发送。',
+  sent: { text: '已发送到 Codex 会话。', emoji: 'CheckMark' },
+  queued: { text: '已加入 Monitor 消息队列。', emoji: 'OneSecond' },
+  unavailable: { text: '此会话已不可发送消息。', emoji: 'CrossMark' },
+  offline: {
+    text: '工作空间已离线。客户端重新连接后，可以重新引用通知发送。',
+    emoji: 'CrossMark',
+  },
+  upgrade: {
+    text: '请更新此工作空间的 Monitor 客户端，再重新引用通知发送。',
+    emoji: 'CrossMark',
+  },
+  failed: { text: '提交失败。请在 Monitor 中查看会话和发送回执。', emoji: 'CrossMark' },
+  unknown: {
+    text: '暂时无法确认发送结果，请在 Monitor 中查看会话和发送回执。',
+    emoji: 'THINKING',
+  },
+  unsupported: { text: '请引用通知发送文字或图片，文字最多 12000 字符。', emoji: 'CrossMark' },
+  imagesTooLarge: { text: '每条回复最多发送 5 张图片，合计不超过 20 MB。', emoji: 'CrossMark' },
+  imageFailed: {
+    text: '无法读取回复里的图片，消息未提交。请检查机器人图片权限或重新上传图片。',
+    emoji: 'CrossMark',
+  },
+  busy: { text: '当前处理的回复过多，请稍后重新引用通知发送。', emoji: 'CrossMark' },
 };
 export type LarkReplyReceipt = keyof typeof replyReceipts;
+
+const reactionByReceipt = new Map(
+  Object.values(replyReceipts).map(({ text, emoji }) => [text, emoji]),
+);
+
+export function larkReplyReaction(receipt: string) {
+  return reactionByReceipt.get(receipt);
+}
 
 export type LarkReplyListener = (
   config: NotificationConfig,

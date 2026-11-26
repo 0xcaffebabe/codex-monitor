@@ -90,7 +90,7 @@ test('authorized Lark quotes target the card workspace and reuse the Monitor mes
   const a = fixture(), b = fixture();
   a.config.pollMs = b.config.pollMs = 40;
   const desks = [new FixtureDesktop(a), new FixtureDesktop(b)];
-  const replies = new Map<string, { text: string; uuid: string }>();
+  const reactions = new Map<string, string>();
   const image = await sharp(randomBytes(256 * 256 * 3), {
     raw: { width: 256, height: 256, channels: 3 },
   }).png().toBuffer();
@@ -105,11 +105,15 @@ test('authorized Lark quotes target the card workspace and reuse the Monitor mes
     const { pathname } = endpoint;
     if (pathname.includes('/auth/'))
       return Response.json({ code: 0, tenant_access_token: 'test', expire: 7200 });
-    const replyId = /^\/open-apis\/im\/v1\/messages\/(om_[^/]+)\/reply$/.exec(pathname)?.[1];
-    if (replyId) {
-      const { content, uuid } = JSON.parse(String(init?.body));
-      if (replies.has(replyId)) assert.equal(replies.get(replyId)?.uuid, uuid);
-      replies.set(replyId, { text: JSON.parse(content).text, uuid });
+    const messageId = /^\/open-apis\/im\/v1\/messages\/(om_[^/]+)\/reactions$/.exec(pathname)?.[1];
+    if (messageId) {
+      const body = JSON.parse(String(init?.body));
+      const emoji = body.reaction_type.emoji_type;
+      assert.equal(init?.method, 'POST');
+      assert.equal(new Headers(init?.headers).get('authorization'), 'Bearer test');
+      assert.deepEqual(body, { reaction_type: { emoji_type: emoji } });
+      if (reactions.has(messageId)) assert.equal(reactions.get(messageId), emoji);
+      reactions.set(messageId, emoji);
       return Response.json({ code: 0 });
     }
     if (pathname.includes('/resources/')) {
@@ -192,13 +196,24 @@ test('authorized Lark quotes target the card workspace and reuse the Monitor mes
     await receive(event('om_wrong_chat', { chat_id: 'oc_other' }));
     await receive(event('om_plain', { parent_id: undefined }));
     await receive(event('om_unknown_card', { parent_id: 'om_other_card' }));
-    assert.equal(replies.size, 0);
+    assert.equal(reactions.size, 0);
+    assert.deepEqual(desks.map(({ sends }) => sends), [0, 0]);
+
+    const store = server.service.notifications.store;
+    store.recordLarkReceipt(
+      store.config().larkDestination,
+      'om_previous_receipt',
+      '暂时无法确认发送结果，请在 Monitor 中查看会话和发送回执。',
+    );
+    await receive(event('om_previous_receipt'));
+    await until(() => reactions.has('om_previous_receipt'));
+    assert.equal(reactions.get('om_previous_receipt'), 'THINKING');
     assert.deepEqual(desks.map(({ sends }) => sends), [0, 0]);
 
     const first = event('om_user_reply');
     await Promise.all([receive(first), receive(first)]);
-    await until(() => replies.has('om_user_reply'));
-    assert.match(replies.get('om_user_reply')!.text, /已发送/);
+    await until(() => reactions.has('om_user_reply'));
+    assert.equal(reactions.get('om_user_reply'), 'CheckMark');
     await receive(first);
     assert.deepEqual(desks.map(({ sends }) => sends), [0, 1]);
     assert.ok(b.hist.prepare("SELECT 1 FROM thread_items WHERE thread_id=? AND item_json LIKE ?")
@@ -208,8 +223,8 @@ test('authorized Lark quotes target the card workspace and reuse the Monitor mes
 
     desks[1].compacting = true;
     await receive(event('om_addendum', { parent_id: 'om_user_reply', root_id: 'om_card_2' }));
-    await until(() => replies.has('om_addendum'));
-    assert.match(replies.get('om_addendum')!.text, /已加入/);
+    await until(() => reactions.has('om_addendum'));
+    assert.equal(reactions.get('om_addendum'), 'OneSecond');
     assert.equal(desks[1].sends, 1);
     desks[1].compacting = false;
     await until(() => desks[1].sends === 2);
@@ -229,8 +244,8 @@ test('authorized Lark quotes target the card workspace and reuse the Monitor mes
       return inputs;
     };
     await receive(event('om_image', { message_type: 'image', content: JSON.stringify({ image_key: 'img_test' }) }));
-    await until(() => replies.has('om_image'));
-    assert.match(replies.get('om_image')!.text, /已发送/);
+    await until(() => reactions.has('om_image'));
+    assert.equal(reactions.get('om_image'), 'CheckMark');
     assert.equal(assertImages().length, 1);
     await receive(event('om_post', {
       message_type: 'post',
@@ -239,14 +254,14 @@ test('authorized Lark quotes target the card workspace and reuse the Monitor mes
         { tag: 'img', image_key: 'img_second' },
       ]] }),
     }));
-    await until(() => replies.has('om_post'));
-    assert.match(replies.get('om_post')!.text, /已发送/);
+    await until(() => reactions.has('om_post'));
+    assert.equal(reactions.get('om_post'), 'CheckMark');
     assert.match(assertImages().find((input) => input.includes('看这两张图'))!, /lark-1\.png\n- .*lark-2\.png/);
-    for (const [imageKey, message] of [['img_missing', /无法读取/], ['img_too_large', /20 MB/]] as const) {
+    for (const imageKey of ['img_missing', 'img_too_large']) {
       const id = 'om_' + imageKey;
       await receive(event(id, { message_type: 'image', content: JSON.stringify({ image_key: imageKey }) }));
-      await until(() => replies.has(id));
-      assert.match(replies.get(id)!.text, message);
+      await until(() => reactions.has(id));
+      assert.equal(reactions.get(id), 'CrossMark');
     }
     assert.deepEqual(desks.map(({ sends }) => sends), [0, 4]);
 
@@ -257,20 +272,20 @@ test('authorized Lark quotes target the card workspace and reuse the Monitor mes
     await until(() => !!slowImageSignal);
     assert.equal((await save(['ou_replacement'])).status, 200);
     assert.equal(slowImageSignal?.aborted, true);
-    assert.equal(replies.has('om_revoked'), false);
+    assert.equal(reactions.has('om_revoked'), false);
     assert.equal(desks[1].sends, 4);
     assert.equal((await save(['ou_allowed'])).status, 200);
 
     await clients.pop()!.close();
     await until(() => !server.service.gateway.list().find((item) => item.id === workspaces[1].workspace.id)?.online);
     await receive(event('om_offline'));
-    await until(() => replies.has('om_offline'));
-    assert.match(replies.get('om_offline')!.text, /工作空间已离线/);
+    await until(() => reactions.has('om_offline'));
+    assert.equal(reactions.get('om_offline'), 'CrossMark');
 
     assert.equal((await save([])).status, 200);
     assert.equal(closed, true);
     await receive(event('om_disabled'));
-    assert.equal(replies.has('om_disabled'), false);
+    assert.equal(reactions.has('om_disabled'), false);
   } finally {
     await Promise.all(clients.map((client) => client.close()));
     await server.close();

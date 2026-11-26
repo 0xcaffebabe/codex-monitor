@@ -15,6 +15,7 @@ import { LarkApp, LarkReplyImageTooLarge } from './lark-app.js';
 import {
   larkRepliesEnabled,
   larkReply,
+  larkReplyReaction,
   larkRequestId,
   listenForLarkReplies,
   LARK_REPLY_MAX_IMAGES,
@@ -165,15 +166,17 @@ export class NotificationService {
       if (!receipt) {
         const result = await this.dispatchReply(config, target, reply, signal);
         if (signal.aborted) return;
-        receipt = replyReceipts[result];
+        receipt = replyReceipts[result].text;
         this.store.recordLarkReceipt(destination, reply.messageId, receipt);
       }
       return receipt;
     })();
     const feedback = accepted.then(async (receipt) => {
       if (signal.aborted || !receipt) return;
+      const reaction = larkReplyReaction(receipt);
+      if (!reaction) return;
       const sender = await this.app.sender(config, signal);
-      await sender.reply(reply.messageId, larkRequestId(destination, reply.messageId, 'reply'), receipt);
+      await sender.react(reply.messageId, reaction);
     }).catch(() => {
       // An unavailable Lark API does not affect the Monitor queue or notification delivery.
     }).finally(() => {
@@ -195,7 +198,7 @@ export class NotificationService {
     const submit = (images: Buffer[]) => this.submitReply!({
       ...target,
       userId: config.replyAdminId,
-      requestId: larkRequestId(config.larkDestination, reply.messageId, 'submit'),
+      requestId: larkRequestId(config.larkDestination, reply.messageId),
       prompt: reply.prompt,
       images,
     }, signal);

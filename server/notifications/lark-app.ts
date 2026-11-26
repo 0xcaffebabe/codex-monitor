@@ -107,12 +107,15 @@ export class LarkApp {
         const messageId = result?.data?.message_id;
         return typeof messageId === 'string' && /^om_[\w-]{1,125}$/.test(messageId) ? messageId : undefined;
       },
-      reply: (parentId: string, uuid: string, text: string) =>
-        this.request(origin, `im/v1/messages/${encodeURIComponent(parentId)}/reply`, {
-          msg_type: 'text',
-          content: JSON.stringify({ text }),
-          uuid,
-        }, signal, '回复群消息', value),
+      react: (messageId: string, emoji: string) =>
+        this.request(
+          origin,
+          `im/v1/messages/${encodeURIComponent(messageId)}/reactions`,
+          { reaction_type: { emoji_type: emoji } },
+          signal,
+          '添加消息表情',
+          value,
+        ),
       readReplyImages: async (messageId: string, keys: string[]) => {
         const images: Buffer[] = [];
         let remaining = LARK_REPLY_MAX_BYTES;
