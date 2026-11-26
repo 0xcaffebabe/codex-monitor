@@ -103,6 +103,48 @@ test('the overview URL survives reload and follows browser navigation', async ({
   await expect(directOverview).toBeHidden();
 });
 
+test('scrolling up in the overview loads earlier messages and keeps the viewport in place', async ({
+  signedIn: { browserPage: page },
+  local,
+}) => {
+  const message = (n: number) => `全览分页消息 ${String(n).padStart(3, '0')}`;
+  for (let n = 1; n <= 100; n++) local.data.append(message(n));
+
+  await page.getByRole('button', { name: '查看运行中的会话' }).click();
+  await page.getByRole('button', { name: '全览', exact: true }).click();
+  const overview = page.getByRole('dialog', { name: '任务全览' });
+  const output = overview
+    .getByRole('region', { name: `本机工作空间 · ${localTitle}` })
+    .getByRole('region', { name: '会话输出' });
+  await expect(output.getByText(message(100))).toBeInViewport();
+  await expect(output.getByText(message(21))).toHaveCount(0);
+
+  const anchor = output.locator('.overview-message').filter({ hasText: message(61) });
+  const offset = await anchor.evaluate((element) => {
+    const output = element.parentElement!;
+    output.scrollTop = 0;
+    return element.getBoundingClientRect().top - output.getBoundingClientRect().top;
+  });
+  await expect(output.getByText(message(21))).toBeAttached();
+  await expect(output.getByText(message(1))).toHaveCount(0);
+  const anchorOffset = () =>
+    anchor.evaluate(
+      (element) => element.getBoundingClientRect().top - element.parentElement!.getBoundingClientRect().top,
+    );
+  expect(await anchorOffset()).toBeCloseTo(offset, 0);
+
+  local.data.append(message(101));
+  await expect(output.getByText(message(101))).toBeAttached();
+  await expect(output.getByText(message(21))).toBeAttached();
+  expect(await anchorOffset()).toBeCloseTo(offset, 0);
+
+  await output.evaluate((element) => (element.scrollTop = 0));
+  await expect(output.getByText(message(1))).toBeAttached();
+  await expect(output.getByRole('button', { name: '加载更早的记录' })).toHaveCount(0);
+  await overview.getByRole('button', { name: '最新输出' }).click();
+  await expect(output.getByText(message(101))).toBeInViewport();
+});
+
 test('the running overview keeps reordered panes and their drafts with the right sessions', async ({
   signedIn: { browserPage: page },
   monitor,

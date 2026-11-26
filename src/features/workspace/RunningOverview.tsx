@@ -3,6 +3,7 @@ import {
   ArrowUpRight,
   ChevronLeft,
   ChevronRight,
+  Clock,
   GripVertical,
   History,
   LayoutGrid,
@@ -34,7 +35,7 @@ import type { AttentionWorkspace } from '../attention/useAttention';
 import { MessageComposer } from '../control/MessageComposer';
 import { useSessionControl } from '../control/useSessionControl';
 import { ActivityGroup } from '../session/ActivityGroup';
-import { groupTimelineEvents } from '../session/session-model';
+import { groupTimelineEvents, mergeSessionPage } from '../session/session-model';
 import { useSessionActions } from '../session/useSessionActions';
 import { OverviewNewSession } from './OverviewNewSession';
 import { SessionPickerDialog } from './SessionPickerDialog';
@@ -579,17 +580,33 @@ function OverviewPane({
   const [page, setPage] = useState<SessionPage>();
   const [error, setError] = useState('');
   const [follow, setFollow] = useState(true);
+  const [olderBusy, setOlderBusy] = useState(false);
+  const [olderFailed, setOlderFailed] = useState(false);
   const pane = useRef<HTMLElement>(null);
   const scroll = useRef<HTMLDivElement>(null);
+  const previousTop = useRef(0);
+  const hasHistory = useRef(false);
+  const olderPosition = useRef<{
+    before: number;
+    anchor?: HTMLElement;
+    offset: number;
+    height: number;
+    top: number;
+  } | null>(null);
   const loader = useMemo(
     () =>
       new DetailLoader(
         {
-          onPage: (data) => {
-            setPage(data);
+          onPage: (data, older) => {
+            if (older) hasHistory.current = true;
+            const preserveHistory = hasHistory.current || olderPosition.current !== null;
+            setPage((current) => (preserveHistory ? mergeSessionPage(current, data, older) : data));
             setError('');
           },
-          onError: (_, failure) => setError(failure.message),
+          onError: (_, failure, older) => {
+            if (older) setOlderFailed(true);
+            setError(failure.message);
+          },
           onSettled: () => {},
         },
         workspace.id,
@@ -621,9 +638,65 @@ function OverviewPane({
     };
   }, [hidden, loader, online, sessionId]);
 
+  function rememberPosition(element: HTMLDivElement, before: number) {
+    const edge = element.getBoundingClientRect().top;
+    const anchor = Array.from(
+      element.querySelectorAll<HTMLElement>(':scope > .overview-message, :scope > .activity-group'),
+    ).find((block) => block.getBoundingClientRect().bottom > edge);
+    olderPosition.current = {
+      before,
+      anchor,
+      offset: anchor ? anchor.getBoundingClientRect().top - edge : 0,
+      height: element.scrollHeight,
+      top: element.scrollTop,
+    };
+  }
+
+  async function loadOlder() {
+    const element = scroll.current;
+    if (!element || hidden || !online || page?.before == null || olderBusy || olderPosition.current)
+      return;
+    rememberPosition(element, page.before);
+    setFollow(false);
+    setOlderFailed(false);
+    setOlderBusy(true);
+    await loader.load(sessionId, true, page.before, pageLimit);
+    setOlderBusy(false);
+  }
+
   useLayoutEffect(() => {
-    if (follow && !hidden && scroll.current) scroll.current.scrollTop = scroll.current.scrollHeight;
-  }, [page, expanded, follow, hidden]);
+    const element = scroll.current;
+    if (!element) return;
+    const position = olderPosition.current;
+    if (position && page?.before !== position.before) {
+      if (!follow && !hidden) {
+        element.scrollTop = position.anchor?.isConnected
+          ? element.scrollTop +
+            position.anchor.getBoundingClientRect().top -
+            element.getBoundingClientRect().top -
+            position.offset
+          : position.top + element.scrollHeight - position.height;
+        previousTop.current = element.scrollTop;
+      }
+      olderPosition.current = null;
+    } else if (position && !olderBusy) {
+      olderPosition.current = null;
+    }
+    if (follow && !hidden) {
+      element.scrollTop = element.scrollHeight;
+      previousTop.current = element.scrollTop;
+    }
+  }, [page, expanded, follow, hidden, olderBusy]);
+
+  useEffect(() => {
+    const element = scroll.current;
+    if (
+      element?.clientHeight &&
+      !olderFailed &&
+      (element.scrollHeight <= element.clientHeight || (!follow && element.scrollTop <= 80))
+    )
+      void loadOlder();
+  }, [page, expanded, follow, hidden, online, olderBusy, olderFailed]);
 
   const title =
     session.title || page?.session.title || (page || session.status ? '未命名会话' : '新会话');
@@ -716,13 +789,38 @@ function OverviewPane({
           tabIndex={0}
           onScroll={(event) => {
             const element = event.currentTarget;
-            if (!element.clientHeight) return;
-            setFollow(element.scrollHeight - element.scrollTop - element.clientHeight < 24);
+            const top = element.scrollTop;
+            if (!element.clientHeight || top === previousTop.current) return;
+            const upward = top < previousTop.current;
+            previousTop.current = top;
+            if (olderPosition.current) rememberPosition(element, olderPosition.current.before);
+            if (upward && top <= 80 && page?.before != null) {
+              setFollow(false);
+              if (!olderFailed) void loadOlder();
+            } else {
+              setFollow(element.scrollHeight - top - element.clientHeight < 24);
+            }
           }}
           onToggle={(event) => {
             if (event.target instanceof HTMLDetailsElement && event.target.open) setFollow(false);
           }}
         >
+          {page?.before != null && online && (
+            <button
+              type="button"
+              className="load-earlier"
+              disabled={olderBusy}
+              aria-busy={olderBusy}
+              onClick={() => void loadOlder()}
+            >
+              {olderBusy ? <LoaderCircle className="spin" size={14} /> : <Clock size={14} />}
+              {olderBusy
+                ? '正在加载更早的记录…'
+                : olderFailed
+                  ? '重试加载更早的记录'
+                  : '加载更早的记录'}
+            </button>
+          )}
           {blocks.map((block) =>
             block.kind === 'event' ? (
               <Message key={block.id} event={block.event} />

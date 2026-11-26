@@ -21,7 +21,7 @@ export class DetailLoader {
   constructor(
     private callbacks: {
       onPage: (page: SessionPage, older: boolean) => void;
-      onError: (id: string, error: Error) => void;
+      onError: (id: string, error: Error, older: boolean) => void;
       onSettled: (id: string) => void;
       onPending?: (id: string) => void;
     },
@@ -119,6 +119,7 @@ export class DetailLoader {
                 syncing ? '新会话记录同步较慢，请稍后重试，无需重新创建。' : '读取会话超时，请重试',
               )
             : (error as Error),
+          job.older,
         );
     } finally {
       clearTimeout(timeout);
