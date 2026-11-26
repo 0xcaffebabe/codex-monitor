@@ -3,7 +3,7 @@ import { api, post } from '../../api';
 import type { NotificationDelivery, NotificationSettings } from '../../types';
 
 type NotificationState = { settings: NotificationSettings; deliveries: NotificationDelivery[] };
-const defaultApp = { appRegion: 'lark', appId: '', appSecret: '', chatId: '' } as const;
+const defaultApp = { appRegion: 'lark', appId: '', appSecret: '', chatId: '', replyOpenIds: '' } as const;
 
 export function useNotifications(notify: (message: string) => void) {
   const [saved, setSaved] = useState<NotificationSettings>();
@@ -20,6 +20,7 @@ export function useNotifications(notify: (message: string) => void) {
     appId: string;
     appSecret: string;
     chatId: string;
+    replyOpenIds: string;
   }>(defaultApp);
   const [clearAppSecret, setClearAppSecret] = useState(false);
   const [publicUrl, setPublicUrl] = useState('');
@@ -41,6 +42,7 @@ export function useNotifications(notify: (message: string) => void) {
         appId: state.settings.appId ?? '',
         appSecret: '',
         chatId: state.settings.chatId ?? '',
+        replyOpenIds: state.settings.replyOpenIds?.join(', ') ?? '',
       });
       setClearAppSecret(false);
     }
@@ -76,6 +78,7 @@ export function useNotifications(notify: (message: string) => void) {
         : app.appRegion !== saved.appRegion ||
           app.appId !== saved.appId ||
           app.chatId !== saved.chatId ||
+          app.replyOpenIds !== (saved.replyOpenIds?.join(', ') ?? '') ||
           !!app.appSecret.trim() ||
           clearAppSecret));
   async function save() {
@@ -95,6 +98,7 @@ export function useNotifications(notify: (message: string) => void) {
                 appRegion: app.appRegion,
                 appId: app.appId.trim(),
                 chatId: app.chatId.trim(),
+                replyOpenIds: app.replyOpenIds.split(/[\s,，]+/).filter(Boolean),
                 ...(clearAppSecret || app.appSecret.trim()
                   ? { appSecret: clearAppSecret ? '' : app.appSecret.trim() }
                   : {}),

@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { Readable } from 'node:stream';
 import type { DatabaseSync } from 'node:sqlite';
 import type { Express, Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
@@ -6,6 +7,7 @@ import { DesktopBridge, ControlError, hasUnconfirmedWriter, type DesktopControl 
 import { validId, type CodexSource } from './source.js';
 import { MessageQueue, type ControlLane } from './message-queue.js';
 import { MAX_ATTACHMENTS, type UploadStore } from './uploads.js';
+import { imageMime } from './media.js';
 import { reasoningEfforts, type SessionModelSettings } from '../src/types.js';
 import { validateModelSettings } from './model-settings.js';
 import { sessionPermissionModes } from '../src/approval-types.js';
@@ -129,6 +131,73 @@ export function installControl(
     return latest.sessions[0].id;
   };
   const messages = new MessageQueue(db, source, bridge, context, inLane, authorization?.user);
+  const adminUser = db.prepare("SELECT 1 FROM users WHERE id=? AND role='admin'");
+  const larkRequests = new Map<string, ReturnType<typeof submitLarkReply>>();
+  const larkReceipt = db.prepare('SELECT user_id, state FROM control_requests WHERE id=?');
+  const larkResult = (state: unknown) => {
+    if (state === 'succeeded') return 'sent';
+    if (state === 'queued' || state === 'pending') return 'queued';
+    return state === 'unknown' ? 'unknown' : 'failed';
+  };
+  async function submitLarkReply(
+    userId: string,
+    id: string,
+    { requestId, prompt }: { requestId: string; prompt: string },
+    images: Buffer[],
+    signal: AbortSignal,
+  ) {
+    if (closed || signal.aborted || !adminUser.get(userId)) return 'failed';
+    const previous = larkReceipt.get(requestId);
+    if (previous) return previous.user_id === userId ? larkResult(previous.state) : 'failed';
+    const session = validId(id) ? await source.get(id) : undefined;
+    if (!session || session.archived || session.subagent) return 'unavailable';
+    if (closed || signal.aborted) return 'failed';
+    const attachments: string[] = [];
+    try {
+      for (const [index, image] of images.entries()) {
+        const mime = imageMime(image.subarray(0, 16));
+        if (!mime || !uploads) return 'imageFailed';
+        const ext = mime === 'image/jpeg' ? 'jpg' : mime.slice('image/'.length);
+        const uploaded = await uploads.receiveStream(
+          Readable.from([image]), userId, `lark-${index + 1}.${ext}`, mime, signal,
+        );
+        attachments.push(uploaded.id);
+      }
+      if (closed || signal.aborted || !adminUser.get(userId)) return 'failed';
+      // Lark replies are conversation text, including text that starts with a slash.
+      const { state } = await messages.submit(userId, 'Lark', id, {
+        requestId,
+        prompt: uploads?.compose(userId, requestId, prompt, attachments) ?? prompt,
+      });
+      return larkResult(state);
+    } catch (error) {
+      if (images.length && !larkReceipt.get(requestId)) return 'imageFailed';
+      if (error instanceof ControlError || signal.aborted) return 'failed';
+      throw error;
+    } finally {
+      if (attachments.length && !larkReceipt.get(requestId)) {
+        for (const attachment of attachments) {
+          try {
+            uploads?.remove(userId, attachment);
+          } catch {}
+        }
+      }
+    }
+  }
+  function sendLarkReply(
+    userId: string,
+    id: string,
+    input: { requestId: string; prompt: string },
+    images: Buffer[],
+    signal: AbortSignal,
+  ) {
+    const key = `${userId}:${input.requestId}`;
+    const pending = larkRequests.get(key);
+    if (pending) return pending;
+    const job = submitLarkReply(userId, id, input, images, signal).finally(() => larkRequests.delete(key));
+    larkRequests.set(key, job);
+    return job;
+  }
   const projectPath = async (id: string) =>
     (await bridge.projects(await context())).find((project) => project.id === id)?.path;
   installProjectFileRoutes(
@@ -769,5 +838,5 @@ export function installControl(
     messages.close();
     bridge.close?.();
   };
-  return { close, projectPath };
+  return { close, projectPath, sendLarkReply };
 }

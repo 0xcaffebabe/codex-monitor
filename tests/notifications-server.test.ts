@@ -2,18 +2,21 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import { createServer } from 'node:http';
-import { randomUUID } from 'node:crypto';
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { randomBytes, randomUUID } from 'node:crypto';
+import { mkdirSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 import { setTimeout as delay } from 'node:timers/promises';
 import path from 'node:path';
+import sharp from 'sharp';
 import { fixture, ids } from './fixture.js';
+import { FixtureDesktop } from './control-fixture.js';
 import { createMonitorServer } from '../server/server-app.js';
 import { MonitorClient } from '../server/client/connection.js';
 import { AuthStore } from '../server/auth.js';
 import { NotificationStore } from '../server/notifications/store.js';
 import type { WebhookTransport } from '../server/notifications/lark.js';
-import { frameSchema, workspacePath } from '../server/transport/protocol.js';
+import type { LarkReplyListener } from '../server/notifications/lark-replies.js';
+import { CHUNK_BYTES, frameSchema, workspacePath } from '../server/transport/protocol.js';
 
 const webhook =
   'https://open.larksuite.com/open-apis/bot/v2/hook/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
@@ -51,7 +54,12 @@ function complete(f: ReturnType<typeof fixture>, turnId: string, text: string) {
       null,
     );
 }
-async function central(f: ReturnType<typeof fixture>, transport: WebhookTransport, port = 0) {
+async function central(
+  f: ReturnType<typeof fixture>,
+  transport: WebhookTransport,
+  port = 0,
+  larkReplyListener?: LarkReplyListener,
+) {
   const service = createMonitorServer(
     {
       ...f.config,
@@ -59,7 +67,7 @@ async function central(f: ReturnType<typeof fixture>, transport: WebhookTranspor
       codexHome: path.join(f.root, 'server-has-no-codex'),
       pollMs: 60000,
     },
-    { webhookTransport: transport },
+    { webhookTransport: transport, larkReplyListener },
   );
   const server = createServer(service.app);
   service.gateway.attach(server, () => true);
@@ -77,6 +85,203 @@ async function central(f: ReturnType<typeof fixture>, transport: WebhookTranspor
     },
   };
 }
+
+test('authorized Lark quotes target the card workspace and reuse the Monitor message queue', async () => {
+  const a = fixture(), b = fixture();
+  a.config.pollMs = b.config.pollMs = 40;
+  const desks = [new FixtureDesktop(a), new FixtureDesktop(b)];
+  const replies = new Map<string, { text: string; uuid: string }>();
+  const image = await sharp(randomBytes(256 * 256 * 3), {
+    raw: { width: 256, height: 256, channels: 3 },
+  }).png().toBuffer();
+  assert.ok(image.length > CHUNK_BYTES);
+  const uploadedPaths = new Set<string>();
+  let cardCount = 0;
+  let receive!: (event: unknown) => Promise<void>;
+  let slowImageSignal: AbortSignal | undefined;
+  let closed = false;
+  const server = await central(a, async (url, init) => {
+    const endpoint = new URL(String(url));
+    const { pathname } = endpoint;
+    if (pathname.includes('/auth/'))
+      return Response.json({ code: 0, tenant_access_token: 'test', expire: 7200 });
+    const replyId = /^\/open-apis\/im\/v1\/messages\/(om_[^/]+)\/reply$/.exec(pathname)?.[1];
+    if (replyId) {
+      const { content, uuid } = JSON.parse(String(init?.body));
+      if (replies.has(replyId)) assert.equal(replies.get(replyId)?.uuid, uuid);
+      replies.set(replyId, { text: JSON.parse(content).text, uuid });
+      return Response.json({ code: 0 });
+    }
+    if (pathname.includes('/resources/')) {
+      assert.equal(init?.method, 'GET');
+      assert.equal(endpoint.searchParams.get('type'), 'image');
+      assert.equal(new Headers(init?.headers).get('authorization'), 'Bearer test');
+      if (pathname.endsWith('/img_too_large'))
+        return new Response(new Uint8Array(image), { headers: { 'Content-Length': String(21 * 1024 * 1024) } });
+      if (pathname.endsWith('/img_missing')) return new Response(null, { status: 404 });
+      if (pathname.endsWith('/img_slow')) {
+        const signal = slowImageSignal = init?.signal ?? undefined;
+        assert.ok(signal);
+        return new Promise<Response>((_resolve, reject) => {
+          signal.addEventListener('abort', () => reject(signal.reason), { once: true });
+        });
+      }
+      return new Response(new Uint8Array(image), { headers: { 'Content-Type': 'image/png' } });
+    }
+    assert.equal(pathname, '/open-apis/im/v1/messages');
+    return Response.json({ code: 0, data: { message_id: 'om_card_' + ++cardCount } });
+  }, 0, (_config, handler) => {
+    receive = handler;
+    return {
+      close: () => { closed = true; },
+      getConnectionStatus: () => ({ state: 'connected', reconnectAttempts: 0 }),
+    };
+  });
+  const clients: MonitorClient[] = [];
+  try {
+    const owner = await server.service.auth.setup('owner', 'central-notification-password');
+    const headers = {
+      Authorization: `Bearer ${server.service.auth.issue(owner, 'test').token}`,
+      'Content-Type': 'application/json',
+    };
+    const workspaces = [server.service.gateway.store.create('A'), server.service.gateway.store.create('B')];
+    for (const [index, item] of [a, b].entries()) {
+      clients.push(await MonitorClient.start({
+        config: item.config,
+        serverUrl: server.base,
+        workspaceId: workspaces[index].workspace.id,
+        key: workspaces[index].key,
+        services: { control: desks[index] },
+      }));
+    }
+    await until(() => clients.every((client) => client.connected));
+    const save = (replyOpenIds: string[]) => fetch(server.base + '/api/notifications', {
+      method: 'PUT',
+      headers,
+      body: JSON.stringify({
+        provider: 'lark', mode: 'app', appId: 'cli_monitor', appSecret: 'test',
+        chatId: 'oc_team', enabled: true, completionMode: 'all', publicUrl: '', replyOpenIds,
+      }),
+    });
+    assert.equal((await save(['bad-id'])).status, 400);
+    const response = await save(['ou_allowed']);
+    assert.equal(response.status, 200);
+    const { settings: config } = await response.json();
+    assert.equal(config.replyConnection, 'connected');
+    for (const [index, item] of [a, b].entries()) {
+      complete(item, `lark-turn-${index}`, 'original response');
+      await until(async () => {
+        await server.service.notifications.poll();
+        return server.service.notifications.store.history().some(
+          ({ workspaceId, status }) => workspaceId === workspaces[index].workspace.id && status === 'sent',
+        );
+      });
+    }
+    const event = (id: string, message: Record<string, unknown> = {}, openId = 'ou_allowed') => ({
+      app_id: 'cli_monitor',
+      sender: { sender_type: 'user', sender_id: { open_id: openId } },
+      message: {
+        message_id: id, chat_id: 'oc_team', chat_type: 'group', message_type: 'text',
+        parent_id: 'om_card_2',
+        mentions: [{ key: '@_user_1' }],
+        content: JSON.stringify({ text: '@_user_1 请继续\n补充说明' }),
+        ...message,
+      },
+    });
+    await receive(event('om_wrong_user', {}, 'ou_other'));
+    await receive(event('om_wrong_chat', { chat_id: 'oc_other' }));
+    await receive(event('om_plain', { parent_id: undefined }));
+    await receive(event('om_unknown_card', { parent_id: 'om_other_card' }));
+    assert.equal(replies.size, 0);
+    assert.deepEqual(desks.map(({ sends }) => sends), [0, 0]);
+
+    const first = event('om_user_reply');
+    await Promise.all([receive(first), receive(first)]);
+    await until(() => replies.has('om_user_reply'));
+    assert.match(replies.get('om_user_reply')!.text, /已发送/);
+    await receive(first);
+    assert.deepEqual(desks.map(({ sends }) => sends), [0, 1]);
+    assert.ok(b.hist.prepare("SELECT 1 FROM thread_items WHERE thread_id=? AND item_json LIKE ?")
+      .get(ids.modern, '%请继续%补充说明%'));
+    assert.equal(b.hist.prepare("SELECT 1 FROM thread_items WHERE item_json LIKE ?")
+      .get('%@_user_1%'), undefined);
+
+    desks[1].compacting = true;
+    await receive(event('om_addendum', { parent_id: 'om_user_reply', root_id: 'om_card_2' }));
+    await until(() => replies.has('om_addendum'));
+    assert.match(replies.get('om_addendum')!.text, /已加入/);
+    assert.equal(desks[1].sends, 1);
+    desks[1].compacting = false;
+    await until(() => desks[1].sends === 2);
+
+    const prompts = b.hist.prepare(
+      "SELECT item_json FROM thread_items WHERE thread_id=? AND item_json LIKE '%lark-%.png%' AND json_extract(item_json, '$.type')='userMessage'",
+    );
+    const assertImages = () => {
+      const inputs = prompts.all(ids.modern).map((row) => JSON.parse(String(row.item_json)).content[0].text as string);
+      for (const input of inputs) {
+        const files = input.split('\n').filter((line) => line.startsWith('- '));
+        for (const file of files) {
+          uploadedPaths.add(file.slice(2));
+          assert.deepEqual(readFileSync(file.slice(2)), image);
+        }
+      }
+      return inputs;
+    };
+    await receive(event('om_image', { message_type: 'image', content: JSON.stringify({ image_key: 'img_test' }) }));
+    await until(() => replies.has('om_image'));
+    assert.match(replies.get('om_image')!.text, /已发送/);
+    assert.equal(assertImages().length, 1);
+    await receive(event('om_post', {
+      message_type: 'post',
+      content: JSON.stringify({ content: [[{ tag: 'text', text: '看这两张图' }], [
+        { tag: 'img', image_key: 'img_test' },
+        { tag: 'img', image_key: 'img_second' },
+      ]] }),
+    }));
+    await until(() => replies.has('om_post'));
+    assert.match(replies.get('om_post')!.text, /已发送/);
+    assert.match(assertImages().find((input) => input.includes('看这两张图'))!, /lark-1\.png\n- .*lark-2\.png/);
+    for (const [imageKey, message] of [['img_missing', /无法读取/], ['img_too_large', /20 MB/]] as const) {
+      const id = 'om_' + imageKey;
+      await receive(event(id, { message_type: 'image', content: JSON.stringify({ image_key: imageKey }) }));
+      await until(() => replies.has(id));
+      assert.match(replies.get(id)!.text, message);
+    }
+    assert.deepEqual(desks.map(({ sends }) => sends), [0, 4]);
+
+    await receive(event('om_revoked', {
+      message_type: 'image',
+      content: JSON.stringify({ image_key: 'img_slow' }),
+    }));
+    await until(() => !!slowImageSignal);
+    assert.equal((await save(['ou_replacement'])).status, 200);
+    assert.equal(slowImageSignal?.aborted, true);
+    assert.equal(replies.has('om_revoked'), false);
+    assert.equal(desks[1].sends, 4);
+    assert.equal((await save(['ou_allowed'])).status, 200);
+
+    await clients.pop()!.close();
+    await until(() => !server.service.gateway.list().find((item) => item.id === workspaces[1].workspace.id)?.online);
+    await receive(event('om_offline'));
+    await until(() => replies.has('om_offline'));
+    assert.match(replies.get('om_offline')!.text, /工作空间已离线/);
+
+    assert.equal((await save([])).status, 200);
+    assert.equal(closed, true);
+    await receive(event('om_disabled'));
+    assert.equal(replies.has('om_disabled'), false);
+  } finally {
+    await Promise.all(clients.map((client) => client.close()));
+    await server.close();
+    for (const file of uploadedPaths) unlinkSync(file);
+    for (const item of [a, b]) {
+      item.state.close();
+      item.hist.close();
+      rmSync(item.root, { recursive: true, force: true });
+    }
+  }
+});
 
 test('Lark app settings send cards, native images and files from a remote workspace', async () => {
   const f = fixture();

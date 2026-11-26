@@ -2,6 +2,14 @@ import { BellRing, Send } from 'lucide-react';
 import type { NotificationDelivery } from '../../types';
 import { useNotifications } from './useNotifications';
 
+const replyConnectionLabel = {
+  idle: '未连接',
+  connecting: '连接中',
+  connected: '已连接',
+  reconnecting: '正在重连',
+  failed: '连接失败',
+};
+
 function deliveryStatus(delivery: NotificationDelivery) {
   if (delivery.status === 'pending') return delivery.attempts ? '等待重试' : '等待发送';
   return { sending: '发送中', sent: '已发送', failed: '发送失败', cancelled: '已取消' }[
@@ -192,6 +200,23 @@ export function Notifications({ notify }: { notify: (message: string) => void })
                   onChange={(event) => form.setApp({ ...form.app, chatId: event.target.value })}
                 />
               </label>
+              <label>
+                授权回复的 Open ID（可选）
+                <input
+                  type="text"
+                  autoComplete="off"
+                  spellCheck={false}
+                  maxLength={5200}
+                  value={form.app.replyOpenIds}
+                  placeholder="ou_…，ou_…"
+                  onChange={(event) => form.setApp({ ...form.app, replyOpenIds: event.target.value })}
+                />
+              </label>
+              {form.saved?.replyConnection && (
+                <p className="help" role="status">
+                  回复事件连接 · {replyConnectionLabel[form.saved.replyConnection]}
+                </p>
+              )}
             </>
           )}
           <label>

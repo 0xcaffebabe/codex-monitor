@@ -4,6 +4,7 @@ import { createCipheriv, createDecipheriv, createHash, createHmac, randomBytes }
 import { notificationPolicySchema, notificationReportSchema } from '../notifications/events.js';
 import type { HostResourceSample } from '../../src/workspaces.js';
 import { NOTIFICATION_ATTACHMENT_LIMIT } from '../notifications/attachments.js';
+import { LARK_REPLY_MAX_BYTES, LARK_REPLY_MAX_IMAGES } from '../notifications/lark-replies.js';
 
 export const PROTOCOL_VERSION = 3;
 export const MAX_BODY = 20 * 1024 * 1024;
@@ -63,6 +64,23 @@ export const frameSchema = z.discriminatedUnion('type', [
     sessionId: z.string().regex(/^[A-Za-z0-9_-]{1,100}$/),
   }),
   z.object({
+    type: z.literal('notification-reply'),
+    id,
+    requestId: id,
+    sessionId: z.string().regex(/^[A-Za-z0-9_-]{1,100}$/),
+    prompt: z.string().trim().max(12000),
+    imageSizes: z.array(z.number().int().positive().max(LARK_REPLY_MAX_BYTES))
+      .min(1).max(LARK_REPLY_MAX_IMAGES)
+      .refine((sizes) => sizes.reduce((sum, size) => sum + size, 0) <= LARK_REPLY_MAX_BYTES)
+      .optional(),
+    user: identitySchema.shape.user.extend({ role: z.literal('admin') }),
+  }).strict().refine(({ prompt, imageSizes }) => !!prompt || !!imageSizes),
+  z.object({
+    type: z.literal('notification-reply-result'),
+    id,
+    result: z.enum(['sent', 'queued', 'unavailable', 'failed', 'unknown', 'imageFailed']),
+  }).strict(),
+  z.object({
     type: z.literal('notification-attachment'),
     id,
     sessionId: z.string().regex(/^[A-Za-z0-9_-]{1,100}$/),
@@ -80,6 +98,7 @@ export const frameSchema = z.discriminatedUnion('type', [
       completionNotifications: z.boolean().optional(),
       notificationAttachments: z.boolean().optional(),
       notificationMarkRead: z.boolean().optional(),
+      notificationReplies: z.boolean().optional(),
       privacyWork: z.boolean().optional(),
     }).optional(),
   }),

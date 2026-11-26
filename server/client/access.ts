@@ -1,4 +1,5 @@
 import { randomBytes } from 'node:crypto';
+import type { User } from '../../src/types.js';
 import type { AuthStore } from '../auth.js';
 import type { Identity, WorkspaceAuth } from '../http/access.js';
 
@@ -15,18 +16,23 @@ export class ClientAccess implements WorkspaceAuth {
       this.db.exec("DELETE FROM sessions; UPDATE users SET role='viewer'");
     }
   }
-  open(identity: Identity) {
+  syncUser(user: User) {
     if (!this.shared) {
       // A deleted central account can be recreated with the same display name and a new ID.
       this.db
         .prepare('DELETE FROM users WHERE username=? AND id<>?')
-        .run(identity.user.username, identity.user.id);
+        .run(user.username, user.id);
       this.db
         .prepare(
           `INSERT INTO users(id,username,password,role,created_at) VALUES(?,?,'remote',?,?)
         ON CONFLICT(id) DO UPDATE SET username=excluded.username,role=excluded.role`,
         )
-        .run(identity.user.id, identity.user.username, identity.user.role, Date.now());
+        .run(user.id, user.username, user.role, Date.now());
+    }
+  }
+  open(identity: Identity) {
+    this.syncUser(identity.user);
+    if (!this.shared) {
       this.db
         .prepare(
           `INSERT INTO sessions VALUES(?,?,?,?,?,?,?) ON CONFLICT(id)

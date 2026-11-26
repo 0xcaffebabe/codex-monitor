@@ -12,6 +12,9 @@ export type NotificationConfig = {
   appId: string;
   appSecret: string;
   chatId: string;
+  replyOpenIds: string[];
+  replyAdminId: string;
+  larkDestination: string;
   publicUrl: string;
   enabledAt: number;
   scanAt: number;
@@ -19,7 +22,7 @@ export type NotificationConfig = {
   revision: number;
 };
 export type NotificationInput = Partial<
-  Pick<NotificationConfig, 'mode' | 'appRegion' | 'appId' | 'appSecret' | 'chatId'>
+  Pick<NotificationConfig, 'mode' | 'appRegion' | 'appId' | 'appSecret' | 'chatId' | 'replyOpenIds'>
 > & {
   completionMode?: NotificationSettings['completionMode'];
   enabled: boolean;
@@ -63,6 +66,15 @@ export class NotificationStore {
         workspace_id TEXT NOT NULL, session_id TEXT NOT NULL, since INTEGER NOT NULL,
         PRIMARY KEY(workspace_id,session_id)
       );
+      CREATE TABLE IF NOT EXISTS notification_lark_messages (
+        destination TEXT NOT NULL, message_id TEXT NOT NULL,
+        workspace_id TEXT NOT NULL, session_id TEXT NOT NULL,
+        PRIMARY KEY(destination,message_id)
+      );
+      CREATE TABLE IF NOT EXISTS notification_lark_replies (
+        destination TEXT NOT NULL, message_id TEXT NOT NULL, receipt TEXT NOT NULL,
+        PRIMARY KEY(destination,message_id)
+      );
       UPDATE notification_deliveries SET status='failed', error='上次投递中断，结果未确认，请核对群消息' WHERE status='sending';
     `);
     const columns = db.prepare('PRAGMA table_info(notification_settings)').all();
@@ -72,12 +84,16 @@ export class NotificationStore {
       ['app_id', ''],
       ['app_secret', ''],
       ['chat_id', ''],
+      ['reply_open_ids', '[]'],
+      ['reply_admin_id', ''],
+      ['lark_destination', ''],
     ]) {
       if (!columns.some((column) => column.name === name))
         db.exec(
           `ALTER TABLE notification_settings ADD COLUMN ${name} TEXT NOT NULL DEFAULT '${value}'`,
         );
     }
+    db.prepare("UPDATE notification_settings SET lark_destination=? WHERE lark_destination=''").run(randomUUID());
     if (!columns.some((column) => column.name === 'completion_mode')) {
       db.exec(`ALTER TABLE notification_settings ADD COLUMN completion_mode TEXT NOT NULL DEFAULT 'watched';
         UPDATE notification_settings SET completion_mode='all' WHERE enabled_at>0;`);
@@ -115,6 +131,9 @@ export class NotificationStore {
       appId: String(row.app_id),
       appSecret: String(row.app_secret),
       chatId: String(row.chat_id),
+      replyOpenIds: JSON.parse(String(row.reply_open_ids)) as string[],
+      replyAdminId: String(row.reply_admin_id),
+      larkDestination: String(row.lark_destination),
       publicUrl: String(row.public_url),
       enabledAt: Number(row.enabled_at),
       scanAt: Number(row.scan_at),
@@ -133,6 +152,7 @@ export class NotificationStore {
       appId: config.appId,
       appSecretConfigured: !!config.appSecret,
       chatId: config.chatId,
+      replyOpenIds: config.replyOpenIds,
       webhookConfigured: !!config.webhookUrl,
       webhookHint: config.webhookUrl
         ? `${new URL(config.webhookUrl).origin}/…/${config.webhookUrl.slice(-4)}`
@@ -142,7 +162,7 @@ export class NotificationStore {
       monitorError,
     };
   }
-  save(input: NotificationInput, enabledAt: number, reset: boolean) {
+  save(input: NotificationInput, enabledAt: number, reset: boolean, destinationChanged = false, adminId?: string) {
     const old = this.config();
     this.db.exec('BEGIN IMMEDIATE');
     try {
@@ -150,7 +170,8 @@ export class NotificationStore {
         .prepare(
           `UPDATE notification_settings SET enabled=?,webhook_url=?,signing_secret=?,public_url=?,
         enabled_at=?,scan_at=?,input_since=?,completion_mode=?,mode=?,app_region=?,app_id=?,
-        app_secret=?,chat_id=?,revision=revision+1 WHERE id=1`,
+        app_secret=?,chat_id=?,reply_open_ids=?,reply_admin_id=?,lark_destination=?,
+        revision=revision+1 WHERE id=1`,
         )
         .run(
           Number(input.enabled),
@@ -166,6 +187,9 @@ export class NotificationStore {
           input.appId ?? old.appId,
           input.appSecret ?? old.appSecret,
           input.chatId ?? old.chatId,
+          JSON.stringify(input.replyOpenIds ?? old.replyOpenIds),
+          input.replyOpenIds?.length === 0 ? '' : adminId ?? old.replyAdminId,
+          destinationChanged ? randomUUID() : old.larkDestination,
         );
       // Changing credentials or disabling must never send an old queued message to a new recipient.
       if (reset || !input.enabled)
@@ -193,6 +217,23 @@ export class NotificationStore {
       this.db.exec('ROLLBACK');
       throw error;
     }
+  }
+  recordLarkMessage(destination: string, messageId: string, workspaceId: string, sessionId: string) {
+    this.db.prepare('INSERT OR IGNORE INTO notification_lark_messages VALUES(?,?,?,?)')
+      .run(destination, messageId, workspaceId, sessionId);
+  }
+  larkTarget(destination: string, messageId: string) {
+    return this.db.prepare(`SELECT workspace_id AS workspaceId, session_id AS sessionId
+      FROM notification_lark_messages WHERE destination=? AND message_id=?`)
+      .get(destination, messageId) as { workspaceId: string; sessionId: string } | undefined;
+  }
+  larkReceipt(destination: string, messageId: string) {
+    return this.db.prepare('SELECT receipt FROM notification_lark_replies WHERE destination=? AND message_id=?')
+      .get(destination, messageId)?.receipt as string | undefined;
+  }
+  recordLarkReceipt(destination: string, messageId: string, receipt: string) {
+    this.db.prepare('INSERT OR IGNORE INTO notification_lark_replies VALUES(?,?,?)')
+      .run(destination, messageId, receipt);
   }
   watches() {
     return this.db
@@ -292,6 +333,7 @@ export class NotificationStore {
       .run(key);
   }
   cancelWorkspace(workspaceId: string) {
+    this.db.prepare('DELETE FROM notification_lark_messages WHERE workspace_id=?').run(workspaceId);
     this.db.prepare('DELETE FROM notification_watches WHERE workspace_id=?').run(workspaceId);
     this.db
       .prepare(

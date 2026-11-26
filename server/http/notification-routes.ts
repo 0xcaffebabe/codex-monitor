@@ -37,6 +37,8 @@ const settings = z
     appId: z.string().trim().regex(/^(?:cli_[A-Za-z0-9]{1,100})?$/).optional(),
     appSecret: z.string().trim().max(256).optional(),
     chatId: z.string().trim().regex(/^(?:oc_[A-Za-z0-9_-]{1,100})?$/).optional(),
+    replyOpenIds: z.array(z.string().trim().regex(/^ou_[A-Za-z0-9_-]{1,100}$/)).max(50)
+      .transform((ids) => [...new Set(ids)]).optional(),
     publicUrl,
   })
   .strict();
@@ -90,15 +92,17 @@ export function installNotificationRoutes(
   });
   app.put('/api/notifications', admin, async (req, res) => {
     const parsed = settings.safeParse(req.body);
-    if (!parsed.success) return fail(res, 400, '请检查飞书/Lark 通知配置和监控台访问地址');
+    if (!parsed.success) return fail(res, 400, '请检查飞书/Lark 通知配置、授权回复的 Open ID 和监控台访问地址');
     const config = { ...notifications.store.config(), ...parsed.data };
     if (config.enabled && !notificationConfigured(config))
       return fail(res, 400, config.mode === 'app'
         ? '启用通知前请填写 App ID、App Secret 和群聊 ID'
         : '启用通知前请先配置 Webhook');
     try {
-      const result = await notifications.configure(parsed.data, () =>
-        authorized ? authorized(req) : auth.authenticate(req.token!)?.user.role === 'admin',
+      const result = await notifications.configure(
+        parsed.data,
+        () => authorized ? authorized(req) : auth.authenticate(req.token!)?.user.role === 'admin',
+        req.identity!.user.id,
       );
       auth.log('notifications_updated', req.identity!.user.username, req.ip ?? '');
       res.json(result);

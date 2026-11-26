@@ -11,7 +11,18 @@ import {
 import { notificationKey, type NotificationPolicy, type NotificationReport } from './events.js';
 import { notificationMessage } from './messages.js';
 import { CompletionNotifications } from './completions.js';
-import { LarkApp } from './lark-app.js';
+import { LarkApp, LarkReplyImageTooLarge } from './lark-app.js';
+import {
+  larkRepliesEnabled,
+  larkReply,
+  larkRequestId,
+  listenForLarkReplies,
+  LARK_REPLY_MAX_IMAGES,
+  replyReceipts,
+  type LarkReplyListener,
+  type LarkReplyReceipt,
+  type LarkReplySubmission,
+} from './lark-replies.js';
 import {
   NOTIFICATION_ATTACHMENT_LIMIT,
   type NotificationAttachmentRef,
@@ -29,7 +40,12 @@ export class NotificationService {
   private lastTestAt = 0;
   private abort = new AbortController();
   private destination = new AbortController();
+  private replyAuthorization = new AbortController();
   private app: LarkApp;
+  private replyConnection?: ReturnType<LarkReplyListener>;
+  private replyDestination?: string;
+  private replies = new Map<string, { accepted: Promise<string | undefined>; feedback: Promise<void> }>();
+  private imageReplies = 0;
   private monitorErrors = new Map<string, string>();
   onConfigure?: (policy: NotificationPolicy, reset: boolean) => Promise<void>;
   readAttachment?: (
@@ -41,6 +57,7 @@ export class NotificationService {
     private db: DatabaseSync,
     pollMs: number,
     private transport?: WebhookTransport,
+    private listenForReplies: LarkReplyListener = listenForLarkReplies,
   ) {
     this.store = new NotificationStore(db);
     this.app = new LarkApp(transport);
@@ -51,7 +68,10 @@ export class NotificationService {
   }
   state() {
     return {
-      settings: this.store.publicConfig([...this.monitorErrors.values()].join('；')),
+      settings: {
+        ...this.store.publicConfig([...this.monitorErrors.values()].join('；')),
+        replyConnection: this.replyConnection?.getConnectionStatus().state,
+      },
       deliveries: this.store.history(),
     };
   }
@@ -62,6 +82,7 @@ export class NotificationService {
   async configure(
     input: NotificationInput,
     authorized: () => boolean | Promise<boolean> = () => true,
+    adminId?: string,
   ) {
     const old = this.store.config();
     const next = { ...old, ...input };
@@ -78,14 +99,121 @@ export class NotificationService {
     if (this.store.config().revision !== old.revision)
       throw new Error('通知配置已被其他请求更新，请刷新后重试');
     if (this.closed) throw new Error('服务正在停止');
-    this.store.save(input, Math.floor(Date.now() / 1000) * 1000, reset);
+    this.store.save(
+      input,
+      Math.floor(Date.now() / 1000) * 1000,
+      reset,
+      changed,
+      input.replyOpenIds?.length ? adminId : undefined,
+    );
+    if (input.replyOpenIds && (
+      (adminId && input.replyOpenIds.length > 0 && adminId !== old.replyAdminId) ||
+      input.replyOpenIds.length !== old.replyOpenIds.length ||
+      input.replyOpenIds.some((id) => !old.replyOpenIds.includes(id))
+    )) {
+      this.replyAuthorization.abort();
+      this.replyAuthorization = new AbortController();
+    }
     if (changed || (old.enabled && !input.enabled)) {
       this.destination.abort();
       this.destination = new AbortController();
     }
     this.monitorErrors.clear();
+    this.syncReplyListener();
     await this.onConfigure?.(this.policy(), reset);
     return this.state();
+  }
+  submitReply?: (input: LarkReplySubmission, signal: AbortSignal) => Promise<LarkReplyReceipt>;
+  startReplies(submit: NonNullable<NotificationService['submitReply']>) {
+    this.submitReply = submit;
+    this.syncReplyListener();
+  }
+  private syncReplyListener() {
+    const config = this.store.config();
+    const destination = !this.closed && this.submitReply && larkRepliesEnabled(config)
+      ? config.larkDestination
+      : undefined;
+    if (destination === this.replyDestination) return;
+    this.replyConnection?.close({ force: true });
+    this.replyDestination = destination;
+    this.replyConnection = destination
+      ? this.listenForReplies(config, (event) => this.receiveReply(destination, event))
+      : undefined;
+  }
+  private async receiveReply(destination: string, event: unknown) {
+    if (this.closed || destination !== this.replyDestination || !this.submitReply)
+      return;
+    const config = this.store.config();
+    const reply = larkReply(config, event);
+    if (!reply) return;
+    const target = reply.parents.map((id) => this.store.larkTarget(destination, id)).find((item) => item !== undefined);
+    if (!target) return;
+    const key = `${destination}:${reply.messageId}`;
+    const active = this.replies.get(key);
+    if (active) {
+      if (!reply.imageKeys.length) await active.accepted;
+      return;
+    }
+    if (this.replies.size >= 32) throw new Error('Monitor reply capacity reached');
+    const signal = AbortSignal.any([
+      this.abort.signal,
+      this.destination.signal,
+      this.replyAuthorization.signal,
+    ]);
+    const accepted = (async () => {
+      let receipt = this.store.larkReceipt(destination, reply.messageId);
+      if (!receipt) {
+        const result = await this.dispatchReply(config, target, reply, signal);
+        if (signal.aborted) return;
+        receipt = replyReceipts[result];
+        this.store.recordLarkReceipt(destination, reply.messageId, receipt);
+      }
+      return receipt;
+    })();
+    const feedback = accepted.then(async (receipt) => {
+      if (signal.aborted || !receipt) return;
+      const sender = await this.app.sender(config, signal);
+      await sender.reply(reply.messageId, larkRequestId(destination, reply.messageId, 'reply'), receipt);
+    }).catch(() => {
+      // An unavailable Lark API does not affect the Monitor queue or notification delivery.
+    }).finally(() => {
+      this.replies.delete(key);
+    });
+    this.replies.set(key, { accepted, feedback });
+    // Image downloads and uploads can outlast the provider's event acknowledgement deadline.
+    if (!reply.imageKeys.length) await accepted;
+  }
+  private async dispatchReply(
+    config: NotificationConfig,
+    target: Pick<LarkReplySubmission, 'workspaceId' | 'sessionId'>,
+    reply: NonNullable<ReturnType<typeof larkReply>>,
+    signal: AbortSignal,
+  ): Promise<LarkReplyReceipt> {
+    if ((!reply.prompt && !reply.imageKeys.length) || reply.prompt.length > 12000)
+      return 'unsupported';
+    if (reply.imageKeys.length > LARK_REPLY_MAX_IMAGES) return 'imagesTooLarge';
+    const submit = (images: Buffer[]) => this.submitReply!({
+      ...target,
+      userId: config.replyAdminId,
+      requestId: larkRequestId(config.larkDestination, reply.messageId, 'submit'),
+      prompt: reply.prompt,
+      images,
+    }, signal);
+    if (!reply.imageKeys.length) return submit([]);
+    if (this.imageReplies >= 4) return 'busy';
+    this.imageReplies++;
+    try {
+      let images: Buffer[];
+      try {
+        const sender = await this.app.sender(config, signal);
+        images = await sender.readReplyImages(reply.messageId, reply.imageKeys);
+      } catch (error) {
+        return error instanceof LarkReplyImageTooLarge ? 'imagesTooLarge' : 'imageFailed';
+      }
+      return await submit(images);
+    } finally {
+      this.imageReplies--;
+    }
   }
   receive(workspace: { id: string; name: string }, report: NotificationReport) {
     const config = this.store.config();
@@ -201,7 +329,7 @@ export class NotificationService {
     signal: AbortSignal,
   ) {
     const sender = await this.app.sender(config, signal);
-    await sender.card(delivery.id, delivery.message);
+    const messageId = await sender.card(delivery.id, delivery.message);
     if (delivery.kind === 'test') {
       await sender.attachment(`${delivery.id}-test`, {
         name: 'codex-monitor-test.txt',
@@ -211,6 +339,8 @@ export class NotificationService {
       return;
     }
     const { workspaceId, sessionId, turnId, occurredAt } = delivery;
+    if (messageId && workspaceId && sessionId && !signal.aborted)
+      this.store.recordLarkMessage(config.larkDestination, messageId, workspaceId, sessionId);
     if (!this.readAttachment || !workspaceId || !sessionId || !turnId || occurredAt === null)
       return;
     const warnings = new Set<string>();
@@ -262,8 +392,9 @@ export class NotificationService {
   }
   close() {
     this.closed = true;
+    this.replyConnection?.close({ force: true });
     clearInterval(this.timer);
     this.abort.abort();
-    return Promise.allSettled([this.busy, this.testTask]).then(() => {});
+    return Promise.allSettled([this.busy, this.testTask, ...[...this.replies.values()].map(({ feedback }) => feedback)]).then(() => {});
   }
 }

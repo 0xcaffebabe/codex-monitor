@@ -161,6 +161,8 @@ export interface NotificationSettings {
   appId: string;
   appSecretConfigured: boolean;
   chatId: string;
+  replyOpenIds: string[];
+  replyConnection?: 'idle' | 'connecting' | 'connected' | 'reconnecting' | 'failed';
   webhookConfigured: boolean;
   webhookHint: string;
   signingSecretConfigured: boolean;

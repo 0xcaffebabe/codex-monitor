@@ -23,6 +23,7 @@ import type { NotificationService } from '../notifications/service.js';
 import type { NotificationPolicy } from '../notifications/events.js';
 import type { NotificationAttachmentRef, NotificationAttachmentResult } from '../notifications/attachments.js';
 import { LarkDeliveryError } from '../notifications/lark.js';
+import type { LarkReplyReceipt, LarkReplySubmission } from '../notifications/lark-replies.js';
 import type { HostResourceSample } from '../../src/workspaces.js';
 
 type Pending = {
@@ -35,6 +36,10 @@ type Pending = {
   bodyAck?: { resolve: () => void; reject: (error: Error) => void };
   drainAck?: () => void;
 };
+type PendingLarkReply = {
+  finish: (result: LarkReplyReceipt) => void;
+  bodyAck?: (acknowledged: boolean) => void;
+};
 type Peer = {
   workspaceId: string;
   socket: WebSocket;
@@ -43,6 +48,8 @@ type Peer = {
   completionNotifications: boolean;
   notificationAttachments: boolean;
   notificationMarkRead: boolean;
+  notificationReplies: boolean;
+  replies: Map<string, PendingLarkReply>;
   privacyWork: boolean;
   attachments: Map<string, (frame: Frame) => void>;
   resources: (HostResourceSample & { receivedAt: number }) | null;
@@ -202,6 +209,8 @@ export class WorkspaceGateway {
       completionNotifications: false,
       notificationAttachments: false,
       notificationMarkRead: false,
+      notificationReplies: false,
+      replies: new Map(),
       privacyWork: false,
       attachments: new Map(),
       resources: null,
@@ -234,6 +243,7 @@ export class WorkspaceGateway {
           peer.completionNotifications = !!frame.capabilities?.completionNotifications;
           peer.notificationAttachments = !!frame.capabilities?.notificationAttachments;
           peer.notificationMarkRead = !!frame.capabilities?.notificationMarkRead;
+          peer.notificationReplies = !!frame.capabilities?.notificationReplies;
           peer.privacyWork = frame.platform === 'win32' && !!frame.capabilities?.privacyWork;
           clearTimeout(handshake);
           void sendFrame(socket, {
@@ -267,11 +277,24 @@ export class WorkspaceGateway {
           '工作空间已离线；操作可能已提交，请重新连接后查询原请求回执。',
         );
       peer.grants.clear();
+      for (const reply of peer.replies.values()) reply.finish('unknown');
       for (const policy of peer.notificationPolicies.values()) policy.done();
     });
     startServerChannel(socket, key, proof);
   }
   private receive(peer: Peer, frame: Frame) {
+    if (frame.type === 'notification-reply-result') {
+      peer.replies.get(frame.id)?.finish(frame.result);
+      return;
+    }
+    if (frame.type === 'body-ack' || frame.type === 'error') {
+      const reply = peer.replies.get(frame.id);
+      if (reply) {
+        if (frame.type === 'body-ack') reply.bodyAck?.(true);
+        else reply.finish('busy');
+        return;
+      }
+    }
     if (frame.type === 'host-resources') {
       if (!peer.ready || this.peers.get(peer.workspaceId) !== peer) return;
       const now = Date.now();
@@ -365,6 +388,54 @@ export class WorkspaceGateway {
     const peer = this.peers.get(workspaceId);
     if (peer?.ready && peer.notificationMarkRead)
       await sendFrame(peer.socket, { type: 'notification-mark-read', sessionId });
+  }
+  async submitLarkReply(input: LarkReplySubmission, signal: AbortSignal): Promise<LarkReplyReceipt> {
+    const { workspaceId, userId, sessionId, requestId, prompt, images } = input;
+    const peer = this.peers.get(workspaceId);
+    if (signal.aborted || this.closed) return 'failed';
+    if (!this.store.get(workspaceId)) return 'unavailable';
+    if (!peer?.ready) return 'offline';
+    if (!peer.notificationReplies) return 'upgrade';
+    if (peer.replies.size >= MAX_REQUESTS) return 'busy';
+    const actor = this.auth.db.prepare("SELECT username FROM users WHERE id=? AND role='admin'").get(userId);
+    if (!actor) return 'failed';
+    const id = randomUUID();
+    return new Promise((resolve) => {
+      const reply: PendingLarkReply = { finish: (result) => {
+        if (!peer.replies.delete(id)) return;
+        clearTimeout(timer);
+        signal.removeEventListener('abort', abort);
+        reply.bodyAck?.(false);
+        resolve(result);
+      } };
+      const abort = () => {
+        reply.finish('unknown');
+        void sendFrame(peer.socket, { type: 'cancel', id }).catch(() => {});
+      };
+      const timer = setTimeout(abort, images.length ? 30000 : 2000);
+      timer.unref();
+      signal.addEventListener('abort', abort, { once: true });
+      peer.replies.set(id, reply);
+      const send = async () => {
+        await sendFrame(peer.socket, {
+          type: 'notification-reply', id, sessionId, requestId, prompt,
+          user: { id: userId, username: String(actor.username), role: 'admin' },
+          ...(images.length && { imageSizes: images.map((image) => image.length) }),
+        });
+        for (const image of images) {
+          for (let offset = 0; offset < image.length; offset += CHUNK_BYTES) {
+            if (!peer.replies.has(id)) return;
+            const acknowledged = new Promise<boolean>((done) => { reply.bodyAck = done; });
+            await sendFrame(peer.socket, {
+              type: 'body', id, data: image.subarray(offset, offset + CHUNK_BYTES).toString('base64'),
+            });
+            if (!await acknowledged) return;
+          }
+        }
+        if (images.length && peer.replies.has(id)) await sendFrame(peer.socket, { type: 'body-end', id });
+      };
+      void send().catch(abort);
+    });
   }
   readNotificationAttachment(workspaceId: string, ref: NotificationAttachmentRef, signal: AbortSignal) {
     signal.throwIfAborted();

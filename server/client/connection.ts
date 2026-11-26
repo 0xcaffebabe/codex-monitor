@@ -243,6 +243,7 @@ export class MonitorClient {
               completionNotifications: true,
               notificationAttachments: true,
               notificationMarkRead: true,
+              notificationReplies: true,
               privacyWork: process.platform === 'win32',
             },
             version: PROTOCOL_VERSION,
@@ -300,9 +301,15 @@ export class MonitorClient {
             this.rpc.delete(frame.id);
             rpc.resolve(frame.result);
           }
-        } else if (frame.type === 'request' || frame.type === 'notification-attachment') {
+        } else if (
+          frame.type === 'request' ||
+          frame.type === 'notification-attachment' ||
+          frame.type === 'notification-reply'
+        ) {
           if (this.requests.has(frame.id)) throw new Error('Duplicate request');
-          const bodySize = frame.type === 'request' ? frame.bodySize : undefined;
+          const bodySize = frame.type === 'request' ? frame.bodySize
+            : frame.type === 'notification-reply' ? frame.imageSizes?.reduce((sum, size) => sum + size, 0)
+            : undefined;
           const upload = bodySize !== undefined;
           if (
             this.requests.size >= MAX_REQUESTS ||
@@ -329,7 +336,8 @@ export class MonitorClient {
             once: true,
           });
           this.requests.set(frame.id, active);
-          void this.forward(socket, frame, active);
+          if (frame.type === 'notification-reply') void this.forwardLarkReply(socket, frame, active);
+          else void this.forward(socket, frame, active);
         } else if (frame.type === 'body' || frame.type === 'body-end') {
           const active = this.requests.get(frame.id);
           if (!active || active.abort.signal.aborted) return;
@@ -428,6 +436,41 @@ export class MonitorClient {
     this.resourceTimer = setInterval(report, HOST_RESOURCE_INTERVAL_MS);
     this.resourceTimer.unref();
   }
+  private async forwardLarkReply(
+    socket: WebSocket,
+    frame: Extract<Frame, { type: 'notification-reply' }>,
+    active: ActiveRequest,
+  ) {
+    const signal = active.abort.signal;
+    try {
+      const images: Buffer[] = [];
+      if (active.body) {
+        const data = Buffer.allocUnsafe(active.bodySize);
+        let received = 0;
+        for await (const chunk of active.body as AsyncIterable<Buffer>) {
+          chunk.copy(data, received);
+          received += chunk.length;
+        }
+        if (received !== data.length) throw new Error('Incomplete Lark reply images');
+        let offset = 0;
+        for (const size of frame.imageSizes!) {
+          images.push(data.subarray(offset, offset + size));
+          offset += size;
+        }
+      }
+      signal.throwIfAborted();
+      this.runtime.access.syncUser(frame.user);
+      const result = await this.runtime.sendLarkReply(frame.user.id, frame.sessionId, frame, images, signal);
+      await sendFrame(socket, { type: 'notification-reply-result', id: frame.id, result });
+    } catch {
+      if (!signal.aborted) await sendFrame(socket, {
+        type: 'notification-reply-result', id: frame.id, result: 'unknown',
+      }).catch(() => {});
+    } finally {
+      this.requests.delete(frame.id);
+    }
+  }
+
   private authorize(input: { grantId?: string; userId?: string }): Promise<Authorized> {
     if (!this.ready || !this.socket)
       return Promise.reject(new ControlError('工作空间离线，等待重新连接。', false, 503));

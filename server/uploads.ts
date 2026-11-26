@@ -2,7 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { createWriteStream, mkdirSync, realpathSync, statSync, unlinkSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { Transform } from 'node:stream';
+import { Transform, type Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import type { DatabaseSync } from 'node:sqlite';
 import type { Express, Request, Response, NextFunction } from 'express';
@@ -49,10 +49,30 @@ export class UploadStore {
   }
 
   async receive(req: Request, userId: string, originalName: string): Promise<Attachment> {
-    if (this.closed) throw new ControlError('服务正在停止，请稍后重新上传。', false, 503);
     const declaredSize = Number(req.headers['content-length']);
     if (Number.isFinite(declaredSize) && declaredSize > MAX_UPLOAD_BYTES)
       throw new ControlError('单个附件不能超过 20 MB。', false, 413);
+    const type = String(req.headers['x-upload-type'] || 'application/octet-stream').slice(0, 120);
+    const controller = new AbortController();
+    const abort = () => controller.abort();
+    req.once('aborted', abort);
+    try {
+      if (req.aborted) abort();
+      return await this.receiveStream(req, userId, originalName, type, controller.signal);
+    } finally {
+      req.removeListener('aborted', abort);
+    }
+  }
+
+  async receiveStream(
+    source: Readable,
+    userId: string,
+    originalName: string,
+    type: string,
+    signal: AbortSignal,
+  ): Promise<Attachment> {
+    signal.throwIfAborted();
+    if (this.closed) throw new ControlError('服务正在停止，请稍后重新上传。', false, 503);
     if (this.activeCount >= MAX_ACTIVE_UPLOADS || (this.active.get(userId) || 0) >= 2)
       throw new ControlError('同时上传的附件过多，请等待当前上传完成。', false, 429);
     mkdirSync(this.directory, { recursive: true, mode: 0o700 });
@@ -60,7 +80,6 @@ export class UploadStore {
       name = safeName(originalName),
       filename = `${id}-${name}`;
     const file = path.join(this.directory, filename);
-    const type = String(req.headers['x-upload-type'] || 'application/octet-stream').slice(0, 120);
     let size = 0;
     const limit = new Transform({
       transform(chunk: Buffer, _encoding, callback) {
@@ -81,14 +100,11 @@ export class UploadStore {
     timeout.unref();
     try {
       // Keep the request socket open so an over-limit stream can receive a JSON error.
-      req.pipe(limit);
-      const abort = () => limit.destroy(new Error('Upload aborted'));
-      req.once('aborted', abort);
+      source.pipe(limit);
       try {
-        await pipeline(limit, createWriteStream(file, { flags: 'wx', mode: 0o600 }));
+        await pipeline(limit, createWriteStream(file, { flags: 'wx', mode: 0o600 }), { signal });
       } finally {
-        req.removeListener('aborted', abort);
-        req.unpipe(limit);
+        source.unpipe(limit);
       }
       if (this.closed) throw new ControlError('服务正在停止，请稍后重新上传。', false, 503);
       this.db
