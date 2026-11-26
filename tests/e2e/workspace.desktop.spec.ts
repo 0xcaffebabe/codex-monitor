@@ -349,12 +349,20 @@ test('creating from the overview adds a remote session pane even before attentio
   await expect(editor.locator('.new-session-workspaces')).toHaveCSS('padding-inline', '16px');
   await expect(editor.locator('.new-session-projects')).toHaveCSS('padding-inline', '16px');
   await expect(editor.locator('.new-session-composer')).toHaveCSS('padding-inline', '16px');
+  const dialogBounds = (await editor.boundingBox())!;
+  const formBounds = (await editor.locator('.prompt-form').boundingBox())!;
+  expect(dialogBounds.y + dialogBounds.height - formBounds.y - formBounds.height).toBeCloseTo(17);
   await expect(editor.getByRole('tab', { name: '本机工作空间' })).toHaveAttribute('aria-selected', 'true');
   await editor.getByRole('tab', { name: remoteName }).click();
   await expect(editor.getByRole('radio', { name: 'work', exact: true })).toBeChecked();
   const prompt = '从全览启动远程会话';
   const input = editor.getByRole('textbox', { name: '发送给 Codex 的消息' });
+  const send = editor.getByRole('button', { name: '创建并发送' });
   await input.fill(prompt);
+  const viewport = page.viewportSize()!;
+  await page.setViewportSize({ width: viewport.width, height: 500 });
+  await send.click({ trial: true });
+  await page.setViewportSize(viewport);
   await page.keyboard.press('Escape');
   await expect(editor).toBeHidden();
   await expect(start).toBeFocused();
@@ -367,7 +375,6 @@ test('creating from the overview adds a remote session pane even before attentio
     rejectCreation = false;
     return route.fulfill({ status: 400, json: { error: '暂时无法创建' } });
   });
-  const send = editor.getByRole('button', { name: '创建并发送' });
   await send.click();
   await expect(editor.getByRole('alert')).toHaveText('暂时无法创建');
   await expect(input).toHaveValue(prompt);

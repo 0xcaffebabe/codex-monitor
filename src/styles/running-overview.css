@@ -420,7 +420,7 @@
   width: min(780px, calc(100% - 32px));
   max-width: none;
   max-height: calc(100dvh - 32px);
-  padding: 0;
+  padding: 0 0 16px;
   border: 1px solid var(--line-strong);
   border-radius: 8px;
   background: var(--surface);
@@ -443,6 +443,10 @@
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+.overview-new-session > .new-session-composer {
+  padding-bottom: 0;
 }
 
 @media (max-width: 760px) {
