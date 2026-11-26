@@ -11,7 +11,7 @@ import {
 import { notificationKey, type NotificationPolicy, type NotificationReport } from './events.js';
 import { notificationMessage } from './messages.js';
 import { CompletionNotifications } from './completions.js';
-import { LarkApp, LarkReplyAttachmentsTooLarge } from './lark-app.js';
+import { LarkApp, LarkReplyAttachmentsTooLarge, LarkReplyDocumentError } from './lark-app.js';
 import {
   larkRepliesEnabled,
   larkReply,
@@ -214,7 +214,14 @@ export class NotificationService {
       const messages = [...history, reply];
       if (messages.some((message) => message.invalidResource)) return 'attachmentFailed';
       const prompt = messages.map((message) => message.prompt).filter(Boolean).join('\n\n');
-      const resources = messages.flatMap((message) => message.resources);
+      const seenDocuments = new Set<string>();
+      const resources = messages.flatMap((message) => message.resources).filter((resource) => {
+        if (!('document' in resource)) return true;
+        const key = `${resource.document.type}:${resource.document.token}`;
+        if (seenDocuments.has(key)) return false;
+        seenDocuments.add(key);
+        return true;
+      });
       if ((!prompt && !resources.length) || prompt.length > 12000) return 'unsupported';
       if (resources.length > LARK_REPLY_MAX_ATTACHMENTS) return 'attachmentsTooLarge';
       let attachments: LarkReplySubmission['attachments'] = [];
@@ -222,7 +229,8 @@ export class NotificationService {
         try {
           attachments = await sender!.readReplyAttachments(resources);
         } catch (error) {
-          return error instanceof LarkReplyAttachmentsTooLarge ? 'attachmentsTooLarge' : 'attachmentFailed';
+          if (error instanceof LarkReplyAttachmentsTooLarge) return 'attachmentsTooLarge';
+          return error instanceof LarkReplyDocumentError ? 'documentFailed' : 'attachmentFailed';
         }
       }
       if (signal.aborted) return 'failed';

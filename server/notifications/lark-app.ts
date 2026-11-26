@@ -4,9 +4,11 @@ import type { NotificationConfig } from './store.js';
 import type { NotificationAttachment } from './attachments.js';
 import { imageMime } from '../media.js';
 import { LARK_REPLY_MAX_BYTES, type LarkReplyAttachment, type LarkReplyResource } from './lark-replies.js';
+import { larkDocumentExport } from './lark-documents.js';
 
 const imageMimes = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/bmp']);
 export class LarkReplyAttachmentsTooLarge extends Error {}
+export class LarkReplyDocumentError extends Error {}
 const fileTypes = new Map([
   ['.opus', 'opus'],
   ['.mp4', 'mp4'],
@@ -29,6 +31,41 @@ export class LarkApp {
   };
 
   constructor(private transport: WebhookTransport = fetch) {}
+
+  private async download(url: string, token: string, signal: AbortSignal, limit: number) {
+    const response = await this.transport(url, {
+      method: 'GET',
+      headers: { Authorization: `Bearer ${token}` },
+      redirect: 'error',
+      signal,
+    });
+    if (!response.ok || !response.body) {
+      await response.body?.cancel();
+      throw new LarkDeliveryError('无法读取飞书/Lark 回复附件');
+    }
+    if (Number(response.headers.get('content-length')) > limit) {
+      await response.body.cancel();
+      throw new LarkReplyAttachmentsTooLarge();
+    }
+    const reader = response.body.getReader();
+    const chunks: Uint8Array[] = [];
+    let size = 0;
+    try {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        size += value.length;
+        if (size > limit) {
+          await reader.cancel();
+          throw new LarkReplyAttachmentsTooLarge();
+        }
+        chunks.push(value);
+      }
+    } finally {
+      reader.releaseLock();
+    }
+    return Buffer.concat(chunks, size);
+  }
 
   private async request(
     origin: string,
@@ -123,45 +160,40 @@ export class LarkApp {
       readReplyAttachments: async (resources: LarkReplyResource[]) => {
         const attachments: LarkReplyAttachment[] = [];
         let remaining = LARK_REPLY_MAX_BYTES;
-        const downloadSignal = AbortSignal.any([signal, AbortSignal.timeout(20000)]);
-        for (const { messageId, key, name } of resources) {
-          const response = await this.transport(
-            `${origin}/open-apis/im/v1/messages/${encodeURIComponent(messageId)}/resources/${encodeURIComponent(key)}?type=${name ? 'file' : 'image'}`,
-            {
-              method: 'GET',
-              headers: { Authorization: `Bearer ${value}` },
-              redirect: 'error',
-              signal: downloadSignal,
-            },
-          );
-          if (!response.ok || !response.body) {
-            await response.body?.cancel();
-            throw new LarkDeliveryError('无法读取飞书/Lark 回复附件');
-          }
-          if (Number(response.headers.get('content-length')) > remaining) {
-            await response.body.cancel();
-            throw new LarkReplyAttachmentsTooLarge();
-          }
-          const reader = response.body.getReader();
-          const chunks: Uint8Array[] = [];
+        const timeout = resources.some((resource) => 'document' in resource) ? 45000 : 20000;
+        const downloadSignal = AbortSignal.any([signal, AbortSignal.timeout(timeout)]);
+        for (const resource of resources) {
+          const document = 'document' in resource;
           try {
-            for (;;) {
-              const { done, value } = await reader.read();
-              if (done) break;
-              remaining -= value.length;
-              if (remaining < 0) {
-                await reader.cancel();
-                throw new LarkReplyAttachmentsTooLarge();
-              }
-              chunks.push(value);
-            }
-          } finally {
-            reader.releaseLock();
+            const file = document
+              ? await larkDocumentExport(
+                  resource.document,
+                  async (endpoint, body) => (await this.request(
+                    origin, endpoint, body, downloadSignal, '导出云文档', value,
+                  ))?.data,
+                  downloadSignal,
+                )
+              : {
+                  endpoint: `im/v1/messages/${encodeURIComponent(resource.messageId)}/resources/${encodeURIComponent(resource.key)}?type=${resource.name ? 'file' : 'image'}`,
+                  name: resource.name,
+                  size: undefined,
+                };
+            if (file.size !== undefined && file.size > remaining)
+              throw new LarkReplyAttachmentsTooLarge();
+            const data = await this.download(
+              `${origin}/open-apis/${file.endpoint}`, value, downloadSignal, remaining,
+            );
+            if (
+              !data.length ||
+              (document && (data.length < 4 || data.readUInt32BE(0) !== 0x504b0304)) ||
+              (!file.name && !imageMime(data.subarray(0, 16)))
+            ) throw new LarkDeliveryError('飞书/Lark 返回了不支持的附件格式');
+            remaining -= data.length;
+            attachments.push({ data, name: file.name });
+          } catch (error) {
+            if (!document || error instanceof LarkReplyAttachmentsTooLarge) throw error;
+            throw new LarkReplyDocumentError('无法导出飞书/Lark 云文档', { cause: error });
           }
-          const data = Buffer.concat(chunks);
-          if (!data.length || (!name && !imageMime(data.subarray(0, 16))))
-            throw new LarkDeliveryError('飞书/Lark 返回了不支持的附件格式');
-          attachments.push({ data, name });
         }
         return attachments;
       },

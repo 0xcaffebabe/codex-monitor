@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import type { WSClient } from '@larksuiteoapi/node-sdk';
 import { z } from 'zod';
 import { notificationConfigured, type NotificationConfig } from './store.js';
+import { larkDocuments, type LarkDocument } from './lark-documents.js';
 
 const messageId = z.string().regex(/^om_[\w-]{1,125}$/);
 const imageKey = z.string().regex(/^img_[\w-]{1,200}$/);
@@ -19,6 +20,7 @@ const postContent = z.object({
       z.object({
         tag: z.string(),
         text: z.string().optional(),
+        href: z.string().optional(),
         image_key: z.string().optional(),
         file_key: z.string().optional(),
         file_name: z.string().optional(),
@@ -64,7 +66,7 @@ const historyMessage = z.object({
   mentions: z.array(z.object({ key: z.string() })).optional(),
 });
 
-export type LarkReplyResource = { messageId: string; key: string; name?: string };
+export type LarkReplyResource = { messageId: string; key: string; name?: string } | { document: LarkDocument };
 export type LarkReplyAttachment = { name?: string; data: Buffer };
 
 export async function larkReplyHistory(
@@ -161,6 +163,7 @@ function larkMessageContent(
       const leadingMention = reply.prompt.match(/^@_user_\d+(?=\s|$)/)?.[0];
       if (leadingMention && mentions?.some(({ key }) => key === leadingMention))
         reply.prompt = reply.prompt.slice(leadingMention.length).trimStart();
+      reply.resources.push(...larkDocuments(reply.prompt).map((document) => ({ document })));
     }
   } else if (type === 'image') {
     const image = imageContent.safeParse(content);
@@ -193,7 +196,15 @@ function larkMessageContent(
             const file = fileContent.safeParse(node);
             if (!file.success) return { ...reply, invalidResource: true };
             reply.resources.push({ messageId: id, key: file.data.file_key, name: file.data.file_name });
-          } else if (['text', 'a', 'md', 'code_block'].includes(node.tag) && node.text) text.push(node.text);
+          } else if (['text', 'a', 'md', 'code_block'].includes(node.tag)) {
+            const value = node.text || (node.tag === 'a' ? node.href : undefined);
+            if (value) {
+              text.push(value);
+              reply.resources.push(...larkDocuments(value).map((document) => ({ document })));
+            }
+            if (node.tag === 'a' && node.href && node.href !== value)
+              reply.resources.push(...larkDocuments(node.href).map((document) => ({ document })));
+          }
         }
         lines.push(text.join(''));
       }
@@ -255,6 +266,7 @@ export const replyReceipts = {
     emoji: 'CrossMark',
   },
   attachmentFailed: { text: '无法读取或保存回复里的附件，消息未提交。', emoji: 'CrossMark' },
+  documentFailed: { text: '无法导出回复里的 Lark 云文档，请检查应用权限和文档共享设置。', emoji: 'CrossMark' },
   attachmentsTooLarge: { text: '每次最多合并 5 个附件，合计不超过 20 MB。', emoji: 'CrossMark' },
   historyFailed: { text: '无法读取连续消息，请检查 Lark 群消息历史权限后重试。', emoji: 'CrossMark' },
   busy: { text: '当前处理的回复过多，请稍后重新引用通知发送。', emoji: 'CrossMark' },

@@ -98,6 +98,9 @@ test('authorized Lark quotes target the card workspace and reuse the Monitor mes
   const uploadedPaths = new Set<string>();
   const historyPages = new Map<string, unknown>();
   const file = Buffer.from('内容来自此前的文件消息');
+  const exportedFile = Buffer.concat([Buffer.from([0x50, 0x4b, 0x03, 0x04]), Buffer.from('云文档附件')]);
+  const exportRequests: { token: string; type: string; file_extension: string }[] = [];
+  let exportPolls = 0;
   const downloaded: string[] = [];
   let cardCount = 0;
   let receive!: (event: unknown) => Promise<void>;
@@ -108,6 +111,28 @@ test('authorized Lark quotes target the card workspace and reuse the Monitor mes
     const { pathname } = endpoint;
     if (pathname.includes('/auth/'))
       return Response.json({ code: 0, tenant_access_token: 'test', expire: 7200 });
+    if (pathname === '/open-apis/drive/v1/export_tasks' && init?.method === 'POST') {
+      const body = JSON.parse(String(init.body));
+      exportRequests.push(body);
+      if (body.token === 'NoAccess')
+        return Response.json({ code: 1069902 }, { status: 403 });
+      return Response.json({ code: 0, data: { ticket: 'ticketDoc' } });
+    }
+    if (pathname === '/open-apis/drive/v1/export_tasks/ticketDoc') {
+      assert.equal(init?.method, 'GET');
+      assert.equal(endpoint.searchParams.get('token'), 'DocToken');
+      return Response.json({
+        code: 0,
+        data: { result: ++exportPolls === 1
+          ? { job_status: 2 }
+          : { job_status: 0, file_token: 'exportToken', file_name: '会议记录.docx', file_size: exportedFile.length } },
+      });
+    }
+    if (pathname === '/open-apis/drive/v1/export_tasks/file/exportToken/download') {
+      assert.equal(init?.method, 'GET');
+      assert.equal(new Headers(init?.headers).get('authorization'), 'Bearer test');
+      return new Response(new Uint8Array(exportedFile));
+    }
     if (init?.method === 'GET' && pathname.endsWith('/messages')) {
       assert.equal(endpoint.searchParams.get('container_id_type'), 'chat');
       assert.equal(endpoint.searchParams.get('container_id'), 'oc_team');
@@ -301,7 +326,10 @@ test('authorized Lark quotes target the card workspace and reuse the Monitor mes
     historyPages.set('older', {
       items: [
         historicalMessage('om_history_file', 'file', { file_key: 'file_history', file_name: '资料.txt' }),
-        historicalMessage('om_history_text', 'text', { text: '这是此前的说明' }),
+        historicalMessage('om_history_text', 'post', { content: [[
+          { tag: 'text', text: '这是此前的说明 ' },
+          { tag: 'a', text: '会议记录', href: 'https://example.larksuite.com/docx/DocToken' },
+        ]] }),
         historicalMessage('om_other_sender', 'text', { text: '其他人的内容' }, 'ou_other'),
         historicalMessage('om_beyond_boundary', 'text', { text: '边界之外的内容' }),
       ],
@@ -315,7 +343,12 @@ test('authorized Lark quotes target the card workspace and reuse the Monitor mes
       }
       return readState(...args);
     };
-    await receive(event('om_history_reply', { create_time: String(Date.now()), content: JSON.stringify({ text: '请分析这些资料' }) }));
+    await receive(event('om_history_reply', {
+      create_time: String(Date.now()),
+      content: JSON.stringify({
+        text: '请分析这些资料 https://example.larksuite.com/docx/DocToken https://larksuite.com.evil.example/docx/Ignore',
+      }),
+    }));
     await until(() => reactions.has('om_history_reply'));
     assert.equal(reactions.get('om_history_reply'), 'OneSecond');
     assert.equal(desks[1].sends, 4);
@@ -342,14 +375,35 @@ test('authorized Lark quotes target the card workspace and reuse the Monitor mes
     ).get(ids.modern)!;
     assert.notEqual(aggregate.turn_id, 'existing-active-turn');
     const combined = JSON.parse(String(aggregate.item_json)).content[0].text as string;
-    assert.match(combined, /^这是此前的说明\n\n请分析这些资料/);
+    assert.match(combined, /^这是此前的说明 会议记录\n\n请分析这些资料/);
     assert.doesNotMatch(combined, /较晚的消息|其他人的内容|边界之外的内容/);
     const paths = combined.split('\n').filter((line) => line.startsWith('- ')).map((line) => line.slice(2));
-    assert.equal(paths.length, 2);
+    assert.equal(paths.length, 3);
     for (const path of paths) uploadedPaths.add(path);
-    assert.match(paths[0], /资料\.txt$/);
-    assert.deepEqual(readFileSync(paths[0]), file);
-    assert.deepEqual(readFileSync(paths[1]), image);
+    assert.match(paths[0], /会议记录\.docx$/);
+    assert.deepEqual(readFileSync(paths[0]), exportedFile);
+    assert.match(paths[1], /资料\.txt$/);
+    assert.deepEqual(readFileSync(paths[1]), file);
+    assert.deepEqual(readFileSync(paths[2]), image);
+    assert.deepEqual(exportRequests, [{ token: 'DocToken', type: 'docx', file_extension: 'docx' }]);
+    assert.equal(exportPolls, 2);
+
+    await receive(event('om_no_document_access', {
+      content: JSON.stringify({ text: 'https://example.larksuite.com/docx/NoAccess' }),
+    }));
+    await until(() => reactions.has('om_no_document_access'));
+    assert.equal(reactions.get('om_no_document_access'), 'CrossMark');
+    assert.match(store.larkReceipt(store.config().larkDestination, 'om_no_document_access')!, /无法导出/);
+    await receive(event('om_mixed_attachment_failed', {
+      message_type: 'post',
+      content: JSON.stringify({ content: [[
+        { tag: 'img', image_key: 'img_missing' },
+        { tag: 'a', text: '会议记录', href: 'https://example.larksuite.com/docx/DocToken' },
+      ]] }),
+    }));
+    await until(() => reactions.has('om_mixed_attachment_failed'));
+    assert.match(store.larkReceipt(store.config().larkDestination, 'om_mixed_attachment_failed')!, /无法读取或保存/);
+    assert.equal(desks[1].sends, 5);
 
     await receive(event('om_revoked', {
       message_type: 'image',
