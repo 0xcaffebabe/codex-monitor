@@ -103,6 +103,68 @@ test('the overview URL survives reload and follows browser navigation', async ({
   await expect(directOverview).toBeHidden();
 });
 
+test('the running overview keeps reordered panes and their drafts with the right sessions', async ({
+  signedIn: { browserPage: page },
+  monitor,
+}) => {
+  await monitor.addWorkspace('排序工作空间甲', '排序任务甲');
+  await monitor.addWorkspace('排序工作空间乙', '排序任务乙');
+  const trigger = page.getByRole('button', { name: '查看运行中的会话' });
+  await expect(trigger).toHaveText('3');
+  await trigger.click();
+  await page.getByRole('button', { name: '全览', exact: true }).click();
+
+  const overview = page.getByRole('dialog', { name: '任务全览' });
+  const headings = overview.getByRole('heading', { level: 3 });
+  await expect(headings).toHaveCount(3);
+  const [first, middle, last] = await headings.allTextContents();
+  const handle = overview.getByRole('button', { name: `调整 ${first} 的顺序` });
+  const draft = overview
+    .getByRole('region', { name: new RegExp(` · ${first}$`) })
+    .getByRole('textbox');
+  await draft.fill('排序后保留这条草稿');
+
+  const source = (await handle.boundingBox())!;
+  const target = (await headings.last().boundingBox())!;
+  await page.mouse.move(source.x + source.width / 2, source.y + source.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(target.x + target.width / 2, target.y + target.height / 2, { steps: 8 });
+  await expect(overview.locator('[data-drag-state="target"] h3')).toHaveText(last);
+  await page.mouse.up();
+  await expect(headings).toHaveText([middle, last, first]);
+  await expect(draft).toHaveValue('排序后保留这条草稿');
+
+  await handle.focus();
+  await handle.press('ArrowLeft');
+  await expect(headings).toHaveText([middle, first, last]);
+  await expect(handle).toBeFocused();
+
+  await page.reload();
+  await expect(headings).toHaveText([middle, first, last]);
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(headings).toHaveText([middle, first]);
+  const touchSource = (await handle.boundingBox())!;
+  const touchTarget = (await headings.first().boundingBox())!;
+  const touch = await page.context().newCDPSession(page);
+  await touch.send('Emulation.setTouchEmulationEnabled', { enabled: true });
+  await touch.send('Input.dispatchTouchEvent', {
+    type: 'touchStart',
+    touchPoints: [
+      { x: touchSource.x + touchSource.width / 2, y: touchSource.y + touchSource.height / 2 },
+    ],
+  });
+  await touch.send('Input.dispatchTouchEvent', {
+    type: 'touchMove',
+    touchPoints: [
+      { x: touchTarget.x + touchTarget.width / 2, y: touchTarget.y + touchTarget.height / 2 },
+    ],
+  });
+  await expect(overview.locator('[data-drag-state="target"] h3')).toHaveText(middle);
+  await touch.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  await expect(headings).toHaveText([first, middle]);
+});
+
 test('running overview follows and sends messages independently across workspaces', async ({
   signedIn: { browserPage: page, workspace },
   local,

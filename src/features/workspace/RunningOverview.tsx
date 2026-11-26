@@ -3,6 +3,7 @@ import {
   ArrowUpRight,
   ChevronLeft,
   ChevronRight,
+  GripVertical,
   History,
   LayoutGrid,
   LoaderCircle,
@@ -11,7 +12,16 @@ import {
   SquarePen,
   X,
 } from 'lucide-react';
-import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import {
+  memo,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type PointerEvent,
+} from 'react';
 import type { AttentionSession } from '../../attention-types';
 import { DetailLoader } from '../../detail-loader';
 import { relative, time } from '../../shared/format';
@@ -81,6 +91,7 @@ export function RunningOverviewDialog({
       }}
     >
       <RunningOverview
+        key={user.id}
         user={user}
         running={runningTasks(groups)}
         groups={groups}
@@ -106,6 +117,28 @@ const gap = 12;
 const paneMinWidth = 340;
 const paneMinHeight = 280;
 const pagerHeight = 40;
+const dragThreshold = 6;
+
+function readTaskOrder(storageKey: string): string[] {
+  try {
+    const order: unknown = JSON.parse(localStorage.getItem(storageKey) ?? '[]');
+    return Array.isArray(order) ? order.filter((key) => typeof key === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
+function taskAtPointer(event: PointerEvent<HTMLDivElement>) {
+  const pane = document
+    .elementFromPoint(event.clientX, event.clientY)
+    ?.closest<HTMLElement>('[data-overview-task]');
+  return pane && event.currentTarget.contains(pane) ? pane.dataset.overviewTask : undefined;
+}
+
+type PaneReorder = {
+  onPointerDown: (event: PointerEvent<HTMLButtonElement>) => void;
+  onKeyDown: (event: KeyboardEvent<HTMLButtonElement>) => void;
+};
 
 function RunningOverview({
   user,
@@ -126,17 +159,24 @@ function RunningOverview({
   onOpenSession: (workspaceId: string, sessionId: string) => void;
   onRefresh: () => void;
 }) {
-  const [tasks, setTasks] = useState(running);
+  const storageKey = `codex-monitor.overview-order.v1.${user.id}`;
+  const [trackedTasks, setTrackedTasks] = useState(running);
+  const [preferredOrder, setPreferredOrder] = useState(() => readTaskOrder(storageKey));
   const [page, setPage] = useState(0);
   const [expanded, setExpanded] = useState<string>();
   const [picker, setPicker] = useState<'new' | 'history'>();
   const [size, setSize] = useState({ width: 0, height: 0 });
   const [notice, setNotice] = useState('');
+  const [sortStatus, setSortStatus] = useState('');
+  const [dragging, setDragging] = useState<{ source: string; target?: string }>();
   const { copied } = useSessionActions(setNotice);
   const area = useRef<HTMLDivElement>(null);
+  const grid = useRef<HTMLDivElement>(null);
+  const press = useRef<{ key: string; pointerId: number; x: number; y: number }>(null);
+  const restoreFocus = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
-    setTasks((previous) => {
+    setTrackedTasks((previous) => {
       const known = new Set(previous.map(taskKey));
       const added = running.filter((task) => !known.has(taskKey(task)));
       return added.length ? [...previous, ...added] : previous;
@@ -156,7 +196,16 @@ function RunningOverview({
     measure();
     return () => observer.disconnect();
   }, []);
+  useLayoutEffect(() => {
+    restoreFocus.current?.focus({ preventScroll: true });
+    restoreFocus.current = null;
+  }, [preferredOrder]);
 
+  const tasks = useMemo(() => {
+    const rank = new Map(preferredOrder.map((key, index) => [key, index]));
+    const position = (task: RunningTask) => rank.get(taskKey(task)) ?? preferredOrder.length;
+    return [...trackedTasks].sort((left, right) => position(left) - position(right));
+  }, [trackedTasks, preferredOrder]);
   const current = new Map(running.map((item) => [taskKey(item), item]));
   const observations = new Map(groups.map((group) => [group.workspace.id, group]));
   const maxColumns = Math.max(1, Math.floor((size.width + gap) / (paneMinWidth + gap)));
@@ -187,12 +236,54 @@ function RunningOverview({
 
   function showTask(task: RunningTask) {
     const key = taskKey(task);
-    setTasks((previous) => [
-      previous.find((item) => taskKey(item) === key) ?? task,
-      ...previous.filter((item) => taskKey(item) !== key),
-    ]);
+    setTrackedTasks((previous) =>
+      previous.some((item) => taskKey(item) === key) ? previous : [...previous, task],
+    );
+    setPreferredOrder((previous) => [key, ...previous.filter((item) => item !== key)]);
     setExpanded(undefined);
     setPage(0);
+  }
+
+  function moveTask(source: string, target: string, focusedHandle?: HTMLButtonElement) {
+    const order = tasks.map(taskKey);
+    const from = order.indexOf(source);
+    const to = order.indexOf(target);
+    if (from < 0 || to < 0 || from === to) return;
+
+    order.splice(from, 1);
+    order.splice(to, 0, source);
+    restoreFocus.current = focusedHandle ?? null;
+    setPreferredOrder(order);
+    const title = (current.get(source) ?? tasks[from]).session.title;
+    setSortStatus(`${title || '会话'}已移动到第 ${to + 1} 位`);
+    try {
+      localStorage.setItem(storageKey, JSON.stringify(order));
+    } catch {
+      // Reordering still works during this visit when browser storage is unavailable.
+    }
+  }
+
+  function cancelDrag() {
+    press.current = null;
+    setDragging(undefined);
+  }
+
+  function dragTarget(event: PointerEvent<HTMLDivElement>) {
+    const target = taskAtPointer(event);
+    const source = press.current?.key;
+    return !expandedTask &&
+      target !== source &&
+      visible.some((task) => taskKey(task) === source) &&
+      visible.some((task) => taskKey(task) === target)
+      ? target
+      : undefined;
+  }
+
+  function crossedDragThreshold(event: PointerEvent<HTMLDivElement>) {
+    const origin = press.current;
+    return (
+      !!origin && Math.hypot(event.clientX - origin.x, event.clientY - origin.y) >= dragThreshold
+    );
   }
 
   function showCreatedSession(workspace: ManagedWorkspace, sessionId: string) {
@@ -211,6 +302,11 @@ function RunningOverview({
     <div
       className="running-overview"
       onKeyDown={(event) => {
+        if (event.key === 'Escape' && press.current) {
+          event.preventDefault();
+          cancelDrag();
+          return;
+        }
         if (
           event.key === 'Escape' &&
           !event.nativeEvent.isComposing &&
@@ -269,12 +365,41 @@ function RunningOverview({
         {tasks.length ? (
           <div
             className="running-overview-grid"
+            ref={grid}
+            data-dragging={dragging ? '' : undefined}
+            onPointerMove={(event) => {
+              const origin = press.current;
+              if (
+                origin?.pointerId !== event.pointerId ||
+                (!dragging && !crossedDragThreshold(event))
+              )
+                return;
+              const target = dragTarget(event);
+              setDragging((previous) =>
+                previous?.source === origin.key && previous.target === target
+                  ? previous
+                  : { source: origin.key, target },
+              );
+            }}
+            onPointerUp={(event) => {
+              const origin = press.current;
+              if (origin?.pointerId !== event.pointerId) return;
+              const target = crossedDragThreshold(event) ? dragTarget(event) : undefined;
+              cancelDrag();
+              if (target) moveTask(origin.key, target);
+            }}
+            onLostPointerCapture={(event) => {
+              if (press.current?.pointerId === event.pointerId) cancelDrag();
+            }}
+            onPointerCancel={(event) => {
+              if (press.current?.pointerId === event.pointerId) cancelDrag();
+            }}
             style={{
               gridTemplateColumns: `repeat(${gridColumns}, minmax(0, 1fr))`,
               gridTemplateRows: `repeat(${expandedTask ? 1 : Math.ceil(visible.length / gridColumns)}, minmax(0, 1fr))`,
             }}
           >
-            {mounted.map((saved) => {
+            {mounted.map((saved, index) => {
               const key = taskKey(saved);
               const task = current.get(key) || saved;
               const observation = observations.get(task.workspace.id);
@@ -289,11 +414,46 @@ function RunningOverview({
                   dismissible={!!observation?.fresh && !current.has(key)}
                   hidden={!!expandedTask && expanded !== key}
                   expanded={expanded === key}
+                  dragState={
+                    dragging?.source === key
+                      ? 'source'
+                      : dragging?.target === key
+                        ? 'target'
+                        : undefined
+                  }
+                  reorder={
+                    expandedTask || visible.length < 2
+                      ? undefined
+                      : {
+                          onPointerDown: (event) => {
+                            if (!event.isPrimary || event.button !== 0 || press.current) return;
+                            grid.current?.setPointerCapture(event.pointerId);
+                            press.current = {
+                              key,
+                              pointerId: event.pointerId,
+                              x: event.clientX,
+                              y: event.clientY,
+                            };
+                          },
+                          onKeyDown: (event) => {
+                            const offset = {
+                              ArrowLeft: -1,
+                              ArrowRight: 1,
+                              ArrowUp: -gridColumns,
+                              ArrowDown: gridColumns,
+                            }[event.key];
+                            if (!offset || event.altKey || event.ctrlKey || event.metaKey) return;
+                            event.preventDefault();
+                            const target = visible[index + offset];
+                            if (target) moveTask(key, taskKey(target), event.currentTarget);
+                          },
+                        }
+                  }
                   onCopy={copied}
                   onExpand={() => setExpanded(expanded === key ? undefined : key)}
                   onOpen={() => onOpenSession(task.workspace.id, session.id)}
                   onDismiss={() => {
-                    setTasks((previous) => previous.filter((item) => taskKey(item) !== key));
+                    setTrackedTasks((previous) => previous.filter((item) => taskKey(item) !== key));
                     if (expanded === key) setExpanded(undefined);
                   }}
                 />
@@ -328,6 +488,9 @@ function RunningOverview({
             </button>
           </footer>
         )}
+      </div>
+      <div className="running-overview-sort-status" role="status">
+        {sortStatus}
       </div>
       {notice && (
         <div className="toast" role="status">
@@ -392,6 +555,8 @@ function OverviewPane({
   dismissible,
   hidden,
   expanded,
+  dragState,
+  reorder,
   onCopy,
   onExpand,
   onOpen,
@@ -404,6 +569,8 @@ function OverviewPane({
   dismissible: boolean;
   hidden: boolean;
   expanded: boolean;
+  dragState?: 'source' | 'target';
+  reorder?: PaneReorder;
   onCopy: (text: string) => void;
   onExpand: () => void;
   onOpen: () => void;
@@ -480,10 +647,23 @@ function OverviewPane({
     <section
       className="running-overview-pane"
       ref={pane}
+      data-overview-task={taskKey({ workspace, session })}
+      data-drag-state={dragState}
       aria-label={`${workspaceName} · ${title}`}
       hidden={hidden}
     >
       <header className="running-overview-pane-header">
+        {reorder && (
+          <button
+            type="button"
+            className="icon-button running-overview-reorder"
+            title="拖拽排序（也可使用方向键）"
+            aria-label={`调整 ${title} 的顺序`}
+            {...reorder}
+          >
+            <GripVertical size={16} aria-hidden="true" />
+          </button>
+        )}
         <div className="running-overview-pane-name">
           <div className="running-overview-pane-title">
             <h3 title={title}>{title}</h3>
