@@ -140,6 +140,35 @@ test('reads archived history and renders untrusted conversation Markdown without
   expect(externalImages).toEqual([]);
 });
 
+test('copies individual Markdown code blocks with their whitespace intact', async ({
+  signedIn: { browserPage, session },
+  context,
+  local,
+}) => {
+  const multiline = `if (ready) {\n  console.log('${'x'.repeat(160)}');\n}\n`;
+  local.data.append(`Inline \`ready\`\n\n\`\`\`js\n${multiline}\n\`\`\`\n\n\`\`\`\nnode example.js\n\`\`\``);
+  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+  await session.open(local.id, ids.modern);
+
+  const buttons = session.timeline.getByRole('button', { name: '复制代码', exact: true });
+  await expect(buttons).toHaveCount(2);
+  const first = buttons.first();
+  await browserPage.setViewportSize({ width: 390, height: 844 });
+  await session.timeline.locator('pre').filter({ hasText: 'if (ready)' }).evaluate((pre) => {
+    pre.scrollLeft = pre.scrollWidth;
+  });
+  await expect(first).toBeInViewport();
+  await first.click();
+  await expect(first).toHaveAttribute('title', '已复制到剪贴板');
+  const copied = await browserPage.evaluate(() => navigator.clipboard.readText());
+  expect(copied.replace(/\r\n/g, '\n')).toBe(multiline);
+
+  const second = buttons.last();
+  await second.click();
+  await expect(second).toHaveAttribute('title', '已复制到剪贴板');
+  expect(await browserPage.evaluate(() => navigator.clipboard.readText())).toBe('node example.js');
+});
+
 test('opens a linked file outside the selected workspace project and downloads its workbook', async ({
   signedIn: { browserPage, session },
   monitor,
