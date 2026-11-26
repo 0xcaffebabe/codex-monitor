@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type {
   Sub2ApiAccount,
+  Sub2ApiAccountDetails,
   Sub2ApiCallRecord,
   Sub2ApiCredits,
   Sub2ApiKeyUsage,
@@ -91,6 +92,7 @@ const keyStats = z.object({
   total_tokens: z.number(),
   total_actual_cost: z.number().nullish(),
 });
+const resetCount = z.number().int().nonnegative();
 const openAiQuota = z.object({
   credits: z
     .object({
@@ -102,6 +104,11 @@ const openAiQuota = z.object({
       unlimited: z.boolean(),
     })
     .nullish(),
+  rate_limit_reset_credits: z.object({ available_count: resetCount }).nullish().catch(null),
+});
+const claudeResetCredits = z.object({
+  available_count: resetCount,
+  credits: z.array(z.object({ resets_left: resetCount })),
 });
 const named = z.object({ name: z.string() });
 const callRecordPage = z.object({
@@ -381,14 +388,43 @@ export class Sub2ApiClient {
   }
 
   async accountCredits(accountId: number): Promise<Sub2ApiCredits | null> {
-    const { credits } = await this.request(`/openai/accounts/${accountId}/quota`, openAiQuota);
-    return credits
-      ? {
-          balance: credits.balance ?? null,
-          hasCredits: credits.has_credits,
-          unlimited: credits.unlimited,
-        }
-      : null;
+    return (await this.accountDetails(accountId, 'openai')).credits;
+  }
+
+  async accountDetails(
+    accountId: number,
+    platform: 'openai' | 'anthropic',
+  ): Promise<Sub2ApiAccountDetails> {
+    if (platform === 'anthropic') {
+      const { available_count, credits } = await this.request(
+        `/accounts/${accountId}/claude/reset-credits`,
+        claudeResetCredits,
+      );
+      return {
+        credits: null,
+        resetCredits: {
+          available: available_count,
+          remaining: credits.reduce((total, credit) => total + credit.resets_left, 0),
+        },
+      };
+    }
+
+    const { credits, rate_limit_reset_credits } = await this.request(
+      `/openai/accounts/${accountId}/quota`,
+      openAiQuota,
+    );
+    return {
+      credits: credits
+        ? {
+            balance: credits.balance ?? null,
+            hasCredits: credits.has_credits,
+            unlimited: credits.unlimited,
+          }
+        : null,
+      resetCredits: rate_limit_reset_credits
+        ? { available: rate_limit_reset_credits.available_count, remaining: null }
+        : null,
+    };
   }
 
   async keys({

@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { api } from '../../api';
 import type {
   Sub2ApiAccount,
+  Sub2ApiAccountDetails,
   Sub2ApiCallRecord,
   Sub2ApiCredits,
   Sub2ApiKeyUsage,
@@ -72,9 +73,19 @@ function creditBalance(credits: Sub2ApiCredits | null) {
   return credits.hasCredits ? '点数余额未知' : '无可用点数';
 }
 
-function AccountCredits({ accountId, enabled }: { accountId: number; enabled: boolean }) {
-  const { data, error } = useQuery<Sub2ApiCredits | null>(
-    enabled ? `/api/sub2api/account-credits?accountId=${accountId}` : undefined,
+function AccountDetails({
+  accountId,
+  platform,
+  enabled,
+}: {
+  accountId: number;
+  platform: 'openai' | 'anthropic';
+  enabled: boolean;
+}) {
+  const { data, error } = useQuery<Sub2ApiAccountDetails>(
+    enabled
+      ? `/api/sub2api/account-details?accountId=${accountId}&platform=${platform}`
+      : undefined,
   );
   if (error)
     return (
@@ -82,14 +93,38 @@ function AccountCredits({ accountId, enabled }: { accountId: number; enabled: bo
         {error}
       </span>
     );
+  const resetCredits = data?.resetCredits;
+  let resetLabel = data ? '暂无重置卡数据' : '正在查询重置卡…';
+  if (resetCredits) {
+    const available = integer(resetCredits.available);
+    resetLabel =
+      resetCredits.remaining === null
+        ? `重置卡可用 ${available} 次`
+        : `重置卡剩余 ${integer(resetCredits.remaining)} 次 · 当前可用 ${available} 次`;
+  }
   return (
-    <span className="sub2api-credits" role="status">
-      {data === undefined ? '正在查询点数…' : creditBalance(data)}
-    </span>
+    <>
+      {platform === 'openai' && (
+        <span className="sub2api-credits" role="status" aria-label="点数余额">
+          {data ? creditBalance(data.credits) : '正在查询点数…'}
+        </span>
+      )}
+      <span className="sub2api-credits" role="status" aria-label="重置卡">
+        {resetLabel}
+      </span>
+    </>
   );
 }
 
-function AccountRows({ items, loadCredits }: { items: Sub2ApiAccount[]; loadCredits: boolean }) {
+function AccountRows({
+  items,
+  accountType,
+  loadDetails,
+}: {
+  items: Sub2ApiAccount[];
+  accountType: string;
+  loadDetails: boolean;
+}) {
   const stateLabels: Record<string, string> = {
     active: '正常',
     inactive: '停用',
@@ -103,8 +138,13 @@ function AccountRows({ items, loadCredits }: { items: Sub2ApiAccount[]; loadCred
         <small>
           {account.platform} · #{account.id} · {stateLabels[account.status] ?? account.status}
         </small>
-        {account.platform === 'openai' && (
-          <AccountCredits accountId={account.id} enabled={loadCredits} />
+        {(account.platform === 'openai' ||
+          (account.platform === 'anthropic' && accountType === 'oauth')) && (
+          <AccountDetails
+            accountId={account.id}
+            platform={account.platform}
+            enabled={loadDetails}
+          />
         )}
       </td>
       <td>
@@ -397,7 +437,8 @@ export function Sub2ApiUsage({
                     <AccountRows
                       key={generation}
                       items={accounts.data?.items ?? []}
-                      loadCredits={!busy}
+                      accountType={accountType}
+                      loadDetails={!busy}
                     />
                   ) : (
                     <KeyRows items={keys.data?.items ?? []} />

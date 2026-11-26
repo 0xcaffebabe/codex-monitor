@@ -21,6 +21,7 @@ const pagination = z.object({
 const accounts = pagination
   .extend({ type: z.enum(['oauth', 'setup-token']).default('oauth') })
   .strict();
+const accountId = z.coerce.number().int().positive();
 const usageDates = {
   startDate: z.iso.date(),
   endDate: z.iso.date(),
@@ -125,8 +126,16 @@ export function installSub2ApiRoutes(app: Express, auth: WorkspaceAuth) {
   app.get(
     '/api/sub2api/account-credits',
     admin,
-    query(z.object({ accountId: z.coerce.number().int().positive() }).strict(), (client, input) =>
+    query(z.object({ accountId }).strict(), (client, input) =>
       client.accountCredits(input.accountId),
+    ),
+  );
+  app.get(
+    '/api/sub2api/account-details',
+    admin,
+    query(
+      z.object({ accountId, platform: z.enum(['openai', 'anthropic']) }).strict(),
+      (client, input) => client.accountDetails(input.accountId, input.platform),
     ),
   );
   app.get(

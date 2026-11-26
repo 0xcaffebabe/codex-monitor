@@ -57,12 +57,14 @@ test('Sub2API uses saved server credentials and exposes only admin usage fields'
     'settings',
     'accounts',
     'account-credits?accountId=41',
+    'account-details?accountId=41&platform=openai',
     `keys?${range}`,
     `calls?${range}`,
   ]) {
     assert.equal((await request(route, { headers: viewerHeaders })).status, 403);
   }
   assert.equal((await request('accounts')).status, 409);
+  assert.equal((await request('account-details?accountId=41&platform=openai')).status, 409);
   assert.equal((await request(`calls?${range}`)).status, 409);
   assert.equal((await save('file:///etc/passwd', sub2ApiAdminKey)).status, 400);
   const config = await save(`${upstream.baseUrl}/api/v1/`, sub2ApiAdminKey);
@@ -75,6 +77,7 @@ test('Sub2API uses saved server credentials and exposes only admin usage fields'
   assert.equal((await save(upstream.baseUrl)).status, 200);
   assert.equal((await save(`${upstream.baseUrl}/different`)).status, 400);
   assert.equal((await request('accounts?type=apikey')).status, 400);
+  assert.equal((await request('account-details?accountId=41&platform=gemini')).status, 400);
   assert.equal((await request(`calls?${range}&apiKey=CI&userId=0`)).status, 400);
   assert.equal((await request(`calls?${range}&requestType=unsupported`)).status, 400);
   assert.equal(
@@ -122,6 +125,55 @@ test('Sub2API uses saved server credentials and exposes only admin usage fields'
     assert.deepEqual(await result.json(), expected);
     assert.equal(upstream.calls.at(-1)?.method, 'GET');
   }
+
+  for (const [accountId, platform, upstreamPath, expected] of [
+    [
+      41,
+      'openai',
+      '/openai/accounts/41/quota',
+      {
+        credits: { balance: '1250.50', hasCredits: true, unlimited: false },
+        resetCredits: { available: 2, remaining: null },
+      },
+    ],
+    [
+      42,
+      'openai',
+      '/openai/accounts/42/quota',
+      {
+        credits: { balance: '0', hasCredits: false, unlimited: false },
+        resetCredits: { available: 0, remaining: null },
+      },
+    ],
+    [
+      44,
+      'openai',
+      '/openai/accounts/44/quota',
+      { credits: { balance: null, hasCredits: true, unlimited: true }, resetCredits: null },
+    ],
+    [
+      45,
+      'openai',
+      '/openai/accounts/45/quota',
+      { credits: null, resetCredits: { available: 5, remaining: null } },
+    ],
+    [
+      46,
+      'anthropic',
+      '/accounts/46/claude/reset-credits',
+      { credits: null, resetCredits: { available: 1, remaining: 3 } },
+    ],
+  ] as const) {
+    const before: number = upstream.calls.length;
+    const result = await request(`account-details?accountId=${accountId}&platform=${platform}`);
+    assert.equal(result.status, 200);
+    assert.deepEqual(await result.json(), expected);
+    assert.deepEqual(
+      upstream.calls.slice(before).map(({ method, path }) => [method, path]),
+      [['GET', upstreamPath]],
+    );
+  }
+
   upstream.behavior.rejectCredits = true;
   const deniedCredits = await credits(41);
   assert.equal(deniedCredits.status, 502);

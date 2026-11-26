@@ -15,26 +15,41 @@ test('configure Sub2API and query subscription accounts and API keys', async ({
 
     const plus = usage.subscriptionAccount('Codex Plus');
     const backup = usage.subscriptionAccount('Codex backup');
+    const claudeOAuth = usage.subscriptionAccount('Claude OAuth');
+    const plusBalance = plus.getByRole('status', { name: '点数余额' });
+    const backupBalance = backup.getByRole('status', { name: '点数余额' });
+    const plusResets = plus.getByRole('status', { name: '重置卡' });
+    const claudeResets = claudeOAuth.getByRole('status', { name: '重置卡' });
     await expect(plus).toContainText('18.5%');
     await expect(plus.getByTitle('9,354,344 Token')).toHaveText('178 次 · 9.35M Token');
     await expect(plus.getByTitle('2,530,953,480 Token')).toHaveText('19,548 次 · 2.53B Token');
     await expect(backup).toContainText('额度暂不可用');
-    await expect(plus.getByRole('status')).toHaveText('1250.50 点');
-    await expect(backup.getByRole('status')).toHaveText('0 点');
+    await expect(plusBalance).toHaveText('1250.50 点');
+    await expect(backupBalance).toHaveText('0 点');
+    await expect(plusResets).toHaveText('重置卡可用 2 次');
+    await expect(backup.getByRole('status', { name: '重置卡' })).toHaveText('重置卡可用 0 次');
+    await expect(claudeResets).toHaveText('重置卡剩余 3 次 · 当前可用 1 次');
     await expect(usage.subscriptions.getByRole('button')).toHaveCount(0);
 
     upstream.behavior.rejectCredits = true;
+    upstream.behavior.legacyClaudeReset = true;
     await usage.refreshSub2Api();
     await expect(plus.getByRole('alert')).toHaveText(
       'Sub2API 拒绝查询，请检查管理员 Key 的读取权限',
     );
-    await expect(backup.getByRole('status')).toHaveText('0 点');
+    await expect(backupBalance).toHaveText('0 点');
+    await expect(claudeOAuth.getByRole('alert')).toHaveText(
+      'Sub2API 接口不可用，请检查站点地址和版本',
+    );
 
     upstream.behavior.rejectCredits = false;
+    upstream.behavior.legacyClaudeReset = false;
     await page.setViewportSize({ width: 390, height: 844 });
     await usage.refreshSub2Api();
-    await expect(plus.getByRole('status')).toHaveText('1250.50 点');
-    await expect(backup.getByRole('status')).toHaveText('0 点');
+    await expect(plusBalance).toHaveText('1250.50 点');
+    await expect(backupBalance).toHaveText('0 点');
+    await expect(plusResets).toHaveText('重置卡可用 2 次');
+    await expect(claudeResets).toHaveText('重置卡剩余 3 次 · 当前可用 1 次');
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
       true,
     );
@@ -43,6 +58,9 @@ test('configure Sub2API and query subscription accounts and API keys', async ({
     const claude = usage.subscriptionAccount('Claude subscription');
     await expect(claude).toContainText('未知');
     await expect(claude.getByRole('status')).toHaveCount(0);
+    expect(upstream.calls.some(({ path }) => path === '/accounts/43/claude/reset-credits')).toBe(
+      false,
+    );
 
     await usage.showApiKeys();
     const runner = usage.apiKey('CI runner');

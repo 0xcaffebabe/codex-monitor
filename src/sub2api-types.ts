@@ -34,6 +34,11 @@ export type Sub2ApiCredits = {
   unlimited: boolean;
 };
 
+export type Sub2ApiAccountDetails = {
+  credits: Sub2ApiCredits | null;
+  resetCredits: { available: number; remaining: number | null } | null;
+};
+
 export type Sub2ApiKeyUsage = {
   id: number;
   name: string;

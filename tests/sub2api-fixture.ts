@@ -6,7 +6,13 @@ export const upstreamCredential = 'sub2api-test-upstream-credential';
 
 export async function sub2ApiFixture() {
   const calls: { method: string; path: string; query: URLSearchParams }[] = [];
-  const behavior = { legacyBatch: false, rejectCost: false, rejectCredits: false, redirect: false };
+  const behavior = {
+    legacyBatch: false,
+    rejectCost: false,
+    rejectCredits: false,
+    legacyClaudeReset: false,
+    redirect: false,
+  };
   const createQuota = (utilization: number, utilizationUnknown = false) => ({
     updated_at: '2026-11-20T08:00:00Z',
     five_hour: {
@@ -96,7 +102,11 @@ export async function sub2ApiFixture() {
         const items =
           url.searchParams.get('type') === 'setup-token'
             ? [{ ...account, id: 43, name: 'Claude subscription', platform: 'anthropic' }]
-            : [account, { ...account, id: 42, name: 'Codex backup', status: 'inactive' }];
+            : [
+                account,
+                { ...account, id: 42, name: 'Codex backup', status: 'inactive' },
+                { ...account, id: 46, name: 'Claude OAuth', platform: 'anthropic' },
+              ];
         const matches = items.filter((item) =>
           item.name.toLowerCase().includes(search.toLowerCase()),
         );
@@ -127,11 +137,24 @@ export async function sub2ApiFixture() {
           access_token: upstreamCredential,
         });
       case '/openai/accounts/42/quota':
-        return json(200, { credits: { balance: '0', has_credits: false, unlimited: false } });
+        return json(200, {
+          credits: { balance: '0', has_credits: false, unlimited: false },
+          rate_limit_reset_credits: { available_count: 0 },
+        });
       case '/openai/accounts/44/quota':
         return json(200, { credits: { balance: null, has_credits: true, unlimited: true } });
       case '/openai/accounts/45/quota':
         return json(200, { rate_limit_reset_credits: { available_count: 5 } });
+      case '/accounts/46/claude/reset-credits':
+        if (behavior.legacyClaudeReset) return json(404, {});
+        return json(200, {
+          available_count: 1,
+          credits: [
+            { resets_left: 1, redeemable: true },
+            { resets_left: 2, redeemable: false },
+          ],
+          access_token: upstreamCredential,
+        });
       case '/dashboard/api-keys-trend':
         return json(200, {
           trend: [
