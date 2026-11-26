@@ -96,6 +96,9 @@ test('authorized Lark quotes target the card workspace and reuse the Monitor mes
   }).png().toBuffer();
   assert.ok(image.length > CHUNK_BYTES);
   const uploadedPaths = new Set<string>();
+  const historyPages = new Map<string, unknown>();
+  const file = Buffer.from('内容来自此前的文件消息');
+  const downloaded: string[] = [];
   let cardCount = 0;
   let receive!: (event: unknown) => Promise<void>;
   let slowImageSignal: AbortSignal | undefined;
@@ -105,6 +108,14 @@ test('authorized Lark quotes target the card workspace and reuse the Monitor mes
     const { pathname } = endpoint;
     if (pathname.includes('/auth/'))
       return Response.json({ code: 0, tenant_access_token: 'test', expire: 7200 });
+    if (init?.method === 'GET' && pathname.endsWith('/messages')) {
+      assert.equal(endpoint.searchParams.get('container_id_type'), 'chat');
+      assert.equal(endpoint.searchParams.get('container_id'), 'oc_team');
+      assert.equal(endpoint.searchParams.get('sort_type'), 'ByCreateTimeDesc');
+      const page = historyPages.get(endpoint.searchParams.get('page_token') ?? '');
+      assert.ok(page);
+      return Response.json({ code: 0, data: page });
+    }
     const messageId = /^\/open-apis\/im\/v1\/messages\/(om_[^/]+)\/reactions$/.exec(pathname)?.[1];
     if (messageId) {
       const body = JSON.parse(String(init?.body));
@@ -118,6 +129,12 @@ test('authorized Lark quotes target the card workspace and reuse the Monitor mes
     }
     if (pathname.includes('/resources/')) {
       assert.equal(init?.method, 'GET');
+      const resource = pathname.split('/').at(-1)!;
+      downloaded.push(pathname);
+      if (resource === 'file_history') {
+        assert.equal(endpoint.searchParams.get('type'), 'file');
+        return new Response(new Uint8Array(file));
+      }
       assert.equal(endpoint.searchParams.get('type'), 'image');
       assert.equal(new Headers(init?.headers).get('authorization'), 'Bearer test');
       if (pathname.endsWith('/img_too_large'))
@@ -265,6 +282,75 @@ test('authorized Lark quotes target the card workspace and reuse the Monitor mes
     }
     assert.deepEqual(desks.map(({ sends }) => sends), [0, 4]);
 
+    const historicalMessage = (id: string, msgType: string, content: object, sender = 'ou_allowed') => ({
+      message_id: id,
+      chat_id: 'oc_team',
+      msg_type: msgType,
+      sender: { id: sender, id_type: 'open_id', sender_type: 'user' },
+      body: { content: JSON.stringify(content) },
+    });
+    historyPages.set('', {
+      items: [
+        historicalMessage('om_later', 'text', { text: '较晚的消息' }),
+        historicalMessage('om_history_reply', 'text', { text: '请分析这些资料' }),
+        historicalMessage('om_history_image', 'image', { image_key: 'img_history' }),
+      ],
+      has_more: true,
+      page_token: 'older',
+    });
+    historyPages.set('older', {
+      items: [
+        historicalMessage('om_history_file', 'file', { file_key: 'file_history', file_name: '资料.txt' }),
+        historicalMessage('om_history_text', 'text', { text: '这是此前的说明' }),
+        historicalMessage('om_other_sender', 'text', { text: '其他人的内容' }, 'ou_other'),
+        historicalMessage('om_beyond_boundary', 'text', { text: '边界之外的内容' }),
+      ],
+    });
+    const readState = desks[1].state.bind(desks[1]);
+    let stateReads = 0;
+    desks[1].state = async (...args) => {
+      if (++stateReads === 2) {
+        b.hist.prepare('INSERT INTO thread_turns VALUES(?,?,?,?,?,?)')
+          .run(ids.modern, 'existing-active-turn', 1001, 'inProgress', Math.floor(Date.now() / 1000), null);
+      }
+      return readState(...args);
+    };
+    await receive(event('om_history_reply', { create_time: String(Date.now()), content: JSON.stringify({ text: '请分析这些资料' }) }));
+    await until(() => reactions.has('om_history_reply'));
+    assert.equal(reactions.get('om_history_reply'), 'OneSecond');
+    assert.equal(desks[1].sends, 4);
+    assert.ok(stateReads >= 2);
+    assert.ok(downloaded.some((url) => url.endsWith('/om_history_image/resources/img_history')));
+    assert.ok(downloaded.some((url) => url.endsWith('/om_history_file/resources/file_history')));
+
+    // Restart the workspace client while the aggregated prompt is still queued.
+    await clients.pop()!.close();
+    clients.push(await MonitorClient.start({
+      config: b.config,
+      serverUrl: server.base,
+      workspaceId: workspaces[1].workspace.id,
+      key: workspaces[1].key,
+      services: { control: desks[1] },
+    }));
+    await until(() => !!clients[1]?.connected);
+    b.hist.prepare("UPDATE thread_turns SET status='completed',completed_at=? WHERE turn_id=?")
+      .run(Math.floor(Date.now() / 1000), 'existing-active-turn');
+    await until(() => desks[1].sends === 5);
+    await until(() => !!b.hist.prepare("SELECT 1 FROM thread_items WHERE item_json LIKE '%请分析这些资料%'").get());
+    const aggregate = b.hist.prepare(
+      "SELECT item_json,turn_id FROM thread_items WHERE thread_id=? AND item_json LIKE '%请分析这些资料%' AND json_extract(item_json, '$.type')='userMessage'",
+    ).get(ids.modern)!;
+    assert.notEqual(aggregate.turn_id, 'existing-active-turn');
+    const combined = JSON.parse(String(aggregate.item_json)).content[0].text as string;
+    assert.match(combined, /^这是此前的说明\n\n请分析这些资料/);
+    assert.doesNotMatch(combined, /较晚的消息|其他人的内容|边界之外的内容/);
+    const paths = combined.split('\n').filter((line) => line.startsWith('- ')).map((line) => line.slice(2));
+    assert.equal(paths.length, 2);
+    for (const path of paths) uploadedPaths.add(path);
+    assert.match(paths[0], /资料\.txt$/);
+    assert.deepEqual(readFileSync(paths[0]), file);
+    assert.deepEqual(readFileSync(paths[1]), image);
+
     await receive(event('om_revoked', {
       message_type: 'image',
       content: JSON.stringify({ image_key: 'img_slow' }),
@@ -273,7 +359,7 @@ test('authorized Lark quotes target the card workspace and reuse the Monitor mes
     assert.equal((await save(['ou_replacement'])).status, 200);
     assert.equal(slowImageSignal?.aborted, true);
     assert.equal(reactions.has('om_revoked'), false);
-    assert.equal(desks[1].sends, 4);
+    assert.equal(desks[1].sends, 5);
     assert.equal((await save(['ou_allowed'])).status, 200);
 
     await clients.pop()!.close();

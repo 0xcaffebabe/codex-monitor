@@ -9,6 +9,7 @@ import { sessionPermissionModes } from '../src/approval-types.js';
 export type ControlLane = <T>(threadId: string, operation: () => Promise<T>) => Promise<T>;
 const waitingMessage = '消息已排队，等待上下文压缩结束后自动发送。';
 const desktopWaitingMessage = '桌面通道消息已排队，等待当前执行结束后交接桌面。';
+const nextTurnWaitingMessage = 'Lark 回复已排队，等待当前轮次结束后开始新一轮。';
 
 /** Only queued inputs can be resumed. A dispatched input always needs a definite receipt. */
 export class MessageQueue {
@@ -34,6 +35,8 @@ export class MessageQueue {
     );
     for (const name of ['model', 'thinking', 'channel', 'permission_mode'])
       if (!columns.has(name)) db.exec(`ALTER TABLE control_message_queue ADD COLUMN ${name} TEXT`);
+    if (!columns.has('next_turn'))
+      db.exec('ALTER TABLE control_message_queue ADD COLUMN next_turn INTEGER NOT NULL DEFAULT 0');
     db.prepare(
       "DELETE FROM control_message_queue WHERE request_id NOT IN (SELECT id FROM control_requests WHERE state='queued')",
     ).run();
@@ -63,7 +66,7 @@ export class MessageQueue {
     userId: string,
     ip: string,
     threadId: string,
-    input: { requestId: string; prompt: string } & SessionMessageSettings,
+    input: { requestId: string; prompt: string; nextTurn?: true } & SessionMessageSettings,
   ) {
     const fingerprint = createHash('sha256')
       .update(
@@ -73,6 +76,7 @@ export class MessageQueue {
           ...(input.model ? [{ model: input.model, thinking: input.thinking }] : []),
           ...(input.channel ? [{ channel: input.channel }] : []),
           ...(input.permissionMode ? [{ permissionMode: input.permissionMode }] : []),
+          ...(input.nextTurn ? [{ nextTurn: true }] : []),
         ]),
       )
       .digest('hex');
@@ -97,7 +101,7 @@ export class MessageQueue {
           );
         this.db
           .prepare(
-            'INSERT INTO control_message_queue (request_id,thread_id,prompt,ip,model,thinking,channel,permission_mode) VALUES(?,?,?,?,?,?,?,?)',
+            'INSERT INTO control_message_queue (request_id,thread_id,prompt,ip,model,thinking,channel,permission_mode,next_turn) VALUES(?,?,?,?,?,?,?,?,?)',
           )
           .run(
             input.requestId,
@@ -108,6 +112,7 @@ export class MessageQueue {
             input.thinking ?? null,
             input.channel ?? null,
             input.permissionMode ?? null,
+            Number(!!input.nextTurn),
           );
         this.db.exec('COMMIT');
       } catch (error) {
@@ -305,6 +310,10 @@ export class MessageQueue {
       this.waiting(requestId, threadId);
       return;
     }
+    if (row.next_turn && (state.status === 'active' || hasUnconfirmedWriter(state, current.status))) {
+      this.waiting(requestId, threadId, nextTurnWaitingMessage);
+      return;
+    }
     if (
       settings.channel === 'desktop' &&
       ((state.status === 'active' && state.owner === 'monitor') ||
@@ -337,6 +346,19 @@ export class MessageQueue {
       return;
     }
     if (this.closed) return;
+    if (row.next_turn) {
+      try {
+        state = await this.bridge.state(caller, threadId, stateOptions);
+      } catch {
+        if (!this.closed) this.waiting(requestId, threadId, nextTurnWaitingMessage);
+        return;
+      }
+      if (this.closed) return;
+      if (state.compacting || state.status === 'active' || hasUnconfirmedWriter(state, current.status)) {
+        this.waiting(requestId, threadId, nextTurnWaitingMessage);
+        return;
+      }
+    }
     // The claim is persisted immediately before dispatch. A crash after this point is uncertain.
     const claimed = this.db
       .prepare(

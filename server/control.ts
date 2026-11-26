@@ -8,6 +8,7 @@ import { validId, type CodexSource } from './source.js';
 import { MessageQueue, type ControlLane } from './message-queue.js';
 import { MAX_ATTACHMENTS, type UploadStore } from './uploads.js';
 import { imageMime } from './media.js';
+import type { LarkReplyAttachment } from './notifications/lark-replies.js';
 import { reasoningEfforts, type SessionModelSettings } from '../src/types.js';
 import { validateModelSettings } from './model-settings.js';
 import { sessionPermissionModes } from '../src/approval-types.js';
@@ -142,8 +143,8 @@ export function installControl(
   async function submitLarkReply(
     userId: string,
     id: string,
-    { requestId, prompt }: { requestId: string; prompt: string },
-    images: Buffer[],
+    { requestId, prompt, nextTurn }: { requestId: string; prompt: string; nextTurn?: true },
+    files: LarkReplyAttachment[],
     signal: AbortSignal,
   ) {
     if (closed || signal.aborted || !adminUser.get(userId)) return 'failed';
@@ -153,13 +154,14 @@ export function installControl(
     if (!session || session.archived || session.subagent) return 'unavailable';
     if (closed || signal.aborted) return 'failed';
     const attachments: string[] = [];
+    const attachmentError = files.some(({ name }) => !!name) ? 'attachmentFailed' : 'imageFailed';
     try {
-      for (const [index, image] of images.entries()) {
-        const mime = imageMime(image.subarray(0, 16));
-        if (!mime || !uploads) return 'imageFailed';
+      for (const [index, { data, name }] of files.entries()) {
+        const mime = name ? 'application/octet-stream' : imageMime(data.subarray(0, 16));
+        if (!mime || !uploads) return attachmentError;
         const ext = mime === 'image/jpeg' ? 'jpg' : mime.slice('image/'.length);
         const uploaded = await uploads.receiveStream(
-          Readable.from([image]), userId, `lark-${index + 1}.${ext}`, mime, signal,
+          Readable.from([data]), userId, name ?? `lark-${index + 1}.${ext}`, mime, signal,
         );
         attachments.push(uploaded.id);
       }
@@ -168,10 +170,11 @@ export function installControl(
       const { state } = await messages.submit(userId, 'Lark', id, {
         requestId,
         prompt: uploads?.compose(userId, requestId, prompt, attachments) ?? prompt,
+        nextTurn,
       });
       return larkResult(state);
     } catch (error) {
-      if (images.length && !larkReceipt.get(requestId)) return 'imageFailed';
+      if (files.length && !larkReceipt.get(requestId)) return attachmentError;
       if (error instanceof ControlError || signal.aborted) return 'failed';
       throw error;
     } finally {
@@ -187,14 +190,14 @@ export function installControl(
   function sendLarkReply(
     userId: string,
     id: string,
-    input: { requestId: string; prompt: string },
-    images: Buffer[],
+    input: { requestId: string; prompt: string; nextTurn?: true },
+    files: LarkReplyAttachment[],
     signal: AbortSignal,
   ) {
     const key = `${userId}:${input.requestId}`;
     const pending = larkRequests.get(key);
     if (pending) return pending;
-    const job = submitLarkReply(userId, id, input, images, signal).finally(() => larkRequests.delete(key));
+    const job = submitLarkReply(userId, id, input, files, signal).finally(() => larkRequests.delete(key));
     larkRequests.set(key, job);
     return job;
   }

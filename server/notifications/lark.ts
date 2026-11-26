@@ -27,6 +27,7 @@ export class LarkDeliveryError extends Error {
   constructor(
     message: string,
     public retryable = false,
+    public code?: number,
   ) {
     super(message);
   }
@@ -80,24 +81,25 @@ export async function sendLark(
 
 export async function larkRequest(
   url: string,
-  body: object,
+  body: object | undefined,
   signal: AbortSignal,
   transport: WebhookTransport,
   token?: string,
+  maxResponseBytes = 16384,
 ) {
   try {
     const multipart = body instanceof FormData;
     const response = await transport(url, {
-      method: 'POST',
+      method: body ? 'POST' : 'GET',
       headers: {
-        ...(multipart ? {} : { 'Content-Type': 'application/json' }),
+        ...(!body || multipart ? {} : { 'Content-Type': 'application/json' }),
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
       },
       body: multipart ? body : JSON.stringify(body),
       redirect: 'error',
       signal: AbortSignal.any([signal, AbortSignal.timeout(multipart ? 30000 : 10000)]),
     });
-    if (!response.ok) {
+    if (!response.ok && (body || ![400, 403].includes(response.status))) {
       await response.body?.cancel();
       throw new LarkDeliveryError(
         `飞书/Lark HTTP ${response.status}`,
@@ -113,7 +115,7 @@ export async function larkRequest(
         const { done, value } = await reader.read();
         if (done) break;
         size += value.length;
-        if (size > 16384) {
+        if (size > maxResponseBytes) {
           await reader.cancel();
           throw new LarkDeliveryError('飞书/Lark 响应内容过大');
         }

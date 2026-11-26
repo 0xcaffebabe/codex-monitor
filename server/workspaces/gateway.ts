@@ -49,6 +49,7 @@ type Peer = {
   notificationAttachments: boolean;
   notificationMarkRead: boolean;
   notificationReplies: boolean;
+  notificationReplyFiles: boolean;
   replies: Map<string, PendingLarkReply>;
   privacyWork: boolean;
   attachments: Map<string, (frame: Frame) => void>;
@@ -210,6 +211,7 @@ export class WorkspaceGateway {
       notificationAttachments: false,
       notificationMarkRead: false,
       notificationReplies: false,
+      notificationReplyFiles: false,
       replies: new Map(),
       privacyWork: false,
       attachments: new Map(),
@@ -244,6 +246,7 @@ export class WorkspaceGateway {
           peer.notificationAttachments = !!frame.capabilities?.notificationAttachments;
           peer.notificationMarkRead = !!frame.capabilities?.notificationMarkRead;
           peer.notificationReplies = !!frame.capabilities?.notificationReplies;
+          peer.notificationReplyFiles = !!frame.capabilities?.notificationReplyFiles;
           peer.privacyWork = frame.platform === 'win32' && !!frame.capabilities?.privacyWork;
           clearTimeout(handshake);
           void sendFrame(socket, {
@@ -390,12 +393,14 @@ export class WorkspaceGateway {
       await sendFrame(peer.socket, { type: 'notification-mark-read', sessionId });
   }
   async submitLarkReply(input: LarkReplySubmission, signal: AbortSignal): Promise<LarkReplyReceipt> {
-    const { workspaceId, userId, sessionId, requestId, prompt, images } = input;
+    const { workspaceId, userId, sessionId, requestId, prompt, attachments, nextTurn } = input;
     const peer = this.peers.get(workspaceId);
     if (signal.aborted || this.closed) return 'failed';
     if (!this.store.get(workspaceId)) return 'unavailable';
     if (!peer?.ready) return 'offline';
     if (!peer.notificationReplies) return 'upgrade';
+    const hasFiles = attachments.some(({ name }) => !!name);
+    if (hasFiles && !peer.notificationReplyFiles) return 'upgrade';
     if (peer.replies.size >= MAX_REQUESTS) return 'busy';
     const actor = this.auth.db.prepare("SELECT username FROM users WHERE id=? AND role='admin'").get(userId);
     if (!actor) return 'failed';
@@ -412,7 +417,7 @@ export class WorkspaceGateway {
         reply.finish('unknown');
         void sendFrame(peer.socket, { type: 'cancel', id }).catch(() => {});
       };
-      const timer = setTimeout(abort, images.length ? 30000 : 2000);
+      const timer = setTimeout(abort, attachments.length ? 30000 : 2000);
       timer.unref();
       signal.addEventListener('abort', abort, { once: true });
       peer.replies.set(id, reply);
@@ -420,19 +425,25 @@ export class WorkspaceGateway {
         await sendFrame(peer.socket, {
           type: 'notification-reply', id, sessionId, requestId, prompt,
           user: { id: userId, username: String(actor.username), role: 'admin' },
-          ...(images.length && { imageSizes: images.map((image) => image.length) }),
+          ...(hasFiles
+            ? { attachments: attachments.map(({ data, name }) => ({ size: data.length, name })) }
+            : attachments.length
+              ? { imageSizes: attachments.map(({ data }) => data.length) }
+              : {}),
+          ...(nextTurn && peer.notificationReplyFiles && { nextTurn: true }),
         });
-        for (const image of images) {
-          for (let offset = 0; offset < image.length; offset += CHUNK_BYTES) {
+        for (const { data } of attachments) {
+          for (let offset = 0; offset < data.length; offset += CHUNK_BYTES) {
             if (!peer.replies.has(id)) return;
             const acknowledged = new Promise<boolean>((done) => { reply.bodyAck = done; });
             await sendFrame(peer.socket, {
-              type: 'body', id, data: image.subarray(offset, offset + CHUNK_BYTES).toString('base64'),
+              type: 'body', id, data: data.subarray(offset, offset + CHUNK_BYTES).toString('base64'),
             });
             if (!await acknowledged) return;
           }
         }
-        if (images.length && peer.replies.has(id)) await sendFrame(peer.socket, { type: 'body-end', id });
+        if (attachments.length && peer.replies.has(id))
+          await sendFrame(peer.socket, { type: 'body-end', id });
       };
       void send().catch(abort);
     });

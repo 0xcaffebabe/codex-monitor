@@ -11,14 +11,15 @@ import {
 import { notificationKey, type NotificationPolicy, type NotificationReport } from './events.js';
 import { notificationMessage } from './messages.js';
 import { CompletionNotifications } from './completions.js';
-import { LarkApp, LarkReplyImageTooLarge } from './lark-app.js';
+import { LarkApp, LarkReplyAttachmentsTooLarge } from './lark-app.js';
 import {
   larkRepliesEnabled,
   larkReply,
+  larkReplyHistory,
   larkReplyReaction,
   larkRequestId,
   listenForLarkReplies,
-  LARK_REPLY_MAX_IMAGES,
+  LARK_REPLY_MAX_ATTACHMENTS,
   replyReceipts,
   type LarkReplyListener,
   type LarkReplyReceipt,
@@ -46,7 +47,7 @@ export class NotificationService {
   private replyConnection?: ReturnType<LarkReplyListener>;
   private replyDestination?: string;
   private replies = new Map<string, { accepted: Promise<string | undefined>; feedback: Promise<void> }>();
-  private imageReplies = 0;
+  private replyDownloads = 0;
   private monitorErrors = new Map<string, string>();
   onConfigure?: (policy: NotificationPolicy, reset: boolean) => Promise<void>;
   readAttachment?: (
@@ -151,8 +152,9 @@ export class NotificationService {
     if (!target) return;
     const key = `${destination}:${reply.messageId}`;
     const active = this.replies.get(key);
+    const background = !!(reply.createdAt || reply.resources.length);
     if (active) {
-      if (!reply.imageKeys.length) await active.accepted;
+      if (!background) await active.accepted;
       return;
     }
     if (this.replies.size >= 32) throw new Error('Monitor reply capacity reached');
@@ -184,7 +186,7 @@ export class NotificationService {
     });
     this.replies.set(key, { accepted, feedback });
     // Image downloads and uploads can outlast the provider's event acknowledgement deadline.
-    if (!reply.imageKeys.length) await accepted;
+    if (!background) await accepted;
   }
   private async dispatchReply(
     config: NotificationConfig,
@@ -192,30 +194,48 @@ export class NotificationService {
     reply: NonNullable<ReturnType<typeof larkReply>>,
     signal: AbortSignal,
   ): Promise<LarkReplyReceipt> {
-    if ((!reply.prompt && !reply.imageKeys.length) || reply.prompt.length > 12000)
-      return 'unsupported';
-    if (reply.imageKeys.length > LARK_REPLY_MAX_IMAGES) return 'imagesTooLarge';
-    const submit = (images: Buffer[]) => this.submitReply!({
-      ...target,
-      userId: config.replyAdminId,
-      requestId: larkRequestId(config.larkDestination, reply.messageId),
-      prompt: reply.prompt,
-      images,
-    }, signal);
-    if (!reply.imageKeys.length) return submit([]);
-    if (this.imageReplies >= 4) return 'busy';
-    this.imageReplies++;
+    const destination = config.larkDestination;
+    const needsDownload = !!(reply.createdAt || reply.resources.length);
+    if (needsDownload && this.replyDownloads >= 4) return 'busy';
+    if (needsDownload) this.replyDownloads++;
     try {
-      let images: Buffer[];
-      try {
-        const sender = await this.app.sender(config, signal);
-        images = await sender.readReplyImages(reply.messageId, reply.imageKeys);
-      } catch (error) {
-        return error instanceof LarkReplyImageTooLarge ? 'imagesTooLarge' : 'imageFailed';
+      const sender = needsDownload ? await this.app.sender(config, signal) : undefined;
+      let history: Awaited<ReturnType<typeof larkReplyHistory>> = [];
+      if (reply.createdAt && sender) {
+        try {
+          history = await larkReplyHistory(reply, config.chatId, sender.history, (id) =>
+            this.replies.has(`${destination}:${id}`) || !!this.store.larkReceipt(destination, id),
+          );
+        } catch (error) {
+          // Applications with only group-mention access can still submit the explicit reply.
+          if (!(error instanceof LarkDeliveryError) || error.code !== 230027) return 'historyFailed';
+        }
       }
-      return await submit(images);
+      const messages = [...history, reply];
+      if (messages.some((message) => message.invalidResource)) return 'attachmentFailed';
+      const prompt = messages.map((message) => message.prompt).filter(Boolean).join('\n\n');
+      const resources = messages.flatMap((message) => message.resources);
+      if ((!prompt && !resources.length) || prompt.length > 12000) return 'unsupported';
+      if (resources.length > LARK_REPLY_MAX_ATTACHMENTS) return 'attachmentsTooLarge';
+      let attachments: LarkReplySubmission['attachments'] = [];
+      if (resources.length) {
+        try {
+          attachments = await sender!.readReplyAttachments(resources);
+        } catch (error) {
+          return error instanceof LarkReplyAttachmentsTooLarge ? 'attachmentsTooLarge' : 'attachmentFailed';
+        }
+      }
+      if (signal.aborted) return 'failed';
+      return await this.submitReply!({
+        ...target,
+        userId: config.replyAdminId,
+        requestId: larkRequestId(destination, reply.messageId),
+        prompt,
+        attachments,
+        nextTurn: !!reply.createdAt,
+      }, signal);
     } finally {
-      this.imageReplies--;
+      if (needsDownload) this.replyDownloads--;
     }
   }
   receive(workspace: { id: string; name: string }, report: NotificationReport) {

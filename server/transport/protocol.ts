@@ -4,7 +4,7 @@ import { createCipheriv, createDecipheriv, createHash, createHmac, randomBytes }
 import { notificationPolicySchema, notificationReportSchema } from '../notifications/events.js';
 import type { HostResourceSample } from '../../src/workspaces.js';
 import { NOTIFICATION_ATTACHMENT_LIMIT } from '../notifications/attachments.js';
-import { LARK_REPLY_MAX_BYTES, LARK_REPLY_MAX_IMAGES } from '../notifications/lark-replies.js';
+import { LARK_REPLY_MAX_BYTES, LARK_REPLY_MAX_ATTACHMENTS } from '../notifications/lark-replies.js';
 
 export const PROTOCOL_VERSION = 3;
 export const MAX_BODY = 20 * 1024 * 1024;
@@ -70,15 +70,23 @@ export const frameSchema = z.discriminatedUnion('type', [
     sessionId: z.string().regex(/^[A-Za-z0-9_-]{1,100}$/),
     prompt: z.string().trim().max(12000),
     imageSizes: z.array(z.number().int().positive().max(LARK_REPLY_MAX_BYTES))
-      .min(1).max(LARK_REPLY_MAX_IMAGES)
+      .min(1).max(LARK_REPLY_MAX_ATTACHMENTS)
       .refine((sizes) => sizes.reduce((sum, size) => sum + size, 0) <= LARK_REPLY_MAX_BYTES)
       .optional(),
+    attachments: z.array(z.object({
+      size: z.number().int().positive().max(LARK_REPLY_MAX_BYTES),
+      name: z.string().min(1).max(500).optional(),
+    }).strict()).min(1).max(LARK_REPLY_MAX_ATTACHMENTS)
+      .refine((files) => files.reduce((sum, file) => sum + file.size, 0) <= LARK_REPLY_MAX_BYTES)
+      .optional(),
+    nextTurn: z.literal(true).optional(),
     user: identitySchema.shape.user.extend({ role: z.literal('admin') }),
-  }).strict().refine(({ prompt, imageSizes }) => !!prompt || !!imageSizes),
+  }).strict().refine(({ prompt, imageSizes, attachments }) =>
+    !(imageSizes && attachments) && (!!prompt || !!imageSizes || !!attachments)),
   z.object({
     type: z.literal('notification-reply-result'),
     id,
-    result: z.enum(['sent', 'queued', 'unavailable', 'failed', 'unknown', 'imageFailed']),
+    result: z.enum(['sent', 'queued', 'unavailable', 'failed', 'unknown', 'imageFailed', 'attachmentFailed']),
   }).strict(),
   z.object({
     type: z.literal('notification-attachment'),
@@ -99,6 +107,7 @@ export const frameSchema = z.discriminatedUnion('type', [
       notificationAttachments: z.boolean().optional(),
       notificationMarkRead: z.boolean().optional(),
       notificationReplies: z.boolean().optional(),
+      notificationReplyFiles: z.boolean().optional(),
       privacyWork: z.boolean().optional(),
     }).optional(),
   }),

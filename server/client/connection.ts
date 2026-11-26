@@ -23,6 +23,7 @@ import {
 import { createClientRuntime } from './runtime.js';
 import { clientConnectionUrl } from './config.js';
 import { NotificationReporter } from '../notifications/reporter.js';
+import type { LarkReplyAttachment } from '../notifications/lark-replies.js';
 import {
   LEGACY_COMPLETION_SUMMARY_LIMIT,
   type NotificationReport,
@@ -244,6 +245,7 @@ export class MonitorClient {
               notificationAttachments: true,
               notificationMarkRead: true,
               notificationReplies: true,
+              notificationReplyFiles: true,
               privacyWork: process.platform === 'win32',
             },
             version: PROTOCOL_VERSION,
@@ -308,7 +310,9 @@ export class MonitorClient {
         ) {
           if (this.requests.has(frame.id)) throw new Error('Duplicate request');
           const bodySize = frame.type === 'request' ? frame.bodySize
-            : frame.type === 'notification-reply' ? frame.imageSizes?.reduce((sum, size) => sum + size, 0)
+            : frame.type === 'notification-reply'
+              ? frame.attachments?.reduce((sum, file) => sum + file.size, 0)
+                ?? frame.imageSizes?.reduce((sum, size) => sum + size, 0)
             : undefined;
           const upload = bodySize !== undefined;
           if (
@@ -443,7 +447,7 @@ export class MonitorClient {
   ) {
     const signal = active.abort.signal;
     try {
-      const images: Buffer[] = [];
+      const attachments: LarkReplyAttachment[] = [];
       if (active.body) {
         const data = Buffer.allocUnsafe(active.bodySize);
         let received = 0;
@@ -451,16 +455,17 @@ export class MonitorClient {
           chunk.copy(data, received);
           received += chunk.length;
         }
-        if (received !== data.length) throw new Error('Incomplete Lark reply images');
+        if (received !== data.length) throw new Error('Incomplete Lark reply attachments');
         let offset = 0;
-        for (const size of frame.imageSizes!) {
-          images.push(data.subarray(offset, offset + size));
+        const files = frame.attachments ?? frame.imageSizes!.map((size) => ({ size, name: undefined }));
+        for (const { size, name } of files) {
+          attachments.push({ data: data.subarray(offset, offset + size), name });
           offset += size;
         }
       }
       signal.throwIfAborted();
       this.runtime.access.syncUser(frame.user);
-      const result = await this.runtime.sendLarkReply(frame.user.id, frame.sessionId, frame, images, signal);
+      const result = await this.runtime.sendLarkReply(frame.user.id, frame.sessionId, frame, attachments, signal);
       await sendFrame(socket, { type: 'notification-reply-result', id: frame.id, result });
     } catch {
       if (!signal.aborted) await sendFrame(socket, {

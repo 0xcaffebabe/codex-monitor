@@ -3,10 +3,10 @@ import { LarkDeliveryError, larkCard, larkRequest, type WebhookTransport } from 
 import type { NotificationConfig } from './store.js';
 import type { NotificationAttachment } from './attachments.js';
 import { imageMime } from '../media.js';
-import { LARK_REPLY_MAX_BYTES } from './lark-replies.js';
+import { LARK_REPLY_MAX_BYTES, type LarkReplyAttachment, type LarkReplyResource } from './lark-replies.js';
 
 const imageMimes = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/bmp']);
-export class LarkReplyImageTooLarge extends Error {}
+export class LarkReplyAttachmentsTooLarge extends Error {}
 const fileTypes = new Map([
   ['.opus', 'opus'],
   ['.mp4', 'mp4'],
@@ -33,7 +33,7 @@ export class LarkApp {
   private async request(
     origin: string,
     endpoint: string,
-    body: object,
+    body: object | undefined,
     signal: AbortSignal,
     action: string,
     token?: string,
@@ -44,6 +44,7 @@ export class LarkApp {
       signal,
       this.transport,
       token,
+      body ? undefined : 2 * 1024 * 1024,
     );
     const code = result?.code;
     if (code === 0) return result;
@@ -52,6 +53,7 @@ export class LarkApp {
     throw new LarkDeliveryError(
       `飞书/Lark ${action}失败（错误码 ${code}），请检查应用凭据、机器人权限和群聊设置`,
       [99991400, 99991663, 99991664, 230020].includes(code),
+      code,
     );
   }
 
@@ -116,13 +118,15 @@ export class LarkApp {
           '添加消息表情',
           value,
         ),
-      readReplyImages: async (messageId: string, keys: string[]) => {
-        const images: Buffer[] = [];
+      history: async (query: URLSearchParams) =>
+        (await this.request(origin, `im/v1/messages?${query}`, undefined, signal, '读取群消息历史', value))?.data,
+      readReplyAttachments: async (resources: LarkReplyResource[]) => {
+        const attachments: LarkReplyAttachment[] = [];
         let remaining = LARK_REPLY_MAX_BYTES;
         const downloadSignal = AbortSignal.any([signal, AbortSignal.timeout(20000)]);
-        for (const key of keys) {
+        for (const { messageId, key, name } of resources) {
           const response = await this.transport(
-            `${origin}/open-apis/im/v1/messages/${encodeURIComponent(messageId)}/resources/${encodeURIComponent(key)}?type=image`,
+            `${origin}/open-apis/im/v1/messages/${encodeURIComponent(messageId)}/resources/${encodeURIComponent(key)}?type=${name ? 'file' : 'image'}`,
             {
               method: 'GET',
               headers: { Authorization: `Bearer ${value}` },
@@ -132,11 +136,11 @@ export class LarkApp {
           );
           if (!response.ok || !response.body) {
             await response.body?.cancel();
-            throw new LarkDeliveryError('无法读取飞书/Lark 回复图片');
+            throw new LarkDeliveryError('无法读取飞书/Lark 回复附件');
           }
           if (Number(response.headers.get('content-length')) > remaining) {
             await response.body.cancel();
-            throw new LarkReplyImageTooLarge();
+            throw new LarkReplyAttachmentsTooLarge();
           }
           const reader = response.body.getReader();
           const chunks: Uint8Array[] = [];
@@ -147,19 +151,19 @@ export class LarkApp {
               remaining -= value.length;
               if (remaining < 0) {
                 await reader.cancel();
-                throw new LarkReplyImageTooLarge();
+                throw new LarkReplyAttachmentsTooLarge();
               }
               chunks.push(value);
             }
           } finally {
             reader.releaseLock();
           }
-          const image = Buffer.concat(chunks);
-          if (!imageMime(image.subarray(0, 16)))
-            throw new LarkDeliveryError('飞书/Lark 返回了不支持的图片格式');
-          images.push(image);
+          const data = Buffer.concat(chunks);
+          if (!data.length || (!name && !imageMime(data.subarray(0, 16))))
+            throw new LarkDeliveryError('飞书/Lark 返回了不支持的附件格式');
+          attachments.push({ data, name });
         }
-        return images;
+        return attachments;
       },
       attachment: async (uuid: string, file: NotificationAttachment) => {
         const image = imageMimes.has(file.mime) && file.data.length <= 10 * 1024 * 1024;
