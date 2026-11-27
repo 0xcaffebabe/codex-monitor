@@ -1,6 +1,7 @@
 import { BellRing, Send } from 'lucide-react';
 import type { NotificationDelivery } from '../../types';
 import { useNotifications } from './useNotifications';
+import { LarkStartTargets } from './LarkStartTargets';
 
 const replyConnectionLabel = {
   idle: '未连接',
@@ -216,6 +217,9 @@ export function Notifications({ notify }: { notify: (message: string) => void })
                 <p className="help" role="status">
                   回复事件连接 · {replyConnectionLabel[form.saved.replyConnection]}
                 </p>
+              )}
+              {form.app.replyOpenIds.trim() && (
+                <LarkStartTargets value={form.larkStart} onChange={form.setLarkStart} />
               )}
             </>
           )}

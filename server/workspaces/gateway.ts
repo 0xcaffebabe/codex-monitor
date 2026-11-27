@@ -24,7 +24,7 @@ import type { NotificationService } from '../notifications/service.js';
 import type { NotificationPolicy } from '../notifications/events.js';
 import type { NotificationAttachmentRef, NotificationAttachmentResult } from '../notifications/attachments.js';
 import { LarkDeliveryError } from '../notifications/lark.js';
-import type { LarkReplyReceipt, LarkReplySubmission } from '../notifications/lark-replies.js';
+import type { LarkReplyReceipt, LarkReplySubmission, LarkStartResult, LarkStartSubmission } from '../notifications/lark-replies.js';
 import {
   CLIENT_UPDATE_TIMEOUT_MS,
   clientUpdateInProgress,
@@ -43,7 +43,7 @@ type Pending = {
   drainAck?: () => void;
 };
 type PendingLarkReply = {
-  finish: (result?: LarkReplyReceipt) => void;
+  finish: (result?: LarkStartResult) => void;
   bodyAck?: (acknowledged: boolean) => void;
 };
 type Peer = {
@@ -57,6 +57,7 @@ type Peer = {
   notificationReplies: boolean;
   notificationReplyFiles: boolean;
   notificationReplyStatus: boolean;
+  notificationStarts: boolean;
   replies: Map<string, PendingLarkReply>;
   privacyWork: boolean;
   clientUpdate: boolean;
@@ -232,6 +233,7 @@ export class WorkspaceGateway {
       notificationReplies: false,
       notificationReplyFiles: false,
       notificationReplyStatus: false,
+      notificationStarts: false,
       replies: new Map(),
       privacyWork: false,
       clientUpdate: false,
@@ -269,6 +271,7 @@ export class WorkspaceGateway {
           peer.notificationReplies = !!frame.capabilities?.notificationReplies;
           peer.notificationReplyFiles = !!frame.capabilities?.notificationReplyFiles;
           peer.notificationReplyStatus = !!frame.capabilities?.notificationReplyStatus;
+          peer.notificationStarts = !!frame.capabilities?.notificationStarts;
           peer.privacyWork = frame.platform === 'win32' && !!frame.capabilities?.privacyWork;
           peer.clientUpdate = id !== 'local' && !!frame.capabilities?.clientUpdate;
           clearTimeout(handshake);
@@ -318,14 +321,14 @@ export class WorkspaceGateway {
       return;
     }
     if (frame.type === 'notification-reply-result') {
-      peer.replies.get(frame.id)?.finish(frame.result);
+      peer.replies.get(frame.id)?.finish(frame);
       return;
     }
     if (frame.type === 'body-ack' || frame.type === 'error') {
       const reply = peer.replies.get(frame.id);
       if (reply) {
         if (frame.type === 'body-ack') reply.bodyAck?.(true);
-        else reply.finish('busy');
+        else reply.finish({ result: 'busy' });
         return;
       }
     }
@@ -424,28 +427,37 @@ export class WorkspaceGateway {
       await sendFrame(peer.socket, { type: 'notification-mark-read', sessionId });
   }
   async submitLarkReply(input: LarkReplySubmission, signal: AbortSignal): Promise<LarkReplyReceipt> {
-    const { workspaceId, userId, sessionId, requestId, prompt, attachments, nextTurn } = input;
+    return (await this.submitLarkMessage(input, signal)).result;
+  }
+  async startLarkSession(input: LarkStartSubmission, signal: AbortSignal): Promise<LarkStartResult> {
+    const response = await this.submitLarkMessage(input, signal);
+    return response.result === 'sent' && !response.sessionId ? { result: 'unknown' } : response;
+  }
+  private async submitLarkMessage(input: LarkReplySubmission | LarkStartSubmission, signal: AbortSignal): Promise<LarkStartResult> {
+    const { workspaceId, userId, requestId, prompt, attachments } = input;
+    const creating = 'projectId' in input;
     const peer = this.peers.get(workspaceId);
-    if (signal.aborted || this.closed) return 'failed';
-    if (!this.store.get(workspaceId)) return 'unavailable';
-    if (!peer?.ready) return 'offline';
-    if (!peer.notificationReplies) return 'upgrade';
+    if (signal.aborted || this.closed) return { result: 'failed' };
+    if (!this.store.get(workspaceId)) return { result: 'unavailable' };
+    if (!peer?.ready) return { result: 'offline' };
+    if (creating ? !peer.notificationStarts : !peer.notificationReplies) return { result: 'upgrade' };
     const hasFiles = attachments.some(({ name }) => !!name);
-    if (hasFiles && !peer.notificationReplyFiles) return 'upgrade';
-    if (peer.replies.size >= MAX_REQUESTS) return 'busy';
+    if (hasFiles && !peer.notificationReplyFiles) return { result: 'upgrade' };
+    if (peer.replies.size >= MAX_REQUESTS) return { result: 'busy' };
     const actor = this.auth.db.prepare("SELECT username FROM users WHERE id=? AND role='admin'").get(userId);
-    if (!actor) return 'failed';
-    const result = await this.requestLarkReply(peer, signal, attachments.length ? 30000 : 2000,
+    if (!actor) return { result: 'failed' };
+    const result = await this.requestLarkReply(peer, signal, creating ? 90000 : attachments.length ? 30000 : 2000,
       async (id, reply) => {
         await sendFrame(peer.socket, {
-          type: 'notification-reply', id, sessionId, requestId, prompt,
+          type: 'notification-reply', id, requestId, prompt,
+          ...(creating ? { projectId: input.projectId } : { sessionId: input.sessionId }),
           user: { id: userId, username: String(actor.username), role: 'admin' },
           ...(hasFiles
             ? { attachments: attachments.map(({ data, name }) => ({ size: data.length, name })) }
             : attachments.length
               ? { imageSizes: attachments.map(({ data }) => data.length) }
               : {}),
-          ...(nextTurn && peer.notificationReplyFiles && { nextTurn: true }),
+          ...(!creating && input.nextTurn && peer.notificationReplyFiles && { nextTurn: true }),
         });
         for (const { data } of attachments) {
           for (let offset = 0; offset < data.length; offset += CHUNK_BYTES) {
@@ -460,7 +472,7 @@ export class WorkspaceGateway {
         if (attachments.length && peer.replies.has(id))
           await sendFrame(peer.socket, { type: 'body-end', id });
       });
-    return result ?? 'unknown';
+    return result ?? { result: 'unknown' };
   }
   async larkReplyStatus(workspaceId: string, userId: string, requestId: string, signal: AbortSignal) {
     if (signal.aborted || this.closed) return;
@@ -468,8 +480,9 @@ export class WorkspaceGateway {
     if (!peer && !this.store.get(workspaceId)) return 'unavailable';
     if (!peer?.ready || !peer.notificationReplyStatus ||
         peer.replies.size >= MAX_REQUESTS) return;
-    const result = await this.requestLarkReply(peer, signal, 2000, (id) =>
+    const response = await this.requestLarkReply(peer, signal, 2000, (id) =>
       sendFrame(peer.socket, { type: 'notification-reply-status', id, userId, requestId }));
+    const result = response?.result;
     if (result === 'sent' || result === 'failed' || result === 'unknown' || result === 'unavailable')
       return result;
   }
@@ -480,7 +493,7 @@ export class WorkspaceGateway {
     send: (id: string, reply: PendingLarkReply) => Promise<void>,
   ) {
     const id = randomUUID();
-    return new Promise<LarkReplyReceipt | undefined>((resolve) => {
+    return new Promise<LarkStartResult | undefined>((resolve) => {
       const reply: PendingLarkReply = { finish: (result) => {
         if (!peer.replies.delete(id)) return;
         clearTimeout(timer);

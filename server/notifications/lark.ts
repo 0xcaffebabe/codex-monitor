@@ -131,12 +131,14 @@ export async function larkRequest(
         StatusCode?: unknown;
         tenant_access_token?: unknown;
         expire?: unknown;
+        bot?: { open_id?: unknown };
         data?: {
           image_key?: unknown;
           file_key?: unknown;
           message_id?: unknown;
           reaction_id?: unknown;
           items?: unknown;
+          bot?: { open_id?: unknown };
         };
       } | null;
     } catch {

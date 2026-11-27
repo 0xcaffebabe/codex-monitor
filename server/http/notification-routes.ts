@@ -25,6 +25,19 @@ const publicUrl = z
       return false;
     }
   });
+const alias = z.string().trim().toLowerCase().regex(/^[a-z0-9][a-z0-9_-]{0,15}$/);
+const larkStart = z.object({
+  defaultAlias: z.union([z.literal(''), alias]),
+  targets: z.array(z.object({
+    alias,
+    workspaceId: z.string().regex(/^[A-Za-z0-9_-]{1,100}$/),
+    projectId: z.uuid(),
+    projectName: z.string().trim().min(1).max(500).optional(),
+  }).strict()).max(20),
+}).strict().refine(({ defaultAlias, targets }) =>
+  new Set(targets.map((target) => target.alias)).size === targets.length &&
+  (!targets.length ? !defaultAlias : targets.some((target) => target.alias === defaultAlias)));
+
 const settings = z
   .object({
     enabled: z.boolean(),
@@ -39,6 +52,7 @@ const settings = z
     chatId: z.string().trim().regex(/^(?:oc_[A-Za-z0-9_-]{1,100})?$/).optional(),
     replyOpenIds: z.array(z.string().trim().regex(/^ou_[A-Za-z0-9_-]{1,100}$/)).max(50)
       .transform((ids) => [...new Set(ids)]).optional(),
+    larkStart: larkStart.optional(),
     publicUrl,
   })
   .strict();
@@ -92,7 +106,7 @@ export function installNotificationRoutes(
   });
   app.put('/api/notifications', admin, async (req, res) => {
     const parsed = settings.safeParse(req.body);
-    if (!parsed.success) return fail(res, 400, '请检查飞书/Lark 通知配置、授权回复的 Open ID 和监控台访问地址');
+    if (!parsed.success) return fail(res, 400, '请检查飞书/Lark 通知配置、授权 Open ID 和会话目标。简称须唯一，并选定一个默认目标。');
     const config = { ...notifications.store.config(), ...parsed.data };
     if (config.enabled && !notificationConfigured(config))
       return fail(res, 400, config.mode === 'app'

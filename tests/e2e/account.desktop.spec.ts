@@ -39,6 +39,7 @@ test('first-time setup, password login, remembered device and logout use the rea
 
 test('notification settings persist application mode without refilling the secret', async ({
   signedIn,
+  local,
 }) => {
   const { browserPage } = signedIn;
   const entry = browserPage.getByRole('button', { name: '设置与访问管理', exact: true });
@@ -50,6 +51,14 @@ test('notification settings persist application mode without refilling the secre
   await settings.getByLabel('App Secret', { exact: true }).fill('test-app-secret');
   await settings.getByLabel('群聊 ID').fill('oc_test_group');
   await settings.getByLabel('授权回复的 Open ID').fill('ou_owner，ou_operator');
+  const targets = settings.getByRole('group', { name: '群聊新建会话目标' });
+  await targets.getByRole('combobox', { name: '工作空间', exact: true }).selectOption(local.id);
+  await targets.getByRole('combobox', { name: '项目', exact: true }).selectOption({ index: 1 });
+  await targets.getByLabel('简称', { exact: true }).fill('w');
+  await targets.getByRole('button', { name: '添加目标' }).click();
+  await targets.getByLabel('简称', { exact: true }).fill('m');
+  await targets.getByRole('button', { name: '添加目标' }).click();
+  await targets.getByRole('combobox', { name: '默认目标', exact: true }).selectOption('m');
   const save = settings.getByRole('button', { name: '保存通知配置' });
   const sendTest = settings.getByRole('button', { name: '发送测试通知' });
   await expect(sendTest).toBeDisabled();
@@ -66,6 +75,8 @@ test('notification settings persist application mode without refilling the secre
   await expect(settings.getByLabel('群聊 ID')).toHaveValue('oc_test_group');
   await expect(settings.getByLabel('授权回复的 Open ID')).toHaveValue('ou_owner, ou_operator');
   await expect(settings.getByLabel('App Secret', { exact: true })).toHaveValue('');
+  await expect(targets.getByRole('combobox', { name: '默认目标', exact: true })).toHaveValue('m');
+  await expect(targets.getByRole('button', { name: '移除简称 w' })).toBeVisible();
   await expect(sendTest).toBeEnabled();
   await settings.getByRole('button', { name: 'Webhook' }).click();
   await expect(settings.getByLabel('飞书 / Lark Webhook')).toBeVisible();

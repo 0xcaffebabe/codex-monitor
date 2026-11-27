@@ -99,6 +99,7 @@ export function installWorkspaceRuntime(
     notificationAttachments,
     sendLarkReply: control.sendLarkReply,
     larkReplyStatus: control.larkReplyStatus,
+    startLarkSession: control.startLarkSession,
     markSessionRead: async (sessionId: string) => {
       if (!closing) await desktop.markRead?.(sessionId);
     },

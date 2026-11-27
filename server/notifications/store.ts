@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
-import type { NotificationDelivery, NotificationSettings } from '../../src/types.js';
+import type { LarkStartSettings, NotificationDelivery, NotificationSettings } from '../../src/types.js';
 
 export type NotificationConfig = {
   completionMode: NotificationSettings['completionMode'];
@@ -14,6 +14,7 @@ export type NotificationConfig = {
   chatId: string;
   replyOpenIds: string[];
   replyAdminId: string;
+  larkStart: LarkStartSettings;
   larkDestination: string;
   publicUrl: string;
   enabledAt: number;
@@ -22,7 +23,7 @@ export type NotificationConfig = {
   revision: number;
 };
 export type NotificationInput = Partial<
-  Pick<NotificationConfig, 'mode' | 'appRegion' | 'appId' | 'appSecret' | 'chatId' | 'replyOpenIds'>
+  Pick<NotificationConfig, 'mode' | 'appRegion' | 'appId' | 'appSecret' | 'chatId' | 'replyOpenIds' | 'larkStart'>
 > & {
   completionMode?: NotificationSettings['completionMode'];
   enabled: boolean;
@@ -76,6 +77,14 @@ export class NotificationStore {
         destination TEXT NOT NULL, message_id TEXT NOT NULL, receipt TEXT NOT NULL,
         PRIMARY KEY(destination,message_id)
       );
+      CREATE TABLE IF NOT EXISTS notification_lark_starts (
+        destination TEXT NOT NULL, message_id TEXT NOT NULL, text TEXT NOT NULL,
+        workspace_id TEXT, session_id TEXT, attempts INTEGER NOT NULL DEFAULT 0,
+        next_at INTEGER NOT NULL,
+        PRIMARY KEY(destination,message_id)
+      );
+      CREATE INDEX IF NOT EXISTS notification_lark_starts_pending
+        ON notification_lark_starts(destination,next_at) WHERE next_at>0;
       UPDATE notification_deliveries SET status='failed', error='上次投递中断，结果未确认，请核对群消息' WHERE status='sending';
     `);
     const columns = db.prepare('PRAGMA table_info(notification_settings)').all();
@@ -87,6 +96,7 @@ export class NotificationStore {
       ['chat_id', ''],
       ['reply_open_ids', '[]'],
       ['reply_admin_id', ''],
+      ['lark_start', '{"defaultAlias":"","targets":[]}'],
       ['lark_destination', ''],
     ]) {
       if (!columns.some((column) => column.name === name))
@@ -143,6 +153,7 @@ export class NotificationStore {
       chatId: String(row.chat_id),
       replyOpenIds: JSON.parse(String(row.reply_open_ids)) as string[],
       replyAdminId: String(row.reply_admin_id),
+      larkStart: JSON.parse(String(row.lark_start)) as LarkStartSettings,
       larkDestination: String(row.lark_destination),
       publicUrl: String(row.public_url),
       enabledAt: Number(row.enabled_at),
@@ -163,6 +174,7 @@ export class NotificationStore {
       appSecretConfigured: !!config.appSecret,
       chatId: config.chatId,
       replyOpenIds: config.replyOpenIds,
+      larkStart: config.larkStart,
       webhookConfigured: !!config.webhookUrl,
       webhookHint: config.webhookUrl
         ? `${new URL(config.webhookUrl).origin}/…/${config.webhookUrl.slice(-4)}`
@@ -180,7 +192,7 @@ export class NotificationStore {
         .prepare(
           `UPDATE notification_settings SET enabled=?,webhook_url=?,signing_secret=?,public_url=?,
         enabled_at=?,scan_at=?,input_since=?,completion_mode=?,mode=?,app_region=?,app_id=?,
-        app_secret=?,chat_id=?,reply_open_ids=?,reply_admin_id=?,lark_destination=?,
+        app_secret=?,chat_id=?,reply_open_ids=?,reply_admin_id=?,lark_destination=?,lark_start=?,
         revision=revision+1 WHERE id=1`,
         )
         .run(
@@ -200,6 +212,7 @@ export class NotificationStore {
           JSON.stringify(input.replyOpenIds ?? old.replyOpenIds),
           input.replyOpenIds?.length === 0 ? '' : adminId ?? old.replyAdminId,
           destinationChanged ? randomUUID() : old.larkDestination,
+          JSON.stringify(input.larkStart ?? (destinationChanged ? { defaultAlias: '', targets: [] } : old.larkStart)),
         );
       // Changing credentials or disabling must never send an old queued message to a new recipient.
       if (reset || !input.enabled)
@@ -236,6 +249,29 @@ export class NotificationStore {
     return this.db.prepare(`SELECT workspace_id AS workspaceId, session_id AS sessionId
       FROM notification_lark_messages WHERE destination=? AND message_id=?`)
       .get(destination, messageId) as { workspaceId: string; sessionId: string } | undefined;
+  }
+  claimLarkStart(destination: string, messageId: string, text: string) {
+    return !!this.db.prepare(`INSERT OR IGNORE INTO notification_lark_starts
+      (destination,message_id,text,next_at) VALUES(?,?,?,?)`)
+      .run(destination, messageId, text, Date.now()).changes;
+  }
+  hasLarkStart(destination: string, messageId: string) {
+    return !!this.db.prepare('SELECT 1 FROM notification_lark_starts WHERE destination=? AND message_id=?')
+      .get(destination, messageId);
+  }
+  finishLarkStart(destination: string, messageId: string, text: string, target?: { workspaceId: string; sessionId: string }) {
+    this.db.prepare(`UPDATE notification_lark_starts SET text=?,workspace_id=?,session_id=?
+      WHERE destination=? AND message_id=?`)
+      .run(text, target?.workspaceId ?? null, target?.sessionId ?? null, destination, messageId);
+  }
+  pendingLarkStarts(destination: string, now: number) {
+    return this.db.prepare(`SELECT message_id AS messageId,text,workspace_id AS workspaceId,session_id AS sessionId,attempts
+      FROM notification_lark_starts WHERE destination=? AND next_at>0 AND next_at<=? ORDER BY next_at LIMIT 32`)
+      .all(destination, now) as { messageId: string; text: string; workspaceId: string | null; sessionId: string | null; attempts: number }[];
+  }
+  updateLarkStartDelivery(destination: string, messageId: string, nextAt: number) {
+    this.db.prepare(`UPDATE notification_lark_starts SET next_at=?,attempts=attempts+1
+      WHERE destination=? AND message_id=?`).run(nextAt, destination, messageId);
   }
   larkReceipt(destination: string, messageId: string) {
     return this.db.prepare('SELECT receipt FROM notification_lark_replies WHERE destination=? AND message_id=?')
@@ -284,14 +320,14 @@ export class NotificationStore {
       )
       .get(workspaceId, sessionId, at);
   }
-  watch(workspaceId: string, sessionId: string, watched: boolean) {
+  watch(workspaceId: string, sessionId: string, watched: boolean, since = Date.now()) {
     if (watched) {
       this.db
         .prepare(
           `INSERT OR IGNORE INTO notification_watches SELECT ?,?,?
         WHERE (SELECT COUNT(*) FROM notification_watches)<500`,
         )
-        .run(workspaceId, sessionId, Date.now());
+        .run(workspaceId, sessionId, since);
     } else {
       this.db
         .prepare('DELETE FROM notification_watches WHERE workspace_id=? AND session_id=?')
@@ -368,6 +404,7 @@ export class NotificationStore {
       .run(key);
   }
   cancelWorkspace(workspaceId: string) {
+    this.db.prepare('UPDATE notification_lark_starts SET next_at=0 WHERE workspace_id=?').run(workspaceId);
     this.db.prepare('DELETE FROM notification_lark_messages WHERE workspace_id=?').run(workspaceId);
     this.db.prepare('DELETE FROM notification_watches WHERE workspace_id=?').run(workspaceId);
     this.db

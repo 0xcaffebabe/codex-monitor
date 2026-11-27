@@ -9,7 +9,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import path from 'node:path';
 import sharp from 'sharp';
 import { fixture, ids } from './fixture.js';
-import { FixtureDesktop } from './control-fixture.js';
+import { FixtureDesktop, projectId } from './control-fixture.js';
 import { createMonitorServer } from '../server/server-app.js';
 import { MonitorClient } from '../server/client/connection.js';
 import { AuthStore } from '../server/auth.js';
@@ -85,6 +85,170 @@ async function central(
     },
   };
 }
+
+test('Lark starts default and aliased sessions, quotes a file, and continues from the startup card', async () => {
+  const a = fixture(), b = fixture();
+  a.config.pollMs = b.config.pollMs = 50;
+  const desks = [new FixtureDesktop(a), new FixtureDesktop(b)];
+  const cards = new Map<string, { id: string; text: string }>();
+  const reactions = new Set<string>();
+  const sender = { id: 'ou_allowed', id_type: 'open_id', sender_type: 'user' };
+  const history = (id: string, text: string) => ({
+    message_id: id, chat_id: 'oc_team', msg_type: 'text', sender,
+    body: { content: JSON.stringify({ text }) },
+  });
+  const file = 'quoted file contents';
+  let receive!: (event: unknown) => Promise<void>;
+  const server = await central(a, async (url, init) => {
+    const { pathname } = new URL(String(url));
+    if (pathname.includes('/auth/'))
+      return Response.json({ code: 0, tenant_access_token: 'test', expire: 7200 });
+    if (pathname === '/open-apis/bot/v3/info')
+      return Response.json({ code: 0, bot: { open_id: 'ou_bot' } });
+    if (pathname === '/open-apis/im/v1/messages/om_file')
+      return Response.json({ code: 0, data: { items: [{
+        message_id: 'om_file', chat_id: 'oc_team', msg_type: 'file',
+        sender,
+        body: { content: JSON.stringify({ file_key: 'file_log', file_name: 'log.txt' }) },
+      }] } });
+    if (pathname === '/open-apis/im/v1/messages/om_file/resources/file_log') return new Response(file);
+    if (pathname.endsWith('/reply')) {
+      const parent = pathname.split('/').at(-2)!;
+      assert.ok(!cards.has(parent), 'each Lark event gets one startup reply');
+      const { content, msg_type } = JSON.parse(String(init?.body));
+      assert.equal(msg_type, 'interactive');
+      const id = `om_card_${parent}`;
+      cards.set(parent, { id, text: JSON.parse(content).body.elements[0].content });
+      return Response.json({ code: 0, data: { message_id: id } });
+    }
+    if (pathname.endsWith('/reactions')) {
+      reactions.add(pathname.split('/').at(-2)!);
+      return Response.json({ code: 0, data: { reaction_id: 'reaction_1' } });
+    }
+    if (pathname.endsWith('/messages')) {
+      if (init?.method === 'GET') return Response.json({ code: 0, data: { items: [
+        history('om_followup', '再检查一次'),
+        history('om_default', '查一下断线'),
+      ] } });
+      return Response.json({ code: 0, data: { message_id: `om_completed_${randomUUID()}` } });
+    }
+    throw new Error(`Unexpected Lark request: ${pathname}`);
+  }, 0, (_config, callback) => {
+    receive = callback;
+    return { close() {}, getConnectionStatus: () => ({ state: 'connected', reconnectAttempts: 0 }) };
+  });
+  const clients: MonitorClient[] = [];
+  try {
+    const owner = await server.service.auth.setup('owner', 'central-notification-password');
+    const workspaces = [server.service.gateway.store.create('Windows'), server.service.gateway.store.create('Mac')];
+    for (const [index, item] of [a, b].entries()) {
+      clients.push(await MonitorClient.start({
+        config: item.config, serverUrl: server.base, workspaceId: workspaces[index].workspace.id,
+        key: workspaces[index].key, services: { control: desks[index] },
+      }));
+    }
+    await until(() => clients.every((client) => client.connected));
+    const headers = {
+      Authorization: `Bearer ${server.service.auth.issue(owner, 'test').token}`,
+      'Content-Type': 'application/json',
+    };
+    const targets = workspaces.map(({ workspace }, index) =>
+      ({ alias: index === 0 ? 'w' : 'm', workspaceId: workspace.id, projectId, projectName: 'work' }));
+    const save = (defaultAlias: string) => fetch(server.base + '/api/notifications', {
+      method: 'PUT', headers,
+      body: JSON.stringify({
+        provider: 'lark', mode: 'app', appId: 'cli_monitor', appSecret: 'test', chatId: 'oc_team',
+        enabled: true, publicUrl: 'https://monitor.example.com/', replyOpenIds: ['ou_allowed'],
+        larkStart: { defaultAlias, targets },
+      }),
+    });
+    assert.equal((await save('missing')).status, 400);
+    const saved = await save('w');
+    assert.equal(saved.status, 200);
+    assert.deepEqual((await saved.json()).settings.larkStart, { defaultAlias: 'w', targets });
+    const service = server.service.notifications;
+    const create = desks[0].create.bind(desks[0]);
+    desks[0].create = async (...args) => {
+      const result = await create(...args);
+      // A Client can report the completed turn before its creation RPC returns.
+      service.receive(workspaces[0].workspace, {
+        revision: service.policy().revision, monitorError: '',
+        events: [{
+          kind: 'session.completed', sessionId: result.threadId, turnId: 'early-completion',
+          title: '检查断线', project: 'work', summary: '首轮结果',
+          occurredAt: Math.floor(Date.now() / 1000) * 1000,
+        }],
+      });
+      return result;
+    };
+    const event = (messageId: string, text: string, options: {
+      parentId?: string; rootId?: string; mentioned?: string; sender?: string; createdAt?: string;
+    } = {}) => ({
+      app_id: 'cli_monitor',
+      sender: { sender_type: 'user', sender_id: { open_id: options.sender ?? 'ou_allowed' } },
+      message: {
+        message_id: messageId, chat_id: 'oc_team', chat_type: 'group', message_type: 'text',
+        parent_id: options.parentId, root_id: options.rootId,
+        create_time: options.createdAt,
+        mentions: [{ key: '@_user_1', id: { open_id: options.mentioned ?? 'ou_bot' } }],
+        content: JSON.stringify({ text: `@_user_1 ${text}` }),
+      },
+    });
+    const waitForCard = async (id: string) => {
+      await until(async () => {
+        await server.service.notifications.poll();
+        return cards.has(id);
+      });
+      return cards.get(id)!;
+    };
+    await receive(event('om_wrong_user', '任务', { sender: 'ou_other' }));
+    await receive(event('om_other_mention', '任务', { mentioned: 'ou_teammate' }));
+    await receive(event('om_help', ''));
+    assert.match((await waitForCard('om_help')).text, /w:.*Windows.*默认/);
+    assert.deepEqual(desks.map(({ creates }) => creates), [0, 0]);
+    assert.ok(!cards.has('om_other_mention') && !cards.has('om_wrong_user'));
+
+    const start = event('om_default', '查一下断线');
+    await Promise.all([receive(start), receive(start)]);
+    const first = await waitForCard('om_default');
+    assert.match(first.text, /Windows/);
+    assert.match(first.text, /monitor\.example\.com/);
+    await until(() => service.store.history().some(({ kind, title }) =>
+      kind === 'session.completed' && title === '检查断线'));
+    await receive(start);
+    await receive(event('om_unknown_alias', 'z: 测试'));
+    assert.match((await waitForCard('om_unknown_alias')).text, /找不到这个简称/);
+    assert.deepEqual(desks.map(({ creates }) => creates), [1, 0]);
+
+    await receive(event('om_quote_file', 'M：分析日志', { parentId: 'om_file' }));
+    const second = await waitForCard('om_quote_file');
+    assert.match(second.text, /Mac/);
+    assert.match(second.text, /附件：1 个/);
+    const store = server.service.notifications.store;
+    const destination = store.config().larkDestination;
+    await until(() => !!store.larkTarget(destination, second.id));
+    const target = store.larkTarget(destination, second.id)!;
+    assert.equal(target.workspaceId, targets[1].workspaceId);
+    const firstPrompt = String(b.hist.prepare("SELECT item_json FROM thread_items WHERE thread_id=? AND json_extract(item_json,'$.type')='userMessage'").get(target.sessionId)?.item_json);
+    assert.match(firstPrompt, /分析日志/);
+    assert.match(firstPrompt, /log\.txt/);
+    assert.doesNotMatch(firstPrompt, /@_user_1|M：/);
+    await receive(event('om_followup', '再检查一次', {
+      parentId: second.id, rootId: 'om_quote_file', createdAt: String(Date.now()),
+    }));
+    await until(() => reactions.has('om_followup'));
+    assert.deepEqual(desks.map(({ creates, sends }) => [creates, sends]), [[1, 1], [1, 2]]);
+    const followup = String(b.hist.prepare("SELECT item_json FROM thread_items WHERE thread_id=? AND item_json LIKE ?")
+      .get(target.sessionId, '%再检查一次%')?.item_json);
+    assert.match(followup, /再检查一次/);
+    assert.doesNotMatch(followup, /查一下断线/);
+  } finally {
+    await Promise.all(clients.map((client) => client.close()));
+    await server.close();
+    a.close();
+    b.close();
+  }
+});
 
 test('authorized Lark quotes target the card workspace and reuse the Monitor message queue', async () => {
   const a = fixture(), b = fixture();

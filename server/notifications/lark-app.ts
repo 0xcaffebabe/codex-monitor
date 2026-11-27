@@ -28,6 +28,7 @@ export class LarkApp {
     appSecret: string;
     value: string;
     until: number;
+    botOpenId?: string;
   };
 
   constructor(private transport: WebhookTransport = fetch) {}
@@ -143,6 +144,31 @@ export class LarkApp {
         value,
       );
     return {
+      botOpenId: async () => {
+        if (token.botOpenId) return token.botOpenId;
+        const result = await this.request(origin, 'bot/v3/info', undefined, signal, '查询机器人身份', value);
+        const id = result?.bot?.open_id ?? result?.data?.bot?.open_id;
+        if (typeof id !== 'string' || !/^ou_[\w-]{1,100}$/.test(id))
+          throw new LarkDeliveryError('飞书/Lark 未返回机器人 Open ID');
+        token.botOpenId = id;
+        return id;
+      },
+      replyCard: async (parent: string, uuid: string, text: string) => {
+        const result = await this.request(
+          origin,
+          `im/v1/messages/${encodeURIComponent(parent)}/reply`,
+          { msg_type: 'interactive', content: JSON.stringify(larkCard(text, true)), uuid },
+          signal,
+          '回复群消息',
+          value,
+        );
+        const id = result?.data?.message_id;
+        if (typeof id !== 'string' || !/^om_[\w-]{1,125}$/.test(id))
+          throw new LarkDeliveryError('飞书/Lark 未返回回复消息 ID', true);
+        return id;
+      },
+      message: async (id: string) =>
+        (await this.request(origin, `im/v1/messages/${encodeURIComponent(id)}`, undefined, signal, '读取引用消息', value))?.data,
       card: async (uuid: string, text: string) => {
         const result = await send(uuid, 'interactive', larkCard(text, true));
         const messageId = result?.data?.message_id;

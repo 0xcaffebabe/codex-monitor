@@ -152,6 +152,9 @@ export interface User {
   username: string;
   role: 'admin' | 'viewer';
 }
+export type LarkStartTarget = { alias: string; workspaceId: string; projectId: string; projectName?: string };
+export type LarkStartSettings = { defaultAlias: string; targets: LarkStartTarget[] };
+
 export interface NotificationSettings {
   completionMode: 'watched' | 'all';
   enabled: boolean;
@@ -162,6 +165,7 @@ export interface NotificationSettings {
   appSecretConfigured: boolean;
   chatId: string;
   replyOpenIds: string[];
+  larkStart: LarkStartSettings;
   replyConnection?: 'idle' | 'connecting' | 'connected' | 'reconnecting' | 'failed';
   webhookConfigured: boolean;
   webhookHint: string;

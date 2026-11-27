@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api, post } from '../../api';
-import type { NotificationDelivery, NotificationSettings } from '../../types';
+import type { LarkStartSettings, NotificationDelivery, NotificationSettings } from '../../types';
 
 type NotificationState = { settings: NotificationSettings; deliveries: NotificationDelivery[] };
 const defaultApp = { appRegion: 'lark', appId: '', appSecret: '', chatId: '', replyOpenIds: '' } as const;
+const emptyLarkStart: LarkStartSettings = { defaultAlias: '', targets: [] };
 
 export function useNotifications(notify: (message: string) => void) {
   const [saved, setSaved] = useState<NotificationSettings>();
@@ -23,6 +24,7 @@ export function useNotifications(notify: (message: string) => void) {
     replyOpenIds: string;
   }>(defaultApp);
   const [clearAppSecret, setClearAppSecret] = useState(false);
+  const [larkStart, setLarkStart] = useState(emptyLarkStart);
   const [publicUrl, setPublicUrl] = useState('');
   const [pending, setPending] = useState('');
   const [error, setError] = useState('');
@@ -45,6 +47,7 @@ export function useNotifications(notify: (message: string) => void) {
         replyOpenIds: state.settings.replyOpenIds?.join(', ') ?? '',
       });
       setClearAppSecret(false);
+      setLarkStart(state.settings.larkStart ?? emptyLarkStart);
     }
   }, []);
   const refresh = useCallback(
@@ -79,6 +82,7 @@ export function useNotifications(notify: (message: string) => void) {
           app.appId !== saved.appId ||
           app.chatId !== saved.chatId ||
           app.replyOpenIds !== (saved.replyOpenIds?.join(', ') ?? '') ||
+          JSON.stringify(larkStart) !== JSON.stringify(saved.larkStart ?? emptyLarkStart) ||
           !!app.appSecret.trim() ||
           clearAppSecret));
   async function save() {
@@ -99,6 +103,7 @@ export function useNotifications(notify: (message: string) => void) {
                 appId: app.appId.trim(),
                 chatId: app.chatId.trim(),
                 replyOpenIds: app.replyOpenIds.split(/[\s,，]+/).filter(Boolean),
+                larkStart,
                 ...(clearAppSecret || app.appSecret.trim()
                   ? { appSecret: clearAppSecret ? '' : app.appSecret.trim() }
                   : {}),
@@ -149,6 +154,8 @@ export function useNotifications(notify: (message: string) => void) {
     setMode,
     app,
     setApp,
+    larkStart,
+    setLarkStart,
     clearAppSecret,
     setClearAppSecret,
     testConfigured:

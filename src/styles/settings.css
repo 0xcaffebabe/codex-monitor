@@ -223,6 +223,46 @@
 .notification-fields .help {
   margin: 0;
 }
+.lark-start-targets {
+  border: 0;
+  border-top: 1px solid var(--line);
+  margin: 0;
+  min-width: 0;
+  padding: 8px 0 0;
+  display: grid;
+  gap: 8px;
+}
+.lark-start-targets legend {
+  padding: 0 8px 0 0;
+  font-size: var(--font-meta);
+}
+.lark-start-targets label {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  font-size: var(--font-meta);
+  color: var(--muted);
+}
+.lark-start-targets select {
+  width: 100%;
+  min-width: 0;
+}
+.lark-start-targets ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.lark-start-targets li {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  overflow-wrap: anywhere;
+  font-size: var(--font-meta);
+}
+.lark-start-targets .secondary {
+  justify-self: start;
+}
 .notification-mode {
   justify-self: start;
 }

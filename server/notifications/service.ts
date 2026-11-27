@@ -8,7 +8,7 @@ import {
   type NotificationInput,
   type PendingDelivery,
 } from './store.js';
-import { notificationKey, type NotificationPolicy, type NotificationReport } from './events.js';
+import { notificationKey, type NotificationEvent, type NotificationPolicy, type NotificationReport } from './events.js';
 import { notificationMessage } from './messages.js';
 import { CompletionNotifications } from './completions.js';
 import { LarkApp, LarkReplyAttachmentsTooLarge, LarkReplyDocumentError } from './lark-app.js';
@@ -17,6 +17,9 @@ import {
   larkReply,
   larkReplyHistory,
   larkReplyReaction,
+  larkQuotedResources,
+  larkStartContent,
+  larkStartMentions,
   larkRequestId,
   listenForLarkReplies,
   LARK_REPLY_MAX_ATTACHMENTS,
@@ -24,6 +27,8 @@ import {
   type LarkReplyListener,
   type LarkReplyReceipt,
   type LarkReplySubmission,
+  type LarkStartResult,
+  type LarkStartSubmission,
 } from './lark-replies.js';
 import {
   NOTIFICATION_ATTACHMENT_LIMIT,
@@ -34,6 +39,9 @@ import {
 const LARK_READ_POLL_MS = 10_000;
 const LARK_READ_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 const LARK_REPLY_POLL_MS = 3_000;
+const START_UNKNOWN = '暂时无法确认会话是否已创建。请在 Monitor 检查会话记录，避免重复提交。';
+const markdownLabel = (value: string) => value.replace(/[\r\n]/g, ' ').replace(/[\\`*_[\]<>~]/g, '\\$&');
+type ReportedCompletion = Extract<NotificationEvent, { kind: 'session.completed' }>;
 
 /** Server-owned configuration and durable delivery queue, independent of clients and browsers. */
 export class NotificationService {
@@ -56,6 +64,9 @@ export class NotificationService {
   private replyDestination?: string;
   private replies = new Map<string, { accepted: Promise<string | undefined>; feedback: Promise<void> }>();
   private replyScan?: Promise<void>;
+  private startScan?: Promise<void>;
+  private starts = new Map<string, Promise<void>>();
+  private startingWorkspaces = new Map<string, { active: number; completions: Map<string, ReportedCompletion> }>();
   private replyDownloads = 0;
   private monitorErrors = new Map<string, string>();
   onConfigure?: (policy: NotificationPolicy, reset: boolean) => Promise<void>;
@@ -142,6 +153,8 @@ export class NotificationService {
     return this.state();
   }
   submitReply?: (input: LarkReplySubmission, signal: AbortSignal) => Promise<LarkReplyReceipt>;
+  startSession?: (input: LarkStartSubmission, signal: AbortSignal) => Promise<LarkStartResult>;
+  workspaceName?: (id: string) => string | undefined;
   readReplyStatus?: (
     workspaceId: string, userId: string, requestId: string, signal: AbortSignal,
   ) => Promise<LarkReplyReceipt | undefined>;
@@ -168,8 +181,22 @@ export class NotificationService {
     const reply = larkReply(config, event);
     if (!reply) return;
     const target = reply.parents.map((id) => this.store.larkTarget(destination, id)).find((item) => item !== undefined);
-    if (!target) return;
     const key = `${destination}:${reply.messageId}`;
+    if (!target) {
+      if (!this.startSession || !config.larkStart.targets.length || this.starts.has(key) || this.starts.size >= 16 ||
+          this.store.hasLarkStart(destination, reply.messageId)) return;
+      const mentions = larkStartMentions(reply.message);
+      if (!mentions.length) return;
+      const signal = AbortSignal.any([this.abort.signal, this.destination.signal, this.replyAuthorization.signal]);
+      const job = this.receiveStart(config, reply, mentions, signal)
+        .catch(() => { /* A claimed request with no final receipt remains uncertain. */ })
+        .finally(() => {
+          this.starts.delete(key);
+          void this.poll();
+        });
+      this.starts.set(key, job);
+      return;
+    }
     let newReceipt = false;
     const active = this.replies.get(key);
     const background = !!(reply.createdAt || reply.resources.length);
@@ -216,6 +243,153 @@ export class NotificationService {
     // Image downloads and uploads can outlast the provider's event acknowledgement deadline.
     if (!background) await accepted;
   }
+  private async receiveStart(
+    config: NotificationConfig,
+    reply: NonNullable<ReturnType<typeof larkReply>>,
+    mentions: ReturnType<typeof larkStartMentions>,
+    signal: AbortSignal,
+  ) {
+    const admin = this.db.prepare("SELECT 1 FROM users WHERE id=? AND role='admin'");
+    if (!admin.get(config.replyAdminId)) return;
+    const sender = await this.app.sender(config, signal);
+    const botId = await sender.botOpenId();
+    const botMentions = mentions.filter(({ openId }) => openId === botId);
+    if (!botMentions.length || signal.aborted || !admin.get(config.replyAdminId)) return;
+    const { larkDestination: destination } = config;
+    if (!this.store.claimLarkStart(destination, reply.messageId, START_UNKNOWN)) return;
+    const result = await this.dispatchStart(config, reply, sender, botMentions.map(({ key }) => key).filter(Boolean), signal);
+    const { sessionId, workspaceId } = result;
+    if (sessionId && workspaceId && this.workspaceName?.(workspaceId)) {
+      this.store.finishLarkStart(destination, reply.messageId, result.text, { sessionId, workspaceId });
+    } else {
+      this.store.finishLarkStart(destination, reply.messageId, result.text);
+    }
+  }
+  private async dispatchStart(
+    config: NotificationConfig,
+    reply: NonNullable<ReturnType<typeof larkReply>>,
+    sender: Awaited<ReturnType<LarkApp['sender']>>,
+    mentionKeys: string[],
+    signal: AbortSignal,
+  ): Promise<{ text: string; workspaceId?: string; sessionId?: string }> {
+    const { prompt: input, resources: ownResources, invalidResource } = larkStartContent(reply.message, mentionKeys);
+    const shortcut = /^([a-z0-9][a-z0-9_-]{0,15})[:：](?!\/)/i.exec(input);
+    const { defaultAlias, targets } = config.larkStart;
+    const target = targets.find(({ alias }) => alias === (shortcut?.[1].toLowerCase() ?? defaultAlias));
+    const prompt = shortcut ? input.slice(shortcut[0].length).trimStart() : input;
+    if ((!input && !ownResources.length && !reply.parents.length && !invalidResource) || !target) {
+      const choices = targets.map(({ alias, workspaceId, projectName }) => {
+        const workspace = this.workspaceName?.(workspaceId) ?? '工作空间已移除';
+        return `- \`${alias}:\` ${markdownLabel(workspace)}${projectName ? ` / ${markdownLabel(projectName)}` : ''}${alias === defaultAlias ? '（默认）' : ''}`;
+      });
+      return { text: [
+        target ? '**可用会话目标**' : '找不到这个简称，请选用下面的目标。',
+        ...choices,
+        '直接 @ 机器人并写任务可使用默认目标。指定目标时，在任务前加简称。',
+      ].join('\n') };
+    }
+    const workspace = this.workspaceName?.(target.workspaceId);
+    if (!workspace) return { text: '目标工作空间已移除，请在 Monitor 更新会话目标。' };
+    if (invalidResource) return { text: '无法读取消息中的附件，会话未创建。' };
+    if (prompt.length > 12000) return { text: '任务文字最多 12000 字符，会话未创建。' };
+    if (this.replyDownloads >= 4 && (reply.parents.length || ownResources.length))
+      return { text: '当前正在处理的附件过多，请稍后重新发送。' };
+    const resources = [...ownResources];
+    if (reply.parents.length || resources.length) {
+      this.replyDownloads++;
+      try {
+        const quoted = reply.parent ?? reply.parents[0];
+        if (quoted) {
+          const original = await sender.message(quoted).catch(() => undefined);
+          const referenced = larkQuotedResources(original, quoted, config.chatId);
+          if (!referenced) return { text: '无法读取被引用的文件或图片，会话未创建。请检查机器人消息和附件权限，或直接 @ 机器人发送任务。' };
+          resources.unshift(...referenced);
+        }
+        const seen = new Set<string>();
+        const unique = resources.filter((resource) => {
+          const key = 'document' in resource
+            ? `${resource.document.type}:${resource.document.token}`
+            : `${resource.messageId}:${resource.key}`;
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        });
+        if (unique.length > LARK_REPLY_MAX_ATTACHMENTS) return { text: replyReceipts.attachmentsTooLarge.text };
+        const attachments = await sender.readReplyAttachments(unique);
+        return await this.submitLarkStart(config, reply, target, workspace, prompt, attachments, signal);
+      } catch (error) {
+        if (error instanceof LarkReplyAttachmentsTooLarge) return { text: replyReceipts.attachmentsTooLarge.text };
+        if (error instanceof LarkReplyDocumentError) return { text: replyReceipts.documentFailed.text };
+        return { text: signal.aborted ? START_UNKNOWN : '无法读取消息中的附件，会话未创建。' };
+      } finally {
+        this.replyDownloads--;
+      }
+    }
+    if (!prompt) return { text: '请在简称后写任务，或引用要提交的文件。' };
+    return this.submitLarkStart(config, reply, target, workspace, prompt, [], signal);
+  }
+  private async submitLarkStart(
+    config: NotificationConfig,
+    reply: NonNullable<ReturnType<typeof larkReply>>,
+    target: NotificationConfig['larkStart']['targets'][number],
+    workspace: string,
+    prompt: string,
+    attachments: LarkStartSubmission['attachments'],
+    signal: AbortSignal,
+  ) {
+    const { workspaceId, projectId } = target;
+    signal.throwIfAborted();
+    const begunAt = Math.floor(Date.now() / 1000) * 1000;
+    const starting = this.startingWorkspaces.get(workspaceId) ?? { active: 0, completions: new Map() };
+    starting.active++;
+    this.startingWorkspaces.set(workspaceId, starting);
+    let created: LarkStartResult;
+    try {
+      created = await this.startSession!({
+        workspaceId, projectId, prompt, attachments,
+        userId: config.replyAdminId,
+        requestId: larkRequestId(config.larkDestination, reply.messageId),
+      }, signal).catch((): LarkStartResult => ({ result: 'unknown' }));
+      const current = this.store.config();
+      if (created.sessionId && created.result === 'sent' && !signal.aborted && this.workspaceName?.(workspaceId) &&
+          current.larkDestination === config.larkDestination && current.completionMode === 'watched' &&
+          this.store.watch(workspaceId, created.sessionId, true, begunAt)) {
+        for (const [key, event] of starting.completions) {
+          if (event.sessionId !== created.sessionId || event.occurredAt < Math.max(begunAt, current.enabledAt)) continue;
+          this.queueNotification(current, { id: workspaceId, name: workspace }, key, event);
+          starting.completions.delete(key);
+        }
+      }
+    } finally {
+      if (--starting.active === 0) this.startingWorkspaces.delete(workspaceId);
+    }
+    const { result, sessionId, projectName } = created;
+    if (result !== 'sent' || !sessionId) {
+      const reasons: Partial<Record<LarkReplyReceipt, string>> = {
+        offline: '工作空间已离线。Client 重新连接后，请重新发送任务。',
+        unavailable: '工作空间或项目已不可用，请在 Monitor 更新会话目标。',
+        upgrade: '请先更新此工作空间的 Monitor Client。',
+        attachmentFailed: '附件未能保存到工作空间，会话未创建。',
+        busy: '工作空间正在处理其他请求，请稍后重新发送。',
+        failed: '会话创建失败，请在 Monitor 查看请求回执。',
+      };
+      return { text: `工作空间：${markdownLabel(workspace)}\n${reasons[result] ?? START_UNKNOWN}` };
+    }
+    const lines = [
+      '**Codex 会话已启动**',
+      `工作空间：${markdownLabel(workspace)}`,
+      `项目：${markdownLabel(projectName ?? target.projectName ?? target.alias)}`,
+      `附件：${attachments.length} 个`,
+    ];
+    if (config.publicUrl) {
+      const url = new URL(config.publicUrl);
+      url.searchParams.set('workspace', workspaceId);
+      url.searchParams.set('session', sessionId);
+      lines.push(`[查看会话](<${url.href}>)`);
+    }
+    lines.push('引用此消息并 @ 机器人可以继续会话。');
+    return { text: lines.join('\n'), workspaceId, sessionId };
+  }
   private async dispatchReply(
     config: NotificationConfig,
     target: Pick<LarkReplySubmission, 'workspaceId' | 'sessionId'>,
@@ -232,7 +406,8 @@ export class NotificationService {
       if (reply.createdAt && sender) {
         try {
           history = await larkReplyHistory(reply, config.chatId, sender.history, (id) =>
-            this.replies.has(`${destination}:${id}`) || !!this.store.larkReceipt(destination, id),
+            this.replies.has(`${destination}:${id}`) || this.starts.has(`${destination}:${id}`) ||
+            !!this.store.larkReceipt(destination, id) || this.store.hasLarkStart(destination, id),
           );
         } catch (error) {
           // Applications with only group-mention access can still submit the explicit reply.
@@ -278,6 +453,8 @@ export class NotificationService {
     const config = this.store.config();
     if (this.closed || report.revision !== config.revision) return false;
     const pending: CompletionNotification[] = [];
+    const starting = this.startingWorkspaces.get(workspace.id);
+    const earlyCompletions: { key: string; event: ReportedCompletion }[] = [];
     this.db.exec('BEGIN IMMEDIATE');
     try {
       for (const event of [
@@ -303,34 +480,43 @@ export class NotificationService {
           event.kind === 'session.completed' &&
           config.completionMode === 'watched' &&
           !this.store.watched(workspace.id, event.sessionId, event.occurredAt)
-        )
+        ) {
+          if (starting) earlyCompletions.push({ key, event });
           continue;
-        this.store.enqueue(
-          {
-            key,
-            workspaceId: workspace.id,
-            workspaceName: workspace.name,
-            kind: event.kind,
-            sessionId: event.sessionId,
-            title: event.title,
-            message: notificationMessage(event, workspace, config.publicUrl),
-            ...(event.kind === 'session.completed'
-              ? { turnId: event.turnId, occurredAt: event.occurredAt }
-              : {}),
-          },
-          config.revision,
-        );
+        }
+        this.queueNotification(config, workspace, key, event);
       }
       this.db.exec('COMMIT');
     } catch (error) {
       this.db.exec('ROLLBACK');
       throw error;
     }
+    if (starting) {
+      for (const { key, event } of earlyCompletions) starting.completions.set(key, event);
+      while (starting.completions.size > 128) starting.completions.delete(starting.completions.keys().next().value!);
+    }
     this.completions.publish(pending);
     if (report.monitorError)
       this.monitorErrors.set(workspace.id, `${workspace.name}：${report.monitorError}`);
     else this.monitorErrors.delete(workspace.id);
     return true;
+  }
+  private queueNotification(
+    config: NotificationConfig,
+    workspace: { id: string; name: string },
+    key: string,
+    event: Exclude<NotificationEvent, { kind: 'session.input_resolved' }>,
+  ) {
+    this.store.enqueue({
+      key,
+      workspaceId: workspace.id,
+      workspaceName: workspace.name,
+      kind: event.kind,
+      sessionId: event.sessionId,
+      title: event.title,
+      message: notificationMessage(event, workspace, config.publicUrl),
+      ...(event.kind === 'session.completed' ? { turnId: event.turnId, occurredAt: event.occurredAt } : {}),
+    }, config.revision);
   }
   forgetWorkspace(workspaceId: string) {
     this.store.cancelWorkspace(workspaceId);
@@ -344,6 +530,9 @@ export class NotificationService {
         .catch(() => { /* Pending receipts are checked again on the next poll. */ })
         .finally(() => { this.replyScan = undefined; });
     }
+    if (!this.startScan && this.replyDestination && this.startSession) {
+      this.startScan = this.scanLarkStarts().catch(() => {}).finally(() => { this.startScan = undefined; });
+    }
     if (this.busy) return this.busy;
     this.busy = this.tick()
       .catch(() => {
@@ -353,6 +542,26 @@ export class NotificationService {
         this.busy = undefined;
       });
     return this.busy;
+  }
+  private async scanLarkStarts() {
+    const config = this.store.config();
+    const destination = config.larkDestination;
+    const signal = AbortSignal.any([this.abort.signal, this.destination.signal]);
+    await Promise.allSettled(this.store.pendingLarkStarts(destination, Date.now()).map(async (start) => {
+      const { messageId, workspaceId, sessionId, text, attempts } = start;
+      if (this.starts.has(`${destination}:${messageId}`)) return;
+      try {
+        const sender = await this.app.sender(config, signal);
+        const cardId = await sender.replyCard(messageId, larkRequestId(destination, messageId), text);
+        if (signal.aborted) return;
+        if (workspaceId && sessionId && this.workspaceName?.(workspaceId))
+          this.store.recordLarkMessage(destination, cardId, workspaceId, sessionId);
+        this.store.updateLarkStartDelivery(destination, messageId, 0);
+      } catch {
+        if (!signal.aborted)
+          this.store.updateLarkStartDelivery(destination, messageId, attempts >= 3 ? 0 : Date.now() + 3000 * (attempts + 1));
+      }
+    }));
   }
   private async scanLarkReplies() {
     const config = this.store.config();
@@ -560,6 +769,6 @@ export class NotificationService {
     clearInterval(this.timer);
     this.stopLarkReadTimer();
     this.abort.abort();
-    return Promise.allSettled([this.busy, this.testTask, this.larkReadScan, this.replyScan, ...[...this.replies.values()].map(({ feedback }) => feedback)]).then(() => {});
+    return Promise.allSettled([this.busy, this.testTask, this.larkReadScan, this.replyScan, this.startScan, ...this.starts.values(), ...[...this.replies.values()].map(({ feedback }) => feedback)]).then(() => {});
   }
 }

@@ -8,7 +8,7 @@ import { validId, type CodexSource } from './source.js';
 import { MessageQueue, type ControlLane } from './message-queue.js';
 import { MAX_ATTACHMENTS, type UploadStore } from './uploads.js';
 import { imageMime } from './media.js';
-import type { LarkReplyAttachment } from './notifications/lark-replies.js';
+import type { LarkReplyAttachment, LarkStartResult } from './notifications/lark-replies.js';
 import { reasoningEfforts, type SessionModelSettings } from '../src/types.js';
 import { validateModelSettings } from './model-settings.js';
 import { sessionPermissionModes } from '../src/approval-types.js';
@@ -23,6 +23,10 @@ import {
   saveCreationGoal,
   type CreationReceipt,
 } from './creation-goal.js';
+
+type ClientLarkStartResult = LarkStartResult & {
+  result: 'sent' | 'failed' | 'unknown' | 'unavailable' | 'attachmentFailed';
+};
 
 export type ControlAuthorization = {
   device: (identity: Identity) => Promise<boolean>;
@@ -135,6 +139,8 @@ export function installControl(
   const adminUser = db.prepare("SELECT 1 FROM users WHERE id=? AND role='admin'");
   const larkRequests = new Map<string, ReturnType<typeof submitLarkReply>>();
   const larkReceipt = db.prepare('SELECT user_id, state FROM control_requests WHERE id=?');
+  const creationRequest = db.prepare('SELECT user_id,fingerprint,state,result_json FROM control_requests WHERE id=?');
+  const finishRequest = db.prepare('UPDATE control_requests SET state=?,result_json=? WHERE id=?');
   const larkResult = (state: unknown) => {
     if (state === 'succeeded') return 'sent';
     if (state === 'queued' || state === 'pending') return 'queued';
@@ -143,6 +149,26 @@ export function installControl(
   function larkReplyStatus(userId: string, requestId: string) {
     const receipt = larkReceipt.get(requestId);
     return receipt?.user_id === userId ? larkResult(receipt.state) : 'unavailable';
+  }
+  async function uploadLarkFiles(
+    userId: string, files: LarkReplyAttachment[], attachments: string[], signal: AbortSignal,
+  ) {
+    for (const [index, { data, name }] of files.entries()) {
+      const mime = name ? 'application/octet-stream' : imageMime(data.subarray(0, 16));
+      if (!mime || !uploads) throw new ControlError('附件上传暂不可用。', false, 503);
+      const ext = mime === 'image/jpeg' ? 'jpg' : mime.slice('image/'.length);
+      const uploaded = await uploads.receiveStream(
+        Readable.from([data]), userId, name ?? `lark-${index + 1}.${ext}`, mime, signal,
+      );
+      attachments.push(uploaded.id);
+    }
+  }
+  function removeLarkFiles(userId: string, attachments: string[]) {
+    for (const attachment of attachments) {
+      try {
+        uploads?.remove(userId, attachment);
+      } catch {}
+    }
   }
   async function submitLarkReply(
     userId: string,
@@ -160,15 +186,7 @@ export function installControl(
     const attachments: string[] = [];
     const attachmentError = files.some(({ name }) => !!name) ? 'attachmentFailed' : 'imageFailed';
     try {
-      for (const [index, { data, name }] of files.entries()) {
-        const mime = name ? 'application/octet-stream' : imageMime(data.subarray(0, 16));
-        if (!mime || !uploads) return attachmentError;
-        const ext = mime === 'image/jpeg' ? 'jpg' : mime.slice('image/'.length);
-        const uploaded = await uploads.receiveStream(
-          Readable.from([data]), userId, name ?? `lark-${index + 1}.${ext}`, mime, signal,
-        );
-        attachments.push(uploaded.id);
-      }
+      await uploadLarkFiles(userId, files, attachments, signal);
       if (closed || signal.aborted || !adminUser.get(userId)) return 'failed';
       // Lark replies are conversation text, including text that starts with a slash.
       const { state } = await messages.submit(userId, 'Lark', id, {
@@ -182,13 +200,7 @@ export function installControl(
       if (error instanceof ControlError || signal.aborted) return 'failed';
       throw error;
     } finally {
-      if (attachments.length && !larkReceipt.get(requestId)) {
-        for (const attachment of attachments) {
-          try {
-            uploads?.remove(userId, attachment);
-          } catch {}
-        }
-      }
+      if (!closed && attachments.length && !larkReceipt.get(requestId)) removeLarkFiles(userId, attachments);
     }
   }
   function sendLarkReply(
@@ -204,6 +216,89 @@ export function installControl(
     const job = submitLarkReply(userId, id, input, files, signal).finally(() => larkRequests.delete(key));
     larkRequests.set(key, job);
     return job;
+  }
+  async function createSession(
+    caller: string, projectId: string, objective: string, options: SessionCreationSettings,
+    requestId: string, goalObjective?: string, projectName?: string,
+  ) {
+    const result = await bridge.create(caller, projectId, objective, options);
+    if (!validId(result.threadId))
+      throw new ControlError('新会话回执无效，请检查桌面应用，勿重复创建。', true, 502);
+    if (closed) throw new ControlError('服务正在停止，请稍后查询原请求结果。', true, 503);
+    const receipt: CreationReceipt & { projectName?: string } = {
+      ...result,
+      mode: 'create',
+      acceptedAt: Date.now(),
+      ...(goalObjective ? { goalObjective, goalState: 'pending' } : {}),
+      ...(projectName ? { projectName } : {}),
+    };
+    source.include(result.threadId);
+    db.prepare('UPDATE control_requests SET result_json=? WHERE id=?').run(JSON.stringify(receipt), requestId);
+    try {
+      await source.refresh(true);
+    } catch {
+      // The accepted creation remains known while its index catches up.
+    }
+    return receipt;
+  }
+  async function startLarkSession(
+    user: { id: string; username: string },
+    projectId: string,
+    { requestId, prompt }: { requestId: string; prompt: string },
+    files: LarkReplyAttachment[],
+    signal: AbortSignal,
+  ): Promise<ClientLarkStartResult> {
+    const userId = user.id;
+    if (closed || signal.aborted || !adminUser.get(userId)) return { result: 'failed' };
+    const fingerprint = `lark:create:${projectId}`;
+    const previous = creationRequest.get(requestId);
+    if (previous) {
+      if (previous.user_id !== userId || previous.fingerprint !== fingerprint) return { result: 'failed' };
+      const data = JSON.parse(String(previous.result_json)) as (CreationReceipt & { projectName?: string }) | null;
+      if (data && creationReceipt(data)) return { result: 'sent', sessionId: data.threadId, projectName: data.projectName };
+      return { result: previous.state === 'failed' ? 'failed' : 'unknown' };
+    }
+    db.prepare('INSERT INTO control_requests VALUES(?,?,?,?,?,?)')
+      .run(requestId, userId, fingerprint, 'pending', null, Date.now());
+    return inLane(`project:${projectId}`, async (): Promise<ClientLarkStartResult> => {
+      const attachments: string[] = [];
+      let dispatched = false;
+      try {
+        const caller = await context();
+        const project = (await bridge.projects(caller)).find(({ id }) => id === projectId);
+        if (!project) {
+          if (!closed) finishRequest.run('failed', JSON.stringify({ error: '项目不可用。' }), requestId);
+          return { result: 'unavailable' };
+        }
+        try {
+          await uploadLarkFiles(userId, files, attachments, signal);
+        } catch {
+          if (!closed) finishRequest.run('failed', JSON.stringify({ error: '附件上传失败。' }), requestId);
+          return { result: 'attachmentFailed' };
+        }
+        if (closed || signal.aborted || !adminUser.get(userId) || (authorization && !(await authorization.user(userId))))
+          throw new ControlError('操作权限已失效。', false, 403);
+        signal.throwIfAborted();
+        if (closed || !adminUser.get(userId)) return { result: 'failed' };
+        const objective = uploads?.compose(userId, requestId, prompt, attachments) ?? prompt;
+        dispatched = true;
+        const receipt = await createSession(caller, project.id, objective, {}, requestId, undefined, project.name.slice(0, 500));
+        if (!closed) {
+          finishRequest.run('succeeded', JSON.stringify(receipt), requestId);
+          db.prepare('INSERT INTO audit(at,action,username,ip) VALUES(?,?,?,?)')
+            .run(Date.now(), 'session_created', user.username, 'Lark');
+        }
+        return { result: 'sent', sessionId: receipt.threadId, projectName: receipt.projectName };
+      } catch (error) {
+        const unknown = dispatched && (!(error instanceof ControlError) || error.uncertain);
+        if (!closed) finishRequest.run(unknown ? 'unknown' : 'failed', JSON.stringify({ error: unknown
+          ? '创建结果待确认，请检查会话记录。'
+          : '会话创建失败。' }), requestId);
+        return { result: unknown ? 'unknown' : 'failed' };
+      } finally {
+        if (!closed && !dispatched) removeLarkFiles(userId, attachments);
+      }
+    });
   }
   const projectPath = async (id: string) =>
     (await bridge.projects(await context())).find((project) => project.id === id)?.path;
@@ -806,7 +901,7 @@ export function installControl(
       await validateModelSettings(bridge, { model, thinking });
       await authorize(req);
       const objective = compose(req, input);
-      const result = await bridge.create(
+      const receipt = await createSession(
         caller,
         input.projectId,
         asGoal ? `/goal ${objective}` : objective,
@@ -816,27 +911,9 @@ export function installControl(
           ...(input.permissionMode ? { permissionMode: input.permissionMode } : {}),
           ...(input.channel ? { channel: input.channel } : {}),
         },
-      );
-      if (!validId(result.threadId))
-        throw new ControlError('新会话回执无效，请检查桌面应用，勿重复创建。', true, 502);
-      if (closed) throw new ControlError('服务正在停止，请稍后查询原请求结果。', true, 503);
-      const receipt: CreationReceipt = {
-        ...result,
-        mode: 'create',
-        acceptedAt: Date.now(),
-        ...(asGoal ? { goalObjective: objective, goalState: 'pending' } : {}),
-      };
-      source.include(result.threadId);
-      // Persist the known thread before any separate goal write or index refresh.
-      db.prepare('UPDATE control_requests SET result_json=? WHERE id=?').run(
-        JSON.stringify(receipt),
         input.requestId,
+        asGoal ? objective : undefined,
       );
-      try {
-        await source.refresh(true);
-      } catch {
-        // The accepted creation remains known while its index catches up.
-      }
       return asGoal ? saveCreationGoal(bridge, receipt, () => authorize(req)) : receipt;
     });
   });
@@ -845,5 +922,5 @@ export function installControl(
     messages.close();
     bridge.close?.();
   };
-  return { close, projectPath, sendLarkReply, larkReplyStatus };
+  return { close, projectPath, sendLarkReply, larkReplyStatus, startLarkSession };
 }

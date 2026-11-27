@@ -24,6 +24,7 @@ const postContent = z.object({
         image_key: z.string().optional(),
         file_key: z.string().optional(),
         file_name: z.string().optional(),
+        user_id: z.string().optional(),
       }),
     ),
   ),
@@ -44,7 +45,10 @@ const eventSchema = z.object({
     chat_type: z.literal('group'),
     message_type: z.string(),
     content: z.string().max(64 * 1024),
-    mentions: z.array(z.object({ key: z.string().regex(/^@_user_\d+$/) })).optional(),
+    mentions: z.array(z.object({
+      key: z.string().regex(/^@_user_\d+$/),
+      id: z.object({ open_id: z.string().optional() }).optional(),
+    })).optional(),
   }),
 });
 
@@ -131,15 +135,61 @@ export function larkReply(config: NotificationConfig, event: unknown) {
   const parents = [message.parent_id, message.root_id].filter(
     (id): id is string => messageId.safeParse(id).success && id !== message.message_id,
   );
-  if (!parents.length) return;
   return {
     messageId: message.message_id,
     senderId: sender.sender_id.open_id,
     createdAt: Number(message.create_time ?? 0),
     threadId: message.thread_id,
     parents,
+    parent: parents.find((id) => id === message.parent_id),
+    message,
     ...larkMessageContent(message.message_id, message.message_type, message.content, message.mentions),
   };
+}
+
+type IncomingLarkMessage = NonNullable<ReturnType<typeof larkReply>>['message'];
+
+export function larkStartMentions(message: IncomingLarkMessage) {
+  const mentions = (message.mentions ?? []).flatMap(({ key, id }) =>
+    id?.open_id ? [{ key, openId: id.open_id }] : [],
+  );
+  if (message.message_type === 'post') {
+    let post;
+    try {
+      post = parseLarkPost(JSON.parse(message.content));
+    } catch {
+      return mentions;
+    }
+    for (const node of post?.content.flat() ?? []) {
+      if (node.tag === 'at' && node.user_id?.startsWith('ou_'))
+        mentions.push({ key: '', openId: node.user_id });
+    }
+  }
+  return mentions;
+}
+
+export function larkStartContent(message: IncomingLarkMessage, keys: string[]) {
+  return larkMessageContent(message.message_id, message.message_type, message.content, undefined, keys);
+}
+
+export function larkQuotedResources(raw: unknown, id: string, chatId: string) {
+  const parsed = historyPage.safeParse(raw);
+  if (!parsed.success) return;
+  for (const item of parsed.data.items) {
+    const result = historyMessage.safeParse(item);
+    if (!result.success) continue;
+    const message = result.data;
+    if (message.message_id !== id || message.chat_id !== chatId || message.deleted || message.sender.sender_type !== 'user') continue;
+    const content = larkMessageContent(id, message.msg_type, message.body?.content);
+    if (!content.invalidResource && content.resources.length) return content.resources;
+  }
+}
+
+function parseLarkPost(content: unknown) {
+  const direct = postContent.safeParse(content);
+  if (direct.success) return direct.data;
+  const localized = z.record(z.string(), postContent).safeParse(content);
+  if (localized.success) return Object.values(localized.data)[0];
 }
 
 function larkMessageContent(
@@ -147,6 +197,7 @@ function larkMessageContent(
   type: string,
   raw?: string,
   mentions?: { key: string }[],
+  removeMentionKeys?: string[],
 ) {
   const reply = { prompt: '', resources: [] as LarkReplyResource[], invalidResource: false };
   let content: unknown;
@@ -163,6 +214,8 @@ function larkMessageContent(
       const leadingMention = reply.prompt.match(/^@_user_\d+(?=\s|$)/)?.[0];
       if (leadingMention && mentions?.some(({ key }) => key === leadingMention))
         reply.prompt = reply.prompt.slice(leadingMention.length).trimStart();
+      if (removeMentionKeys?.length)
+        reply.prompt = reply.prompt.replace(/@_user_\d+\b/g, (key) => removeMentionKeys.includes(key) ? '' : key).trim();
       reply.resources.push(...larkDocuments(reply.prompt).map((document) => ({ document })));
     }
   } else if (type === 'image') {
@@ -174,15 +227,7 @@ function larkMessageContent(
     if (file.success) reply.resources.push({ messageId: id, key: file.data.file_key, name: file.data.file_name });
     else reply.invalidResource = true;
   } else if (type === 'post') {
-    const direct = postContent.safeParse(content);
-    const localized = direct.success
-      ? undefined
-      : z.record(z.string(), postContent).safeParse(content);
-    const post = direct.success
-      ? direct.data
-      : localized?.success
-        ? Object.values(localized.data)[0]
-        : undefined;
+    const post = parseLarkPost(content);
     if (post) {
       const lines = [post.title ?? ''];
       for (const row of post.content) {
@@ -241,6 +286,9 @@ export type LarkReplySubmission = {
   attachments: LarkReplyAttachment[];
   nextTurn: boolean;
 };
+
+export type LarkStartSubmission = Omit<LarkReplySubmission, 'sessionId' | 'nextTurn'> & { projectId: string };
+export type LarkStartResult = { result: LarkReplyReceipt; sessionId?: string; projectName?: string };
 
 export const replyReceipts = {
   sent: { text: '已发送到 Codex 会话。', emoji: 'CheckMark' },

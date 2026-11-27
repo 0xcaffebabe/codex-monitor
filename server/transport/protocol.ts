@@ -74,7 +74,8 @@ export const frameSchema = z.discriminatedUnion('type', [
     type: z.literal('notification-reply'),
     id,
     requestId: id,
-    sessionId: z.string().regex(/^[A-Za-z0-9_-]{1,100}$/),
+    sessionId: z.string().regex(/^[A-Za-z0-9_-]{1,100}$/).optional(),
+    projectId: id.optional(),
     prompt: z.string().trim().max(12000),
     imageSizes: z.array(z.number().int().positive().max(LARK_REPLY_MAX_BYTES))
       .min(1).max(LARK_REPLY_MAX_ATTACHMENTS)
@@ -88,7 +89,8 @@ export const frameSchema = z.discriminatedUnion('type', [
       .optional(),
     nextTurn: z.literal(true).optional(),
     user: identitySchema.shape.user.extend({ role: z.literal('admin') }),
-  }).strict().refine(({ prompt, imageSizes, attachments }) =>
+  }).strict().refine(({ prompt, imageSizes, attachments, projectId, sessionId, nextTurn }) =>
+    !!projectId !== !!sessionId && !(projectId && nextTurn) &&
     !(imageSizes && attachments) && (!!prompt || !!imageSizes || !!attachments)),
   z.object({
     type: z.literal('notification-reply-status'),
@@ -100,6 +102,8 @@ export const frameSchema = z.discriminatedUnion('type', [
     type: z.literal('notification-reply-result'),
     id,
     result: z.enum(['sent', 'queued', 'unavailable', 'failed', 'unknown', 'imageFailed', 'attachmentFailed']),
+    sessionId: z.string().regex(/^[A-Za-z0-9_-]{1,100}$/).optional(),
+    projectName: z.string().max(500).optional(),
   }).strict(),
   z.object({
     type: z.literal('notification-attachment'),
@@ -122,6 +126,7 @@ export const frameSchema = z.discriminatedUnion('type', [
       notificationReplies: z.boolean().optional(),
       notificationReplyFiles: z.boolean().optional(),
       notificationReplyStatus: z.boolean().optional(),
+      notificationStarts: z.boolean().optional(),
       privacyWork: z.boolean().optional(),
       clientUpdate: z.boolean().optional(),
     }).optional(),
