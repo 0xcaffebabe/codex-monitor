@@ -207,6 +207,31 @@ test('the running overview keeps reordered panes and their drafts with the right
   await expect(headings).toHaveText([first, middle]);
 });
 
+test('long overview titles leave the pane controls clickable', async ({
+  signedIn: { browserPage: page },
+  monitor,
+}) => {
+  const workspace = '远程工作空间';
+  const title = `# Files mentioned by the user: codex-clipboard-${'a'.repeat(180)}.png`;
+  await monitor.addWorkspace(workspace, title);
+  const trigger = page.getByRole('button', { name: '查看运行中的会话' });
+  await expect(trigger).toHaveText('2');
+  await trigger.click();
+  await page.getByRole('button', { name: '全览', exact: true }).click();
+
+  const pane = page.getByRole('region', { name: `${workspace} · ${title}` });
+  const heading = pane.getByRole('heading', { name: title });
+  await pane.getByRole('textbox').fill('测试长标题下的发送按钮');
+
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 900 });
+    expect(await heading.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(true);
+    await pane.getByRole('button', { name: '放大此会话' }).click({ trial: true });
+    await pane.getByRole('button', { name: '打开会话详情' }).click({ trial: true });
+    await pane.getByRole('button', { name: '追加消息' }).click({ trial: true });
+  }
+});
+
 test('running overview follows and sends messages independently across workspaces', async ({
   signedIn: { browserPage: page, workspace },
   local,
