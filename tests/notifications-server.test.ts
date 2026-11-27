@@ -90,7 +90,7 @@ test('authorized Lark quotes target the card workspace and reuse the Monitor mes
   const a = fixture(), b = fixture();
   a.config.pollMs = b.config.pollMs = 40;
   const desks = [new FixtureDesktop(a), new FixtureDesktop(b)];
-  const reactions = new Map<string, string>();
+  const reactions = new Map<string, Set<string>>();
   const image = await sharp(randomBytes(256 * 256 * 3), {
     raw: { width: 256, height: 256, channels: 3 },
   }).png().toBuffer();
@@ -141,16 +141,25 @@ test('authorized Lark quotes target the card workspace and reuse the Monitor mes
       assert.ok(page);
       return Response.json({ code: 0, data: page });
     }
-    const messageId = /^\/open-apis\/im\/v1\/messages\/(om_[^/]+)\/reactions$/.exec(pathname)?.[1];
+    const [, messageId, reactionId] =
+      /^\/open-apis\/im\/v1\/messages\/(om_[^/]+)\/reactions(?:\/([^/]+))?$/.exec(pathname) ?? [];
     if (messageId) {
+      assert.equal(new Headers(init?.headers).get('authorization'), 'Bearer test');
+      if (reactionId) {
+        assert.equal(init?.method, 'DELETE');
+        assert.equal(reactionId, 'reaction_OneSecond');
+        assert.ok(reactions.get(messageId)?.has('CheckMark'));
+        assert.ok(reactions.get(messageId)?.delete('OneSecond'));
+        return Response.json({ code: 0 });
+      }
       const body = JSON.parse(String(init?.body));
       const emoji = body.reaction_type.emoji_type;
       assert.equal(init?.method, 'POST');
-      assert.equal(new Headers(init?.headers).get('authorization'), 'Bearer test');
       assert.deepEqual(body, { reaction_type: { emoji_type: emoji } });
-      if (reactions.has(messageId)) assert.equal(reactions.get(messageId), emoji);
-      reactions.set(messageId, emoji);
-      return Response.json({ code: 0 });
+      const active = reactions.get(messageId) ?? new Set();
+      active.add(emoji);
+      reactions.set(messageId, active);
+      return Response.json({ code: 0, data: { reaction_id: `reaction_${emoji}` } });
     }
     if (pathname.includes('/resources/')) {
       assert.equal(init?.method, 'GET');
@@ -242,6 +251,13 @@ test('authorized Lark quotes target the card workspace and reuse the Monitor mes
     assert.deepEqual(desks.map(({ sends }) => sends), [0, 0]);
 
     const store = server.service.notifications.store;
+    const assertReaction = (id: string, emoji: string) =>
+      assert.deepEqual([...reactions.get(id) ?? []], [emoji]);
+    const waitForSentReaction = (id: string) => until(async () => {
+      await server.service.notifications.poll();
+      const active = reactions.get(id);
+      return active?.size === 1 && active.has('CheckMark');
+    });
     store.recordLarkReceipt(
       store.config().larkDestination,
       'om_previous_receipt',
@@ -249,13 +265,13 @@ test('authorized Lark quotes target the card workspace and reuse the Monitor mes
     );
     await receive(event('om_previous_receipt'));
     await until(() => reactions.has('om_previous_receipt'));
-    assert.equal(reactions.get('om_previous_receipt'), 'THINKING');
+    assertReaction('om_previous_receipt', 'THINKING');
     assert.deepEqual(desks.map(({ sends }) => sends), [0, 0]);
 
     const first = event('om_user_reply');
     await Promise.all([receive(first), receive(first)]);
     await until(() => reactions.has('om_user_reply'));
-    assert.equal(reactions.get('om_user_reply'), 'CheckMark');
+    assertReaction('om_user_reply', 'CheckMark');
     await receive(first);
     assert.deepEqual(desks.map(({ sends }) => sends), [0, 1]);
     assert.ok(b.hist.prepare("SELECT 1 FROM thread_items WHERE thread_id=? AND item_json LIKE ?")
@@ -266,10 +282,16 @@ test('authorized Lark quotes target the card workspace and reuse the Monitor mes
     desks[1].compacting = true;
     await receive(event('om_addendum', { parent_id: 'om_user_reply', root_id: 'om_card_2' }));
     await until(() => reactions.has('om_addendum'));
-    assert.equal(reactions.get('om_addendum'), 'OneSecond');
+    assertReaction('om_addendum', 'OneSecond');
     assert.equal(desks[1].sends, 1);
+    await server.service.notifications.poll();
+    assertReaction('om_addendum', 'OneSecond');
     desks[1].compacting = false;
-    await until(() => desks[1].sends === 2);
+    await waitForSentReaction('om_addendum');
+    assert.equal(desks[1].sends, 2);
+    await receive(event('om_addendum', { parent_id: 'om_user_reply', root_id: 'om_card_2' }));
+    assertReaction('om_addendum', 'CheckMark');
+    assert.equal(desks[1].sends, 2);
 
     const prompts = b.hist.prepare(
       "SELECT item_json FROM thread_items WHERE thread_id=? AND item_json LIKE '%lark-%.png%' AND json_extract(item_json, '$.type')='userMessage'",
@@ -287,7 +309,7 @@ test('authorized Lark quotes target the card workspace and reuse the Monitor mes
     };
     await receive(event('om_image', { message_type: 'image', content: JSON.stringify({ image_key: 'img_test' }) }));
     await until(() => reactions.has('om_image'));
-    assert.equal(reactions.get('om_image'), 'CheckMark');
+    assertReaction('om_image', 'CheckMark');
     assert.equal(assertImages().length, 1);
     await receive(event('om_post', {
       message_type: 'post',
@@ -297,13 +319,13 @@ test('authorized Lark quotes target the card workspace and reuse the Monitor mes
       ]] }),
     }));
     await until(() => reactions.has('om_post'));
-    assert.equal(reactions.get('om_post'), 'CheckMark');
+    assertReaction('om_post', 'CheckMark');
     assert.match(assertImages().find((input) => input.includes('看这两张图'))!, /lark-1\.png\n- .*lark-2\.png/);
     for (const imageKey of ['img_missing', 'img_too_large']) {
       const id = 'om_' + imageKey;
       await receive(event(id, { message_type: 'image', content: JSON.stringify({ image_key: imageKey }) }));
       await until(() => reactions.has(id));
-      assert.equal(reactions.get(id), 'CrossMark');
+      assertReaction(id, 'CrossMark');
     }
     assert.deepEqual(desks.map(({ sends }) => sends), [0, 4]);
 
@@ -350,7 +372,7 @@ test('authorized Lark quotes target the card workspace and reuse the Monitor mes
       }),
     }));
     await until(() => reactions.has('om_history_reply'));
-    assert.equal(reactions.get('om_history_reply'), 'OneSecond');
+    assertReaction('om_history_reply', 'OneSecond');
     assert.equal(desks[1].sends, 4);
     assert.ok(stateReads >= 2);
     assert.ok(downloaded.some((url) => url.endsWith('/om_history_image/resources/img_history')));
@@ -368,7 +390,8 @@ test('authorized Lark quotes target the card workspace and reuse the Monitor mes
     await until(() => !!clients[1]?.connected);
     b.hist.prepare("UPDATE thread_turns SET status='completed',completed_at=? WHERE turn_id=?")
       .run(Math.floor(Date.now() / 1000), 'existing-active-turn');
-    await until(() => desks[1].sends === 5);
+    await waitForSentReaction('om_history_reply');
+    assert.equal(desks[1].sends, 5);
     await until(() => !!b.hist.prepare("SELECT 1 FROM thread_items WHERE item_json LIKE '%请分析这些资料%'").get());
     const aggregate = b.hist.prepare(
       "SELECT item_json,turn_id FROM thread_items WHERE thread_id=? AND item_json LIKE '%请分析这些资料%' AND json_extract(item_json, '$.type')='userMessage'",
@@ -392,7 +415,7 @@ test('authorized Lark quotes target the card workspace and reuse the Monitor mes
       content: JSON.stringify({ text: 'https://example.larksuite.com/docx/NoAccess' }),
     }));
     await until(() => reactions.has('om_no_document_access'));
-    assert.equal(reactions.get('om_no_document_access'), 'CrossMark');
+    assertReaction('om_no_document_access', 'CrossMark');
     assert.match(store.larkReceipt(store.config().larkDestination, 'om_no_document_access')!, /无法导出/);
     await receive(event('om_mixed_attachment_failed', {
       message_type: 'post',
@@ -420,7 +443,7 @@ test('authorized Lark quotes target the card workspace and reuse the Monitor mes
     await until(() => !server.service.gateway.list().find((item) => item.id === workspaces[1].workspace.id)?.online);
     await receive(event('om_offline'));
     await until(() => reactions.has('om_offline'));
-    assert.equal(reactions.get('om_offline'), 'CrossMark');
+    assertReaction('om_offline', 'CrossMark');
 
     assert.equal((await save([])).status, 200);
     assert.equal(closed, true);

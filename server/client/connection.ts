@@ -256,6 +256,7 @@ export class MonitorClient {
               notificationMarkRead: true,
               notificationReplies: true,
               notificationReplyFiles: true,
+              notificationReplyStatus: true,
               privacyWork: process.platform === 'win32',
               clientUpdate: this.options.updates ? true : undefined,
             },
@@ -318,6 +319,10 @@ export class MonitorClient {
             this.rpc.delete(frame.id);
             rpc.resolve(frame.result);
           }
+        } else if (frame.type === 'notification-reply-status') {
+          const result = this.runtime.larkReplyStatus(frame.userId, frame.requestId);
+          void sendFrame(socket, { type: 'notification-reply-result', id: frame.id, result })
+            .catch(() => socket.terminate());
         } else if (
           frame.type === 'request' ||
           frame.type === 'notification-attachment' ||

@@ -33,6 +33,7 @@ import {
 
 const LARK_READ_POLL_MS = 10_000;
 const LARK_READ_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+const LARK_REPLY_POLL_MS = 3_000;
 
 /** Server-owned configuration and durable delivery queue, independent of clients and browsers. */
 export class NotificationService {
@@ -54,6 +55,7 @@ export class NotificationService {
   private replyConnection?: ReturnType<LarkReplyListener>;
   private replyDestination?: string;
   private replies = new Map<string, { accepted: Promise<string | undefined>; feedback: Promise<void> }>();
+  private replyScan?: Promise<void>;
   private replyDownloads = 0;
   private monitorErrors = new Map<string, string>();
   onConfigure?: (policy: NotificationPolicy, reset: boolean) => Promise<void>;
@@ -140,6 +142,9 @@ export class NotificationService {
     return this.state();
   }
   submitReply?: (input: LarkReplySubmission, signal: AbortSignal) => Promise<LarkReplyReceipt>;
+  readReplyStatus?: (
+    workspaceId: string, userId: string, requestId: string, signal: AbortSignal,
+  ) => Promise<LarkReplyReceipt | undefined>;
   startReplies(submit: NonNullable<NotificationService['submitReply']>) {
     this.submitReply = submit;
     this.syncReplyListener();
@@ -165,6 +170,7 @@ export class NotificationService {
     const target = reply.parents.map((id) => this.store.larkTarget(destination, id)).find((item) => item !== undefined);
     if (!target) return;
     const key = `${destination}:${reply.messageId}`;
+    let newReceipt = false;
     const active = this.replies.get(key);
     const background = !!(reply.createdAt || reply.resources.length);
     if (active) {
@@ -183,16 +189,24 @@ export class NotificationService {
         const result = await this.dispatchReply(config, target, reply, signal);
         if (signal.aborted) return;
         receipt = replyReceipts[result].text;
-        this.store.recordLarkReceipt(destination, reply.messageId, receipt);
+        const queued = result === 'queued'
+          ? { workspaceId: target.workspaceId, userId: config.replyAdminId }
+          : undefined;
+        this.store.recordLarkReceipt(destination, reply.messageId, receipt, queued);
+        newReceipt = true;
       }
       return receipt;
     })();
     const feedback = accepted.then(async (receipt) => {
       if (signal.aborted || !receipt) return;
+      const queued = receipt === replyReceipts.queued.text;
+      if (queued && !newReceipt) return;
       const reaction = larkReplyReaction(receipt);
       if (!reaction) return;
       const sender = await this.app.sender(config, signal);
-      await sender.react(reply.messageId, reaction);
+      const reactionId = await sender.react(reply.messageId, reaction);
+      if (queued && reactionId)
+        this.store.recordLarkWaitReaction(destination, reply.messageId, reactionId);
     }).catch(() => {
       // An unavailable Lark API does not affect the Monitor queue or notification delivery.
     }).finally(() => {
@@ -325,6 +339,11 @@ export class NotificationService {
   }
   poll() {
     if (this.closed) return Promise.resolve();
+    if (this.readReplyStatus && !this.replyScan && this.replyDestination) {
+      this.replyScan = this.scanLarkReplies()
+        .catch(() => { /* Pending receipts are checked again on the next poll. */ })
+        .finally(() => { this.replyScan = undefined; });
+    }
     if (this.busy) return this.busy;
     this.busy = this.tick()
       .catch(() => {
@@ -334,6 +353,32 @@ export class NotificationService {
         this.busy = undefined;
       });
     return this.busy;
+  }
+  private async scanLarkReplies() {
+    const config = this.store.config();
+    const destination = config.larkDestination;
+    const signal = AbortSignal.any([this.abort.signal, this.destination.signal, this.replyAuthorization.signal]);
+    const now = Date.now();
+    await Promise.allSettled(this.store.pendingLarkReplies(destination, now).map(async (reply) => {
+      const { messageId, workspaceId, userId, receipt, reactionId } = reply;
+      this.store.delayLarkReplyCheck(destination, messageId, now + LARK_REPLY_POLL_MS);
+      // Let the initial feedback record the waiting reaction before trying to replace it.
+      if (this.replies.has(`${destination}:${messageId}`)) return;
+      if (receipt === replyReceipts.queued.text) {
+        const status = await this.readReplyStatus!(workspaceId, userId, larkRequestId(destination, messageId), signal);
+        if (signal.aborted || !status) return;
+        const { text, emoji } = replyReceipts[status];
+        const sender = await this.app.sender(config, signal);
+        await sender.react(messageId, emoji);
+        this.store.updateLarkReceipt(destination, messageId, text);
+      }
+      if (signal.aborted) return;
+      if (reactionId) {
+        const sender = await this.app.sender(config, signal);
+        await sender.removeReaction(messageId, reactionId);
+      }
+      this.store.finishLarkReplyCheck(destination, messageId);
+    }));
   }
   private async tick() {
     if (!this.store.config().enabled) return;
@@ -515,6 +560,6 @@ export class NotificationService {
     clearInterval(this.timer);
     this.stopLarkReadTimer();
     this.abort.abort();
-    return Promise.allSettled([this.busy, this.testTask, this.larkReadScan, ...[...this.replies.values()].map(({ feedback }) => feedback)]).then(() => {});
+    return Promise.allSettled([this.busy, this.testTask, this.larkReadScan, this.replyScan, ...[...this.replies.values()].map(({ feedback }) => feedback)]).then(() => {});
   }
 }

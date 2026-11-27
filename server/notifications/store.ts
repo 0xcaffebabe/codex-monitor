@@ -119,6 +119,15 @@ export class NotificationStore {
       db.exec(`ALTER TABLE notification_deliveries ADD COLUMN workspace_name TEXT;
         UPDATE notification_deliveries SET workspace_name='本机工作空间' WHERE workspace_id='local';`);
     }
+    const replyColumns = db.prepare('PRAGMA table_info(notification_lark_replies)').all();
+    for (const column of ['workspace_id', 'user_id', 'reaction_id']) {
+      if (!replyColumns.some(({ name }) => name === column))
+        db.exec(`ALTER TABLE notification_lark_replies ADD COLUMN ${column} TEXT`);
+    }
+    if (!replyColumns.some(({ name }) => name === 'check_at'))
+      db.exec('ALTER TABLE notification_lark_replies ADD COLUMN check_at INTEGER NOT NULL DEFAULT 0');
+    db.exec(`CREATE INDEX IF NOT EXISTS notification_lark_reply_checks
+      ON notification_lark_replies(destination,check_at) WHERE workspace_id IS NOT NULL`);
   }
   config(): NotificationConfig {
     const row = this.db.prepare('SELECT * FROM notification_settings WHERE id=1').get()!;
@@ -232,9 +241,34 @@ export class NotificationStore {
     return this.db.prepare('SELECT receipt FROM notification_lark_replies WHERE destination=? AND message_id=?')
       .get(destination, messageId)?.receipt as string | undefined;
   }
-  recordLarkReceipt(destination: string, messageId: string, receipt: string) {
-    this.db.prepare('INSERT OR IGNORE INTO notification_lark_replies VALUES(?,?,?)')
-      .run(destination, messageId, receipt);
+  recordLarkReceipt(destination: string, messageId: string, receipt: string, queued?: { workspaceId: string; userId: string }) {
+    this.db.prepare(`INSERT OR IGNORE INTO notification_lark_replies
+      (destination,message_id,receipt,workspace_id,user_id) VALUES(?,?,?,?,?)`)
+      .run(destination, messageId, receipt, queued?.workspaceId ?? null, queued?.userId ?? null);
+  }
+  pendingLarkReplies(destination: string, now: number) {
+    return this.db.prepare(`SELECT message_id AS messageId, workspace_id AS workspaceId,
+      user_id AS userId, receipt, reaction_id AS reactionId FROM notification_lark_replies
+      WHERE destination=? AND workspace_id IS NOT NULL AND check_at<=? ORDER BY check_at LIMIT 8`)
+      .all(destination, now) as {
+        messageId: string; workspaceId: string; userId: string; receipt: string; reactionId: string | null;
+      }[];
+  }
+  delayLarkReplyCheck(destination: string, messageId: string, until: number) {
+    this.db.prepare('UPDATE notification_lark_replies SET check_at=? WHERE destination=? AND message_id=?')
+      .run(until, destination, messageId);
+  }
+  recordLarkWaitReaction(destination: string, messageId: string, reactionId: string) {
+    this.db.prepare('UPDATE notification_lark_replies SET reaction_id=? WHERE destination=? AND message_id=?')
+      .run(reactionId, destination, messageId);
+  }
+  updateLarkReceipt(destination: string, messageId: string, receipt: string) {
+    this.db.prepare('UPDATE notification_lark_replies SET receipt=? WHERE destination=? AND message_id=?')
+      .run(receipt, destination, messageId);
+  }
+  finishLarkReplyCheck(destination: string, messageId: string) {
+    this.db.prepare(`UPDATE notification_lark_replies SET workspace_id=NULL,user_id=NULL,reaction_id=NULL
+      WHERE destination=? AND message_id=?`).run(destination, messageId);
   }
   watches() {
     return this.db

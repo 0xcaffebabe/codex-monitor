@@ -91,6 +91,12 @@ export const frameSchema = z.discriminatedUnion('type', [
   }).strict().refine(({ prompt, imageSizes, attachments }) =>
     !(imageSizes && attachments) && (!!prompt || !!imageSizes || !!attachments)),
   z.object({
+    type: z.literal('notification-reply-status'),
+    id,
+    requestId: id,
+    userId: id,
+  }).strict(),
+  z.object({
     type: z.literal('notification-reply-result'),
     id,
     result: z.enum(['sent', 'queued', 'unavailable', 'failed', 'unknown', 'imageFailed', 'attachmentFailed']),
@@ -115,6 +121,7 @@ export const frameSchema = z.discriminatedUnion('type', [
       notificationMarkRead: z.boolean().optional(),
       notificationReplies: z.boolean().optional(),
       notificationReplyFiles: z.boolean().optional(),
+      notificationReplyStatus: z.boolean().optional(),
       privacyWork: z.boolean().optional(),
       clientUpdate: z.boolean().optional(),
     }).optional(),

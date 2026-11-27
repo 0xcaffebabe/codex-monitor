@@ -74,6 +74,7 @@ export class LarkApp {
     signal: AbortSignal,
     action: string,
     token?: string,
+    method?: 'DELETE',
   ) {
     const result = await larkRequest(
       origin + '/open-apis/' + endpoint,
@@ -82,6 +83,7 @@ export class LarkApp {
       this.transport,
       token,
       body ? undefined : 2 * 1024 * 1024,
+      method,
     );
     const code = result?.code;
     if (code === 0) return result;
@@ -160,14 +162,27 @@ export class LarkApp {
         if (!Array.isArray(items)) throw new LarkDeliveryError('飞书/Lark 返回了无效的已读列表');
         return items.length > 0;
       },
-      react: (messageId: string, emoji: string) =>
-        this.request(
+      react: async (messageId: string, emoji: string) => {
+        const result = await this.request(
           origin,
           `im/v1/messages/${encodeURIComponent(messageId)}/reactions`,
           { reaction_type: { emoji_type: emoji } },
           signal,
           '添加消息表情',
           value,
+        );
+        const reactionId = result?.data?.reaction_id;
+        return typeof reactionId === 'string' && reactionId ? reactionId : undefined;
+      },
+      removeReaction: (messageId: string, reactionId: string) =>
+        this.request(
+          origin,
+          `im/v1/messages/${encodeURIComponent(messageId)}/reactions/${encodeURIComponent(reactionId)}`,
+          undefined,
+          signal,
+          '删除消息表情',
+          value,
+          'DELETE',
         ),
       history: async (query: URLSearchParams) =>
         (await this.request(origin, `im/v1/messages?${query}`, undefined, signal, '读取群消息历史', value))?.data,

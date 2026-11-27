@@ -86,11 +86,12 @@ export async function larkRequest(
   transport: WebhookTransport,
   token?: string,
   maxResponseBytes = 16384,
+  method: 'GET' | 'POST' | 'DELETE' = body ? 'POST' : 'GET',
 ) {
   try {
     const multipart = body instanceof FormData;
     const response = await transport(url, {
-      method: body ? 'POST' : 'GET',
+      method,
       headers: {
         ...(!body || multipart ? {} : { 'Content-Type': 'application/json' }),
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
@@ -130,7 +131,13 @@ export async function larkRequest(
         StatusCode?: unknown;
         tenant_access_token?: unknown;
         expire?: unknown;
-        data?: { image_key?: unknown; file_key?: unknown; message_id?: unknown; items?: unknown };
+        data?: {
+          image_key?: unknown;
+          file_key?: unknown;
+          message_id?: unknown;
+          reaction_id?: unknown;
+          items?: unknown;
+        };
       } | null;
     } catch {
       throw new LarkDeliveryError('飞书/Lark 返回了无效响应');

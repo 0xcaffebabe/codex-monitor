@@ -31,6 +31,8 @@ export function createMonitorServer(
   installSub2ApiRoutes(app, auth);
   const notifications = new NotificationService(auth.db, config.pollMs, services.webhookTransport, services.larkReplyListener);
   const gateway = new WorkspaceGateway(auth, notifications);
+  notifications.readReplyStatus = (workspaceId, userId, requestId, signal) =>
+    gateway.larkReplyStatus(workspaceId, userId, requestId, signal);
   notifications.startReplies((input, signal) => gateway.submitLarkReply(input, signal));
   installNotificationRoutes(app, auth, notifications, ({ workspaceId, sessionId }) =>
     gateway.markCompletionRead(workspaceId, sessionId),

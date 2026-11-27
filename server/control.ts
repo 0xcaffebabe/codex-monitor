@@ -140,6 +140,10 @@ export function installControl(
     if (state === 'queued' || state === 'pending') return 'queued';
     return state === 'unknown' ? 'unknown' : 'failed';
   };
+  function larkReplyStatus(userId: string, requestId: string) {
+    const receipt = larkReceipt.get(requestId);
+    return receipt?.user_id === userId ? larkResult(receipt.state) : 'unavailable';
+  }
   async function submitLarkReply(
     userId: string,
     id: string,
@@ -841,5 +845,5 @@ export function installControl(
     messages.close();
     bridge.close?.();
   };
-  return { close, projectPath, sendLarkReply };
+  return { close, projectPath, sendLarkReply, larkReplyStatus };
 }
