@@ -5,18 +5,17 @@ import {
   ChevronRight,
   Code2,
   Copy,
-  FileText,
   LoaderCircle,
   SquareTerminal,
   XCircle,
 } from 'lucide-react';
-import React, { type ReactNode } from 'react';
+import React from 'react';
 import type { SessionFileLink } from '../../file-preview-types';
 import { cx, time } from '../../shared/format';
-import { Markdown } from '../../shared/ui/Markdown';
 import type { TimelineEvent } from '../../types';
 import { isToolRunning } from './session-model';
 import { SessionImage } from './SessionImage';
+import { SessionMessageMarkdown } from './SessionMessageMarkdown';
 
 export const EventCard = React.memo(function EventCard({
   event: e,
@@ -95,19 +94,7 @@ export const EventCard = React.memo(function EventCard({
         <small>{time(e.timestamp)}</small>
       </div>
     );
-  const renderFile = (offset: number | undefined, children: ReactNode) => {
-    const file = e.files?.find((link) => link.offset === offset);
-    if (!file) return null;
-    if (!onOpenFile)
-      return <span title="文件预览需要管理员权限">{children || file.path}</span>;
-    return (
-      <button type="button" className="markdown-file-link" aria-haspopup="dialog" title={file.path}
-        onClick={() => onOpenFile(e.id, file)}>
-        {children || file.path}<FileText size={12} aria-hidden="true" />
-      </button>
-    );
-  };
-  const markdown = <Markdown text={e.text} renderImage={renderImage} renderFile={e.files ? renderFile : undefined} />;
+  const markdown = <SessionMessageMarkdown event={e} renderImage={renderImage} onOpenFile={onOpenFile} />;
   if (e.kind === 'reasoning')
     return (
       <details className="reasoning-card" id={id}>

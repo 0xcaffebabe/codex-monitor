@@ -2,9 +2,16 @@ import { useEffect, useRef, useState } from 'react';
 import { api, apiBlob } from '../../api';
 import type { SessionFilePreview } from '../../file-preview-types';
 import { fetchImagePreview } from '../../shared/image-preview';
+import { workspaceUrl } from '../../workspace-scope';
 
-export function useSessionFilePreview(sessionId: string, itemId: string, linkId: string) {
-  const route = `/api/sessions/${sessionId}/file-preview/${encodeURIComponent(itemId)}/${linkId}`;
+export function useSessionFilePreview(
+  sessionId: string,
+  itemId: string,
+  linkId: string,
+  workspaceId?: string,
+) {
+  const endpoint = `/api/sessions/${sessionId}/file-preview/${encodeURIComponent(itemId)}/${linkId}`;
+  const route = workspaceId ? workspaceUrl(endpoint, workspaceId) : endpoint;
   const [preview, setPreview] = useState<{ file: SessionFilePreview; imageUrl?: string }>();
   const [error, setError] = useState('');
   const [attempt, setAttempt] = useState(0);

@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import {
   memo,
+  useCallback,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -27,8 +28,8 @@ import {
 } from 'react';
 import type { AttentionSession } from '../../attention-types';
 import { DetailLoader } from '../../detail-loader';
+import type { SessionFileLink } from '../../file-preview-types';
 import { relative, time } from '../../shared/format';
-import { Markdown } from '../../shared/ui/Markdown';
 import { Status } from '../../shared/ui/Status';
 import type { SessionPage, TimelineEvent, User } from '../../types';
 import type { ManagedWorkspace } from '../../workspaces';
@@ -37,6 +38,8 @@ import type { AttentionWorkspace } from '../attention/useAttention';
 import { MessageComposer } from '../control/MessageComposer';
 import { useSessionControl } from '../control/useSessionControl';
 import { ActivityGroup } from '../session/ActivityGroup';
+import { FilePreviewDialog } from '../session/FilePreviewDialog';
+import { SessionMessageMarkdown } from '../session/SessionMessageMarkdown';
 import { groupTimelineEvents, mergeSessionPage } from '../session/session-model';
 import { useSessionActions } from '../session/useSessionActions';
 import { UsageDialog } from '../usage/UsageDialog';
@@ -311,13 +314,19 @@ function RunningOverview({
     <div
       className="running-overview"
       onKeyDown={(event) => {
-        if (event.key === 'Escape' && press.current) {
+        if (
+          event.key !== 'Escape' ||
+          (event.target instanceof Element &&
+            event.target.closest('dialog') !== event.currentTarget.closest('dialog'))
+        ) {
+          return;
+        }
+        if (press.current) {
           event.preventDefault();
           cancelDrag();
           return;
         }
         if (
-          event.key === 'Escape' &&
           !event.nativeEvent.isComposing &&
           expandedTask &&
           !event.currentTarget.querySelector(':popover-open')
@@ -560,7 +569,13 @@ function RunningOverview({
 
 const pageLimit = 40;
 const Message = memo(
-  function OverviewMessage({ event }: { event: TimelineEvent }) {
+  function OverviewMessage({
+    event,
+    onOpenFile,
+  }: {
+    event: TimelineEvent;
+    onOpenFile?: (itemId: string, file: SessionFileLink) => void;
+  }) {
     return (
       <article
         className={
@@ -574,7 +589,7 @@ const Message = memo(
           {event.phase === 'commentary' && <span>进展更新</span>}
           <time>{time(event.timestamp)}</time>
         </header>
-        <Markdown text={event.text} />
+        <SessionMessageMarkdown event={event} onOpenFile={onOpenFile} />
       </article>
     );
   },
@@ -583,7 +598,10 @@ const Message = memo(
     previous.event.text === next.event.text &&
     previous.event.kind === next.event.kind &&
     previous.event.phase === next.event.phase &&
-    previous.event.timestamp === next.event.timestamp,
+    previous.event.timestamp === next.event.timestamp &&
+    previous.event.files?.length === next.event.files?.length &&
+    (previous.event.files ?? []).every((file, index) => file.id === next.event.files?.[index]?.id) &&
+    previous.onOpenFile === next.onOpenFile,
 );
 
 function OverviewPane({
@@ -620,6 +638,10 @@ function OverviewPane({
   const [follow, setFollow] = useState(true);
   const [olderBusy, setOlderBusy] = useState(false);
   const [olderFailed, setOlderFailed] = useState(false);
+  const [filePreview, setFilePreview] = useState<{ itemId: string; link: SessionFileLink }>();
+  const openFile = useCallback((itemId: string, link: SessionFileLink) => {
+    setFilePreview({ itemId, link });
+  }, []);
   const pane = useRef<HTMLElement>(null);
   const scroll = useRef<HTMLDivElement>(null);
   const previousTop = useRef(0);
@@ -861,7 +883,11 @@ function OverviewPane({
           )}
           {blocks.map((block) =>
             block.kind === 'event' ? (
-              <Message key={block.id} event={block.event} />
+              <Message
+                key={block.id}
+                event={block.event}
+                onOpenFile={canWrite ? openFile : undefined}
+              />
             ) : (
               <ActivityGroup
                 key={block.id}
@@ -912,6 +938,15 @@ function OverviewPane({
             anchor: pane,
           }}
           onAccepted={() => setFollow(true)}
+        />
+      )}
+      {canWrite && filePreview && (
+        <FilePreviewDialog
+          {...filePreview}
+          sessionId={sessionId}
+          workspaceId={workspace.id}
+          workspaceName={workspaceName}
+          onClose={() => setFilePreview(undefined)}
         />
       )}
     </section>

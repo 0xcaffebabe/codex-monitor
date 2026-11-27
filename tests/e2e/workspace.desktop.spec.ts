@@ -121,6 +121,54 @@ test('overview shortcuts open usage and workspace management over an expanded se
   await expect(page.getByRole('heading', { name: remoteTitle, exact: true })).toBeVisible();
 });
 
+test('the overview previews linked files from the workspace of each pane', async ({
+  signedIn: { browserPage: page },
+  monitor,
+  local,
+}) => {
+  const remoteName = '远程文件工作空间';
+  const remoteTitle = '预览会话文件';
+  const remote = await monitor.addWorkspace(remoteName, remoteTitle);
+  const filename = 'overview-preview.txt';
+  const message = `查看[结果日志](<../${filename}#L2>)或[网页](https://example.com/docs)。`;
+  await writeFile(path.join(local.data.root, filename), '第一行\n本机文件内容\n');
+  await writeFile(path.join(remote.data.root, filename), '第一行\n远程文件内容\n');
+  local.data.append(message);
+  remote.data.append(message);
+
+  await page.goto('/overview?workspace=local&view=all');
+  const overviewUrl = page.url();
+  const overview = page.getByRole('dialog', { name: '任务全览' });
+  const remotePane = overview.getByRole('region', { name: `${remoteName} · ${remoteTitle}` });
+  const preview = page.getByRole('dialog', { name: '文件预览' });
+  const targetLine = preview.locator('[data-target-line]');
+
+  await remotePane.getByRole('button', { name: '放大此会话' }).click();
+  await expect(remotePane.getByRole('link', { name: '网页' })).toHaveAttribute(
+    'href',
+    'https://example.com/docs',
+  );
+  const remoteLink = remotePane.getByRole('button', { name: '结果日志' });
+  await remoteLink.click();
+  await expect(preview.getByRole('heading', { name: filename })).toBeVisible();
+  await expect(preview).toContainText(`${remoteName} · 第 2 行`);
+  await expect(targetLine).toContainText('远程文件内容');
+  await expect(targetLine).toHaveClass(/highlighted/);
+  await page.keyboard.press('Escape');
+  await expect(preview).toBeHidden();
+  await expect(remoteLink).toBeFocused();
+  await expect(page).toHaveURL(overviewUrl);
+
+  await remotePane.getByRole('button', { name: '恢复分屏' }).click();
+  const localPane = overview.getByRole('region', { name: `本机工作空间 · ${localTitle}` });
+  await localPane.getByRole('button', { name: '结果日志' }).click();
+  await expect(targetLine).toContainText('本机文件内容');
+  await preview.getByRole('button', { name: '关闭文件预览' }).click();
+  await expect(preview).toBeHidden();
+  await expect(overview).toBeVisible();
+  await expect(page).toHaveURL(overviewUrl);
+});
+
 test('the overview URL survives reload and follows browser navigation', async ({
   signedIn: { browserPage: page, usage },
   context,

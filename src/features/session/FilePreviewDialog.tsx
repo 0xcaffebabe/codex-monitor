@@ -8,19 +8,21 @@ export function FilePreviewDialog({
   sessionId,
   itemId,
   link,
+  workspaceId,
   workspaceName,
   onClose,
 }: {
   sessionId: string;
   itemId: string;
   link: SessionFileLink;
+  workspaceId?: string;
   workspaceName?: string;
   onClose: () => void;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const contents = useRef<HTMLPreElement>(null);
   const { preview, error, retry, download, downloadError, downloading, onImageError } =
-    useSessionFilePreview(sessionId, itemId, link.id);
+    useSessionFilePreview(sessionId, itemId, link.id, workspaceId);
   const file = preview?.file;
   const path = file?.path ?? link.path;
   const name = file?.name ?? (path.split(/[\\/]/).at(-1) || path);
