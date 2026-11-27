@@ -55,6 +55,11 @@ export class CompletionNotifications {
     while (this.pending.size > 50) this.pending.delete(this.pending.keys().next().value!);
     this.revision++;
   }
+  pendingId(eventKey: string) {
+    const row = this.db.prepare('SELECT seq FROM browser_notifications WHERE event_key=?').get(eventKey);
+    const id = Number(row?.seq);
+    if (this.pending.has(id)) return id;
+  }
   forgetWorkspace(id: string) {
     const ids = [...this.pending.values()]
       .filter((item) => item.workspaceId === id)

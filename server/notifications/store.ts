@@ -31,6 +31,7 @@ export type NotificationInput = Partial<
   publicUrl: string;
 };
 export type PendingDelivery = NotificationDelivery & {
+  eventKey: string | null;
   message: string;
   revision: number;
   turnId: string | null;
@@ -311,7 +312,7 @@ export class NotificationStore {
       );
     return result.changes ? id : undefined;
   }
-  private select = `SELECT id,kind,session_id AS sessionId,title,status,attempts,error,
+  private select = `SELECT id,kind,event_key AS eventKey,session_id AS sessionId,title,status,attempts,error,
     created_at AS createdAt,sent_at AS sentAt,message,revision,workspace_id AS workspaceId,
     workspace_name AS workspaceName,turn_id AS turnId,occurred_at AS occurredAt FROM notification_deliveries`;
   delivery(id: string) {

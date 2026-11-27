@@ -6,7 +6,7 @@ import { once } from 'node:events';
 import { createServer } from 'node:http';
 import { rmSync } from 'node:fs';
 import path from 'node:path';
-import { setTimeout as delay } from 'node:timers/promises';
+import { setImmediate as flush, setTimeout as delay } from 'node:timers/promises';
 import { CompletionNotifications } from '../server/notifications/completions.js';
 import { NotificationService } from '../server/notifications/service.js';
 import type { CompletionEvent } from '../server/notifications/events.js';
@@ -394,6 +394,96 @@ test('watched completion delivery is workspace-scoped and does not replay pre-wa
     assert.equal(service.state().deliveries[0].status, 'pending');
     service.store.watch(workspace.id, completion.sessionId, false);
     assert.equal(service.state().deliveries[0].status, 'cancelled');
+  } finally {
+    await service.close();
+    db.close();
+  }
+});
+
+test('Lark read scans dismiss only the matching browser notice and stop querying dismissed cards', async (t) => {
+  t.mock.timers.enable({ apis: ['setInterval'] });
+  const db = new DatabaseSync(':memory:');
+  let sent = 0;
+  const queried: string[] = [];
+  const read = new Set<string>();
+  let failNextRead = '';
+  const service = new NotificationService(db, 60000, async (url, init) => {
+    const endpoint = new URL(String(url));
+    if (endpoint.pathname.endsWith('/tenant_access_token/internal'))
+      return Response.json({ code: 0, tenant_access_token: 'token', expire: 7200 });
+    assert.equal(new Headers(init?.headers).get('Authorization'), 'Bearer token');
+    if (endpoint.pathname === '/open-apis/im/v1/messages')
+      return Response.json({ code: 0, data: { message_id: `om_card_${++sent}` } });
+    const match = endpoint.pathname.match(/\/messages\/(om_card_\d+)\/read_users$/);
+    assert.ok(match);
+    assert.equal(init?.method, 'GET');
+    assert.equal(endpoint.searchParams.get('user_id_type'), 'open_id');
+    assert.equal(endpoint.searchParams.get('page_size'), '1');
+    const [, messageId] = match;
+    queried.push(messageId);
+    if (failNextRead === messageId) {
+      failNextRead = '';
+      return new Response(null, { status: 503 });
+    }
+    return Response.json({
+      code: 0,
+      data: { items: read.has(messageId) ? [{ user_id: 'ou_reader' }] : [] },
+    });
+  });
+  try {
+    await service.configure({
+      enabled: true,
+      mode: 'app',
+      appId: 'cli_monitor',
+      appSecret: 'test',
+      chatId: 'oc_monitor',
+      completionMode: 'all',
+      publicUrl: '',
+    });
+    const first = event();
+    for (const [workspaceId, completion] of [
+      ['local', first],
+      ['local', event()],
+      ['remote', first],
+    ] as const) {
+      service.receive({ id: workspaceId, name: workspaceId }, {
+        revision: service.policy().revision,
+        events: [completion],
+        monitorError: '',
+      });
+      await service.poll();
+    }
+    assert.equal(sent, 3);
+    const initial = service.completions.snapshot();
+    assert.equal(initial.notifications.length, 3);
+    const [firstNotice, secondNotice, remoteNotice] = initial.notifications;
+
+    t.mock.timers.tick(9999);
+    assert.deepEqual(queried, []);
+    t.mock.timers.tick(1);
+    await flush();
+    assert.deepEqual(queried.splice(0), ['om_card_1', 'om_card_2', 'om_card_3']);
+    assert.deepEqual(service.completions.snapshot(), initial);
+
+    service.completions.dismiss(initial.generation, [remoteNotice.id]);
+    read.add('om_card_1');
+    failNextRead = 'om_card_2';
+    t.mock.timers.tick(10000);
+    await flush();
+    assert.deepEqual(queried.splice(0), ['om_card_1', 'om_card_2']);
+    assert.deepEqual(service.completions.snapshot().notifications, [secondNotice]);
+    assert.ok(service.completions.snapshot().revision > initial.revision);
+
+    read.add('om_card_2');
+    t.mock.timers.tick(10000);
+    await flush();
+    assert.deepEqual(queried.splice(0), ['om_card_2']);
+    assert.deepEqual(service.completions.snapshot().notifications, []);
+
+    t.mock.timers.tick(20000);
+    await flush();
+    assert.deepEqual(queried, []);
+    assert.notEqual(firstNotice.id, secondNotice.id);
   } finally {
     await service.close();
     db.close();

@@ -146,6 +146,18 @@ export class LarkApp {
         const messageId = result?.data?.message_id;
         return typeof messageId === 'string' && /^om_[\w-]{1,125}$/.test(messageId) ? messageId : undefined;
       },
+      isRead: async (messageId: string) => {
+        const result = await this.request(
+          origin,
+          `im/v1/messages/${encodeURIComponent(messageId)}/read_users?user_id_type=open_id&page_size=1`,
+          undefined,
+          signal,
+          '查询消息已读状态',
+          value,
+        );
+        const items = result?.data?.items;
+        return Array.isArray(items) && items.some((item) => typeof item?.user_id === 'string' && item.user_id);
+      },
       react: (messageId: string, emoji: string) =>
         this.request(
           origin,

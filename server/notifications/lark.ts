@@ -130,7 +130,7 @@ export async function larkRequest(
         StatusCode?: unknown;
         tenant_access_token?: unknown;
         expire?: unknown;
-        data?: { image_key?: unknown; file_key?: unknown; message_id?: unknown };
+        data?: { image_key?: unknown; file_key?: unknown; message_id?: unknown; items?: unknown };
       } | null;
     } catch {
       throw new LarkDeliveryError('飞书/Lark 返回了无效响应');

@@ -31,6 +31,9 @@ import {
   type NotificationAttachmentResult,
 } from './attachments.js';
 
+const LARK_READ_POLL_MS = 10_000;
+const LARK_READ_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+
 /** Server-owned configuration and durable delivery queue, independent of clients and browsers. */
 export class NotificationService {
   readonly store: NotificationStore;
@@ -44,6 +47,9 @@ export class NotificationService {
   private destination = new AbortController();
   private replyAuthorization = new AbortController();
   private app: LarkApp;
+  private larkReadTimer?: ReturnType<typeof setInterval>;
+  private larkReadScan?: Promise<void>;
+  private larkReadCards = new Map<number, { messageId: string; expiresAt: number }>();
   private replyConnection?: ReturnType<LarkReplyListener>;
   private replyDestination?: string;
   private replies = new Map<string, { accepted: Promise<string | undefined>; feedback: Promise<void> }>();
@@ -119,6 +125,8 @@ export class NotificationService {
     if (changed || (old.enabled && !input.enabled)) {
       this.destination.abort();
       this.destination = new AbortController();
+      this.larkReadCards.clear();
+      this.stopLarkReadTimer();
     }
     this.monitorErrors.clear();
     this.syncReplyListener();
@@ -370,8 +378,11 @@ export class NotificationService {
       return;
     }
     const { workspaceId, sessionId, turnId, occurredAt } = delivery;
-    if (messageId && workspaceId && sessionId && !signal.aborted)
+    if (messageId && workspaceId && sessionId && !signal.aborted) {
       this.store.recordLarkMessage(config.larkDestination, messageId, workspaceId, sessionId);
+      if (delivery.kind === 'session.completed' && delivery.eventKey)
+        this.trackLarkRead(delivery.eventKey, messageId);
+    }
     if (!this.readAttachment || !workspaceId || !sessionId || !turnId || occurredAt === null)
       return;
     const warnings = new Set<string>();
@@ -396,6 +407,58 @@ export class NotificationService {
       }
     }
     return [...warnings].join('；');
+  }
+  private trackLarkRead(eventKey: string, messageId: string) {
+    const id = this.completions.pendingId(eventKey);
+    if (id === undefined || this.larkReadCards.get(id)?.messageId === messageId) return;
+    this.larkReadCards.set(id, { messageId, expiresAt: Date.now() + LARK_READ_WINDOW_MS });
+    if (!this.larkReadTimer) {
+      this.larkReadTimer = setInterval(() => {
+        if (this.larkReadScan) return;
+        this.larkReadScan = this.scanLarkReads()
+          .catch(() => {
+            // Retry provider failures on the next scan.
+          })
+          .finally(() => {
+            this.larkReadScan = undefined;
+            if (!this.larkReadCards.size) this.stopLarkReadTimer();
+          });
+      }, LARK_READ_POLL_MS);
+      this.larkReadTimer.unref();
+    }
+  }
+  private stopLarkReadTimer() {
+    clearInterval(this.larkReadTimer);
+    this.larkReadTimer = undefined;
+  }
+  private async scanLarkReads() {
+    const { generation, notifications } = this.completions.snapshot();
+    const now = Date.now();
+    const pending = new Set(notifications.map(({ id }) => id));
+    for (const [id, card] of this.larkReadCards) {
+      if (!pending.has(id) || card.expiresAt <= now) this.larkReadCards.delete(id);
+    }
+    const cards = [...this.larkReadCards];
+    if (!cards.length) return;
+
+    const signal = AbortSignal.any([this.abort.signal, this.destination.signal]);
+    const sender = await this.app.sender(this.store.config(), signal);
+    if (signal.aborted) return;
+    await Promise.all(cards.map(async ([id, card]) => {
+      try {
+        if (!(await sender.isRead(card.messageId))) return;
+        if (signal.aborted || this.larkReadCards.get(id) !== card) return;
+        this.completions.dismiss(generation, [id]);
+        this.larkReadCards.delete(id);
+      } catch (error) {
+        // Expired or deleted messages cannot be queried again.
+        if (
+          error instanceof LarkDeliveryError &&
+          (error.code === 230033 || error.code === 230110) &&
+          this.larkReadCards.get(id) === card
+        ) this.larkReadCards.delete(id);
+      }
+    }));
   }
   test() {
     if (this.testTask || Date.now() - this.lastTestAt < 5000) return undefined;
@@ -425,7 +488,8 @@ export class NotificationService {
     this.closed = true;
     this.replyConnection?.close({ force: true });
     clearInterval(this.timer);
+    this.stopLarkReadTimer();
     this.abort.abort();
-    return Promise.allSettled([this.busy, this.testTask, ...[...this.replies.values()].map(({ feedback }) => feedback)]).then(() => {});
+    return Promise.allSettled([this.busy, this.testTask, this.larkReadScan, ...[...this.replies.values()].map(({ feedback }) => feedback)]).then(() => {});
   }
 }
