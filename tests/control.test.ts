@@ -5,7 +5,7 @@ import { once } from 'node:events';
 import { randomUUID } from 'node:crypto';
 import { rmSync } from 'node:fs';
 import { createApp } from '../server/app.js';
-import { DesktopBridge, ControlError } from '../server/desktop.js';
+import { DesktopBridge, ControlError, type DesktopControl } from '../server/desktop.js';
 import { fixture, ids } from './fixture.js';
 import { FixtureDesktop, projectId } from './control-fixture.js';
 import { normalizeItem } from '../server/normalize.js';
@@ -221,6 +221,18 @@ test('control API enforces roles, uses live state, deduplicates concurrent/resta
       (await send(commandRoute, { requestId: randomUUID(), command: 'compact' }, viewer)).status,
       403,
     );
+    const bridge: DesktopControl = control;
+    const readState = bridge.state.bind(bridge);
+    bridge.state = async (context, id, options) => {
+      const state = await readState(context, id);
+      return { ...state, owner: options?.inspectOwner ? 'desktop' : undefined };
+    };
+    const compactCalls: Parameters<DesktopControl['compact']>[] = [];
+    const compact = bridge.compact.bind(bridge);
+    bridge.compact = async (...args) => {
+      compactCalls.push(args);
+      await compact(...args);
+    };
     const compactId = randomUUID();
     assert.equal(
       (await send(commandRoute, { requestId: compactId, command: 'compact' })).status,
@@ -231,6 +243,13 @@ test('control API enforces roles, uses live state, deduplicates concurrent/resta
       200,
     );
     assert.equal(control.compactions, 1);
+    assert.equal((await send(route, { requestId: randomUUID(), prompt: '/compact' })).status, 200);
+    assert.deepEqual(compactCalls, [
+      [ids.modern, { desktopOwned: true }],
+      [ids.modern, { desktopOwned: true }],
+    ]);
+    bridge.state = readState;
+    bridge.compact = compact;
     const goal = await (
       await send(route, { requestId: randomUUID(), prompt: '/goal verify a persistent objective' })
     ).json();

@@ -57,6 +57,7 @@ function fixture(
 ) {
   const calls: { method: string; params: any }[] = [],
     ownerCalls: any[] = [],
+    desktopCompactions: string[] = [],
     desktopCalls: any[] = [],
     desktopCreates: any[] = [];
   let status = 'idle',
@@ -95,6 +96,7 @@ function fixture(
   const f = {
     calls,
     ownerCalls,
+    desktopCompactions,
     desktopCalls,
     desktopCreates,
     desktopProjects: [{ id: 'desktop-project', name: '项目', path: '/tmp/project with spaces' }],
@@ -104,6 +106,7 @@ function fixture(
     activity: { turnId: 'turn', running: true, compacting: false },
     ownerReply: { result: { turn: { id: 'turn' } } } as any,
     ownerError: undefined as Error | undefined,
+    compactOwnerError: undefined as Error | undefined,
     control: null as unknown as NativeDesktopControl,
     setGoal(value: any) {
       goal = value;
@@ -122,6 +125,10 @@ function fixture(
         ownerCalls.push(args);
         if (f.ownerError) throw f.ownerError;
         return f.ownerReply;
+      },
+      compactOwner: async (threadId) => {
+        desktopCompactions.push(threadId);
+        if (f.compactOwnerError) throw f.compactOwnerError;
       },
       desktop: {
         projects: async () => f.desktopProjects,
@@ -941,6 +948,42 @@ test('stopping a native turn pauses a just-resumed goal and rejects a changed tu
   assert.deepEqual(stopped, { interruptedTurnId: 'turn' });
   assert.equal(f.goal().status, 'paused');
   await assert.rejects(f.control.interrupt('thread', 'other-turn'), /轮次已变化/);
+});
+
+test('compaction forwards to the desktop owner without opening a CLI writer', async () => {
+  const f = fixture();
+  try {
+    await f.control.compact('desktop-thread', { desktopOwned: true });
+    assert.deepEqual(f.desktopCompactions, ['desktop-thread']);
+    assert.deepEqual(f.calls, []);
+
+    for (const code of ['no_owner', 'owner_unavailable'] as const) {
+      f.compactOwnerError = new ControlError('desktop forwarding unavailable', false, 409, code);
+      await assert.rejects(
+        f.control.compact('desktop-thread', { desktopOwned: true }),
+        (error: unknown) =>
+          error instanceof ControlError && error.status === 409 && /桌面端.*\/compact/.test(error.message),
+      );
+    }
+
+    f.compactOwnerError = new ControlError('receipt unknown', true, 409, 'no_owner');
+    await assert.rejects(f.control.compact('desktop-thread', { desktopOwned: true }), f.compactOwnerError);
+    assert.deepEqual(f.calls, []);
+  } finally {
+    f.control.close();
+  }
+});
+
+test('compaction resumes an unloaded session when no desktop owner is found', async () => {
+  const f = fixture();
+  try {
+    f.compactOwnerError = new ControlError('no owner', false, 409, 'no_owner');
+    await f.control.compact('unloaded-thread');
+    assert.deepEqual(f.desktopCompactions, ['unloaded-thread']);
+    assert.deepEqual(f.calls.map(({ method }) => method), ['thread/resume', 'thread/compact/start']);
+  } finally {
+    f.control.close();
+  }
 });
 
 test('accepted native compaction blocks new input immediately, including before its first live event', async () => {

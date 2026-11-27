@@ -61,7 +61,7 @@ export interface DesktopControl {
     action: 'get' | 'set' | 'pause' | 'resume' | 'clear',
     objective?: string,
   ): Promise<any>;
-  compact(threadId: string): Promise<void>;
+  compact(threadId: string, options?: { desktopOwned?: boolean }): Promise<void>;
   interrupt(
     threadId: string,
     turnId: string,

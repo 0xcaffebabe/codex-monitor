@@ -547,7 +547,7 @@ export function installControl(
   });
   async function command(req: Request, id: string, name: string, prompt?: string, turnId?: string) {
     const caller = await context(id),
-      state = await bridge.state(caller, id);
+      state = await bridge.state(caller, id, name === 'compact' ? { inspectOwner: true } : undefined);
     const session = await writable(req, id);
     if (state.status === 'notLoaded' && session.status === 'running')
       throw new ControlError('该会话正在其他客户端执行，无法在这里操作。', false, 409);
@@ -568,9 +568,9 @@ export function installControl(
       };
     }
     if (name === 'compact') {
-      if (state.status === 'active')
+      if (state.compacting || state.status === 'active')
         throw new ControlError('请等待本轮执行结束后再压缩上下文。', false, 409);
-      await bridge.compact(id);
+      await bridge.compact(id, { desktopOwned: state.owner === 'desktop' });
       return {
         threadId: id,
         mode: 'compact',

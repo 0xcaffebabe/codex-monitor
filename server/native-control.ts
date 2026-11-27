@@ -77,6 +77,7 @@ export class NativeDesktopControl implements DesktopControl {
     private dependencies: {
       native?: NativeControl;
       owner?: typeof requestOwnedThread;
+      compactOwner?: typeof compactOwnedThread;
       launch?: ConstructorParameters<typeof NativeRpc>[1];
       generateTitle?: typeof generateSessionTitle;
       desktop?: NativeDesktopControl['desktop'];
@@ -684,18 +685,24 @@ export class NativeDesktopControl implements DesktopControl {
     return result;
   }
 
-  compact(threadId: string) {
-    return this.serial(threadId, () => this.compactNow(threadId));
+  compact(threadId: string, options?: { desktopOwned?: boolean }) {
+    return this.serial(threadId, () => this.compactNow(threadId, options?.desktopOwned));
   }
 
-  private async compactNow(threadId: string) {
+  private async compactNow(threadId: string, desktopOwned?: boolean) {
     let runtime = this.runtimes.get(threadId);
     if (!runtime) {
       try {
-        await compactOwnedThread(threadId, this.options.codexHome);
+        await (this.dependencies.compactOwner ?? compactOwnedThread)(threadId, this.options.codexHome);
         return;
       } catch (error) {
         if (!noOwner(error)) throw error;
+        if (desktopOwned)
+          throw new ControlError(
+            '此会话由 Codex 桌面端持有，Monitor 无法转发压缩。请在桌面端打开该会话并执行 /compact。',
+            false,
+            409,
+          );
       }
       if (this.closed) throw new ControlError('客户端正在停止，压缩未提交。', false, 503);
       const created = this.createRuntime();
