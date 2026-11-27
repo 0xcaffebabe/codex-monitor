@@ -7,6 +7,7 @@ import { larkDocuments, type LarkDocument } from './lark-documents.js';
 import { larkReplyForm } from './lark.js';
 
 const messageId = z.string().regex(/^om_[\w-]{1,125}$/);
+export const larkChatId = z.string().regex(/^oc_[\w-]{1,100}$/);
 const imageKey = z.string().regex(/^img_[\w-]{1,200}$/);
 const fileKey = z.string().regex(/^file_[\w-]{1,200}$/);
 export const LARK_REPLY_MAX_ATTACHMENTS = 5;
@@ -43,8 +44,8 @@ const eventSchema = z.object({
     thread_id: z.string().regex(/^omt_[\w-]{1,125}$/).optional(),
     parent_id: z.string().optional(),
     root_id: z.string().optional(),
-    chat_id: z.string(),
-    chat_type: z.literal('group'),
+    chat_id: larkChatId,
+    chat_type: z.enum(['group', 'p2p']),
     message_type: z.string(),
     content: z.string().max(64 * 1024),
     mentions: z.array(z.object({
@@ -58,7 +59,7 @@ const cardActionSchema = z.object({
   event_id: z.string().min(1).max(128),
   token: z.string().max(512).optional(),
   operator: z.object({ open_id: z.string() }),
-  context: z.object({ open_message_id: messageId, open_chat_id: z.string() }),
+  context: z.object({ open_message_id: messageId, open_chat_id: larkChatId }),
   action: z.object({
     tag: z.literal('button'),
     name: z.string().optional(),
@@ -75,8 +76,11 @@ export function larkCardAction(config: NotificationConfig, event: unknown) {
   const parsed = cardActionSchema.safeParse(event);
   if (!parsed.success) return;
   const { app_id, event_id, token, operator, context, action } = parsed.data;
-  if (app_id !== config.appId || context.open_chat_id !== config.chatId) return;
-  return { eventId: event_id, messageId: context.open_message_id, openId: operator.open_id, updateToken: token, action };
+  if (app_id !== config.appId) return;
+  return {
+    eventId: event_id, messageId: context.open_message_id, chatId: context.open_chat_id,
+    openId: operator.open_id, updateToken: token, action,
+  };
 }
 
 export function larkCompletionAction(event: NonNullable<ReturnType<typeof larkCardAction>>) {
@@ -114,11 +118,11 @@ export type LarkReplyAttachment = { name?: string; data: Buffer };
 
 export async function larkReplyHistory(
   reply: NonNullable<ReturnType<typeof larkReply>>,
-  chatId: string,
   page: (query: URLSearchParams) => Promise<unknown>,
   previouslySubmitted: (id: string) => boolean,
 ) {
   if (!reply.createdAt) return [];
+  const { chatId } = reply;
   const query = new URLSearchParams({
     container_id_type: reply.threadId ? 'thread' : 'chat',
     container_id: reply.threadId ?? chatId,
@@ -167,7 +171,7 @@ export function larkReply(config: NotificationConfig, event: unknown) {
   const { app_id, sender, message } = parsed.data;
   if (
     (app_id && app_id !== config.appId) ||
-    message.chat_id !== config.chatId ||
+    (message.chat_type === 'group' && message.chat_id !== config.chatId) ||
     !config.replyOpenIds.includes(sender.sender_id.open_id)
   )
     return;
@@ -176,6 +180,8 @@ export function larkReply(config: NotificationConfig, event: unknown) {
   );
   return {
     messageId: message.message_id,
+    chatId: message.chat_id,
+    isPrivate: message.chat_type === 'p2p',
     senderId: sender.sender_id.open_id,
     createdAt: Number(message.create_time ?? 0),
     threadId: message.thread_id,
@@ -361,7 +367,7 @@ export const replyReceipts = {
   projectAmbiguous: { text: '此工作空间有多个同名项目，请在 Monitor 选择项目并设置简称。', emoji: 'CrossMark' },
   documentFailed: { text: '无法导出回复里的 Lark 云文档，请检查应用权限和文档共享设置。', emoji: 'CrossMark' },
   attachmentsTooLarge: { text: '每次最多合并 5 个附件，合计不超过 20 MB。', emoji: 'CrossMark' },
-  historyFailed: { text: '无法读取连续消息，请检查 Lark 群消息历史权限后重试。', emoji: 'CrossMark' },
+  historyFailed: { text: '无法读取连续消息，请检查 Lark 消息历史权限后重试。', emoji: 'CrossMark' },
   busy: { text: '当前处理的回复过多，请稍后重新引用通知发送。', emoji: 'CrossMark' },
 };
 export type LarkReplyReceipt = keyof typeof replyReceipts;

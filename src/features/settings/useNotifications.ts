@@ -3,7 +3,7 @@ import { api, post } from '../../api';
 import type { LarkStartSettings, NotificationDelivery, NotificationSettings } from '../../types';
 
 type NotificationState = { settings: NotificationSettings; deliveries: NotificationDelivery[] };
-const defaultApp = { appRegion: 'lark', appId: '', appSecret: '', chatId: '', replyOpenIds: '' } as const;
+const defaultApp = { appRegion: 'lark', appId: '', appSecret: '', appRecipientType: 'group', chatId: '', replyOpenIds: '' } as const;
 const emptyLarkStart: LarkStartSettings = { defaultAlias: '', targets: [] };
 
 export function useNotifications(notify: (message: string) => void) {
@@ -20,6 +20,7 @@ export function useNotifications(notify: (message: string) => void) {
     appRegion: NotificationSettings['appRegion'];
     appId: string;
     appSecret: string;
+    appRecipientType: NotificationSettings['appRecipientType'];
     chatId: string;
     replyOpenIds: string;
   }>(defaultApp);
@@ -43,6 +44,7 @@ export function useNotifications(notify: (message: string) => void) {
         appRegion: state.settings.appRegion ?? 'lark',
         appId: state.settings.appId ?? '',
         appSecret: '',
+        appRecipientType: state.settings.appRecipientType ?? 'group',
         chatId: state.settings.chatId ?? '',
         replyOpenIds: state.settings.replyOpenIds?.join(', ') ?? '',
       });
@@ -80,6 +82,7 @@ export function useNotifications(notify: (message: string) => void) {
         ? !!webhookUrl.trim() || !!signingSecret.trim() || clearSecret
         : app.appRegion !== saved.appRegion ||
           app.appId !== saved.appId ||
+          app.appRecipientType !== (saved.appRecipientType ?? 'group') ||
           app.chatId !== saved.chatId ||
           app.replyOpenIds !== (saved.replyOpenIds?.join(', ') ?? '') ||
           JSON.stringify(larkStart) !== JSON.stringify(saved.larkStart ?? emptyLarkStart) ||
@@ -101,6 +104,7 @@ export function useNotifications(notify: (message: string) => void) {
             ? {
                 appRegion: app.appRegion,
                 appId: app.appId.trim(),
+                appRecipientType: app.appRecipientType,
                 chatId: app.chatId.trim(),
                 replyOpenIds: app.replyOpenIds.split(/[\s,，]+/).filter(Boolean),
                 larkStart,
@@ -160,7 +164,8 @@ export function useNotifications(notify: (message: string) => void) {
     setClearAppSecret,
     testConfigured:
       mode === 'app'
-        ? !!(saved?.appId && saved.appSecretConfigured && saved.chatId)
+        ? !!(saved?.appId && saved.appSecretConfigured &&
+          (saved.appRecipientType === 'private' ? saved.replyOpenIds.length : saved.chatId))
         : !!saved?.webhookConfigured,
     publicUrl,
     setPublicUrl,

@@ -11,6 +11,7 @@ type Workspace = { id: string; name: string; online: boolean; readable: boolean 
 type Session = HelpSnapshot['running'][number] & { workspace: Workspace };
 type Menu = {
   commandId: string;
+  chatId: string;
   owner: string;
   expires: number;
   projects: Map<string, LarkStartTarget>;
@@ -110,7 +111,8 @@ function workspaceState(workspace: Workspace) {
 export class LarkHelp {
   private menus = new Map<string, Menu>();
 
-  async open(config: NotificationConfig, commandId: string, owner: string, send: (card: object) => Promise<string>, signal: AbortSignal) {
+  async open(config: NotificationConfig, commandId: string, chatId: string, owner: string,
+    send: (card: object) => Promise<string>, signal: AbortSignal) {
     const now = Date.now();
     for (const [key, menu] of this.menus) {
       if (menu.expires <= now) this.menus.delete(key);
@@ -119,7 +121,7 @@ export class LarkHelp {
     const messageId = await send(home(config));
     if (signal.aborted) return;
     this.menus.set(config.larkDestination + ':' + messageId, {
-      commandId, owner, expires: Date.now() + lifetime, projects: new Map(), sessions: new Map(),
+      commandId, chatId, owner, expires: Date.now() + lifetime, projects: new Map(), sessions: new Map(),
     });
     while (this.menus.size > 128) this.menus.delete(this.menus.keys().next().value!);
   }
@@ -129,6 +131,7 @@ export class LarkHelp {
     const name = event.action.name?.startsWith(prefix) ? event.action.name.slice(prefix.length) : undefined;
     if (!value && !name) return;
     const menu = this.menus.get(config.larkDestination + ':' + event.messageId);
+    if (menu && menu.chatId !== event.chatId) return;
     if (!menu || menu.expires <= Date.now()) return error('菜单已过期，请重新发送 help。');
     if (menu.owner !== event.openId) return error('只有这张菜单卡片的发起者可以操作。');
     const input = formValues.safeParse(event.action.form_value).data;

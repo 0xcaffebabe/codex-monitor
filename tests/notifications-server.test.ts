@@ -108,15 +108,15 @@ test('Lark starts sessions by name, default, or alias and continues from the sta
   const cards = new Map<string, { id: string; text: string; card: MenuCard }>();
   const reactions = new Set<string>();
   const sender = { id: 'ou_allowed', id_type: 'open_id', sender_type: 'user' };
-  const history = (id: string, text: string) => ({
-    message_id: id, chat_id: 'oc_team', msg_type: 'text', sender,
+  const history = (id: string, text: string, chatId = 'oc_team') => ({
+    message_id: id, chat_id: chatId, msg_type: 'text', sender,
     body: { content: JSON.stringify({ text }) },
   });
   const file = 'quoted file contents';
   let receive!: (event: unknown) => Promise<void>;
   let receiveAction!: Parameters<LarkReplyListener>[2];
   const server = await central(a, async (url, init) => {
-    const { pathname } = new URL(String(url));
+    const { pathname, searchParams } = new URL(String(url));
     if (pathname.includes('/auth/'))
       return Response.json({ code: 0, tenant_access_token: 'test', expire: 7200 });
     if (pathname === '/open-apis/bot/v3/info')
@@ -143,12 +143,20 @@ test('Lark starts sessions by name, default, or alias and continues from the sta
       return Response.json({ code: 0, data: { reaction_id: 'reaction_1' } });
     }
     if (pathname.endsWith('/messages')) {
+      if (init?.method === 'GET' && searchParams.get('container_id') === 'oc_private')
+        return Response.json({ code: 0, data: { items: [
+          history('om_private_followup', '检查私聊附件', 'oc_private'),
+          { ...history('om_private_file', '', 'oc_private'), msg_type: 'file',
+            body: { content: JSON.stringify({ file_key: 'file_log', file_name: 'log.txt' }) } },
+          history('om_wrong_chat_history', '另一个聊天的消息'),
+        ] } });
       if (init?.method === 'GET') return Response.json({ code: 0, data: { items: [
         history('om_followup', '再检查一次'),
         history('om_default', '查一下断线'),
       ] } });
       return Response.json({ code: 0, data: { message_id: `om_completed_${randomUUID()}` } });
     }
+    if (pathname === '/open-apis/im/v1/messages/om_private_file/resources/file_log') return new Response(file);
     throw new Error(`Unexpected Lark request: ${pathname}`);
   }, 0, (_config, callback, action) => {
     receive = callback;
@@ -184,16 +192,17 @@ test('Lark starts sessions by name, default, or alias and continues from the sta
     assert.equal((await save('', [])).status, 200);
     const service = server.service.notifications;
     const event = (messageId: string, text: string, options: {
-      parentId?: string; rootId?: string; mentioned?: string; sender?: string; createdAt?: string;
+      parentId?: string; rootId?: string; mentioned?: string; sender?: string; createdAt?: string; privateChat?: string;
     } = {}) => ({
       app_id: 'cli_monitor',
       sender: { sender_type: 'user', sender_id: { open_id: options.sender ?? 'ou_allowed' } },
       message: {
-        message_id: messageId, chat_id: 'oc_team', chat_type: 'group', message_type: 'text',
+        message_id: messageId, chat_id: options.privateChat ?? 'oc_team',
+        chat_type: options.privateChat ? 'p2p' : 'group', message_type: 'text',
         parent_id: options.parentId, root_id: options.rootId,
         create_time: options.createdAt,
-        mentions: [{ key: '@_user_1', id: { open_id: options.mentioned ?? 'ou_bot' } }],
-        content: JSON.stringify({ text: `@_user_1 ${text}` }),
+        mentions: options.privateChat ? undefined : [{ key: '@_user_1', id: { open_id: options.mentioned ?? 'ou_bot' } }],
+        content: JSON.stringify({ text: options.privateChat ? text : `@_user_1 ${text}` }),
       },
     });
     const waitForCard = async (id: string) => {
@@ -385,6 +394,33 @@ test('Lark starts sessions by name, default, or alias and continues from the sta
     assert.match(receipt.text, /Windows PC/);
     assert.match(receipt.text, /monitor\.example\.com/);
     assert.deepEqual(desks.map(({ creates }) => creates), [3, 3]);
+
+    const privateOptions = { privateChat: 'oc_private' };
+    await receive(event('om_private_denied', '送给未授权用户的任务', { ...privateOptions, sender: 'ou_other' }));
+    await receive(event('om_private_help', 'help', privateOptions));
+    const privateMenu = await waitForCard('om_private_help');
+    const menuOptions = { chatId: 'oc_private', messageId: privateMenu.id };
+    assert.ok((await click(press(privateMenu.card, '新建会话'), menuOptions))?.card);
+    assert.equal(await click(press(privateMenu.card, '新建会话'), { messageId: privateMenu.id }), undefined);
+    assert.match((await click(press(privateMenu.card, '新建会话'), { ...menuOptions, openId: 'ou_member' }))!.toast!.content, /发起者/);
+    await receive(event('om_private_start', 'm 分析私聊任务', privateOptions));
+    const privateReceipt = await waitForCard('om_private_start');
+    assert.match(privateReceipt.text, /会话已启动/);
+    await until(() => !!store.larkTarget(destination, privateReceipt.id));
+    const privateTarget = store.larkTarget(destination, privateReceipt.id)!;
+    assert.equal(privateTarget.chatId, 'oc_private');
+    assert.equal(privateTarget.workspaceId, targets[1].workspaceId);
+    await receive(event('om_cross_chat', '不能用群卡片继续', { ...privateOptions, parentId: second.id }));
+    await receive(event('om_private_followup', '检查私聊附件', {
+      ...privateOptions, parentId: privateReceipt.id, createdAt: String(Date.now()),
+    }));
+    await until(() => reactions.has('om_private_followup'));
+    const privateReply = b.hist.prepare("SELECT item_json FROM thread_items WHERE thread_id=? AND item_json LIKE ?")
+      .get(privateTarget.sessionId, '%检查私聊附件%');
+    assert.ok(privateReply);
+    assert.match(String(privateReply.item_json), /log\.txt/);
+    assert.doesNotMatch(String(privateReply.item_json), /另一个聊天的消息/);
+    assert.ok(!cards.has('om_private_denied') && !reactions.has('om_cross_chat'));
   } finally {
     await Promise.all(clients.map((client) => client.close()));
     await server.close();
@@ -1056,6 +1092,106 @@ test('Lark app settings send cards, native images and files from a remote worksp
     f.state.close();
     f.hist.close();
     rmSync(f.root, { recursive: true, force: true });
+  }
+});
+
+test('Lark app switches outbound notifications between a group and authorized private recipients', async () => {
+  const f = fixture();
+  const messages: { receiveId: string; type: string; kind: string; uuid: string }[] = [];
+  let retryMember = true;
+  let listenerStarts = 0;
+  let receiveAction!: Parameters<LarkReplyListener>[2];
+  const server = await central(f, async (url, init) => {
+    const endpoint = new URL(String(url));
+    if (endpoint.pathname.includes('/auth/'))
+      return Response.json({ code: 0, tenant_access_token: 'test', expire: 7200 });
+    if (endpoint.pathname.endsWith('/files'))
+      return Response.json({ code: 0, data: { file_key: 'file_test' } });
+    assert.ok(endpoint.pathname.endsWith('/messages'));
+    const { receive_id: receiveId, msg_type: kind, uuid } = JSON.parse(String(init?.body));
+    messages.push({ receiveId, type: endpoint.searchParams.get('receive_id_type')!, kind, uuid });
+    if (retryMember && receiveId === 'ou_member') {
+      retryMember = false;
+      return new Response('', { status: 503 });
+    }
+    return Response.json({ code: 0, data: { message_id: `om_sent_${messages.length}`, chat_id: `oc_${receiveId}` } });
+  }, 0, (_config, _receive, action) => {
+    listenerStarts++;
+    receiveAction = action;
+    return { close() {}, getConnectionStatus: () => ({ state: 'connected', reconnectAttempts: 0 }) };
+  });
+  try {
+    const owner = await server.service.auth.setup('owner', 'central-notification-password');
+    const headers = {
+      Authorization: `Bearer ${server.service.auth.issue(owner, 'test').token}`,
+      'Content-Type': 'application/json',
+    };
+    const save = (options: object = {}) => fetch(server.base + '/api/notifications', {
+      method: 'PUT', headers,
+      body: JSON.stringify({
+        provider: 'lark', mode: 'app', appId: 'cli_monitor', appSecret: 'test', chatId: 'oc_team',
+        replyOpenIds: ['ou_owner', 'ou_member'], completionMode: 'all', enabled: true, publicUrl: '', ...options,
+      }),
+    });
+    const service = server.service.notifications;
+    const { store } = service;
+    service.readAttachment = async (_id, { index }) => index === 0
+      ? { name: 'report.txt', mime: 'text/plain', data: Buffer.from('report') } : null;
+    const { workspace } = server.service.gateway.store.create('Workspace');
+    const event = { sessionId: 'session', title: 'Task', project: 'work' };
+    const completeTurn = (turnId: string) => service.receive(workspace, {
+      revision: service.policy().revision, monitorError: '',
+      events: [{ ...event, kind: 'session.completed', turnId, occurredAt: Date.now(), summary: 'Done' }],
+    });
+    const click = (messageId: string, chatId: string) => receiveAction({
+      app_id: 'cli_monitor', event_id: randomUUID(), operator: { open_id: 'ou_owner' },
+      context: { open_message_id: messageId, open_chat_id: chatId },
+      action: { tag: 'button', value: { shortcut: commitCodeShortcut.id } },
+    });
+    assert.equal((await save({ appRecipientType: 'private', replyOpenIds: [] })).status, 400);
+    assert.equal((await save({ appRecipientType: 'private', chatId: '', enabled: false })).status, 200);
+    const group = await save({ appRecipientType: 'group' });
+    assert.equal(group.status, 200);
+    assert.equal((await group.json()).settings.appRecipientType, 'group');
+    assert.equal(completeTurn('group'), true);
+    await service.poll();
+    assert.deepEqual(messages.map(({ receiveId, type, kind }) => [receiveId, type, kind]), [
+      ['oc_team', 'chat_id', 'interactive'], ['oc_team', 'chat_id', 'file'],
+    ]);
+    const destination = store.config().larkDestination;
+    assert.equal(completeTurn('queued-for-group'), true);
+    const switched = await save({ appRecipientType: 'private' });
+    assert.equal(switched.status, 200);
+    assert.equal((await switched.json()).settings.appRecipientType, 'private');
+    assert.equal(store.config().larkDestination, destination);
+    assert.equal(listenerStarts, 1);
+    assert.equal(store.history()[0].status, 'cancelled');
+    assert.equal((await click('om_sent_1', 'oc_team'))?.toast?.content, '工作空间已离线，请等客户端重新连接后再试。');
+
+    assert.equal(completeTurn('private'), true);
+    await service.poll();
+    const delivery = store.history().find(({ status }) => status === 'pending')!;
+    assert.match(delivery.error, /1\/2/);
+    server.service.auth.db.prepare('UPDATE notification_deliveries SET next_attempt_at=0 WHERE id=?').run(delivery.id);
+    await service.poll();
+    assert.equal(store.delivery(delivery.id)?.status, 'sent');
+    assert.deepEqual(messages.slice(2).map(({ receiveId, type, kind }) => [receiveId, type, kind]), [
+      ['ou_owner', 'open_id', 'interactive'], ['ou_owner', 'open_id', 'file'],
+      ['ou_member', 'open_id', 'interactive'], ['ou_member', 'open_id', 'interactive'], ['ou_member', 'open_id', 'file'],
+    ]);
+    assert.equal(messages[4].uuid, messages[5].uuid);
+    assert.notEqual(messages[2].uuid, messages[5].uuid);
+    assert.equal(await click('om_sent_3', 'oc_ou_member'), undefined);
+    assert.equal((await click('om_sent_3', 'oc_ou_owner'))?.toast?.content, '工作空间已离线，请等客户端重新连接后再试。');
+
+    const tested = await fetch(server.base + '/api/notifications/test', { method: 'POST', headers });
+    assert.equal(tested.status, 200, await tested.text());
+    assert.deepEqual(messages.slice(7).map(({ receiveId, kind }) => [receiveId, kind]), [
+      ['ou_owner', 'interactive'], ['ou_owner', 'file'], ['ou_member', 'interactive'], ['ou_member', 'file'],
+    ]);
+  } finally {
+    await server.close();
+    f.close();
   }
 });
 

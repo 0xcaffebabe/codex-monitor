@@ -4,7 +4,7 @@ import { LarkDeliveryError, larkCard, larkCardFromMarkdown, larkRequest, type La
 import type { NotificationConfig } from './store.js';
 import type { NotificationAttachment } from './attachments.js';
 import { imageMime } from '../media.js';
-import { LARK_REPLY_MAX_BYTES, type LarkReplyAttachment, type LarkReplyResource } from './lark-replies.js';
+import { larkChatId, LARK_REPLY_MAX_BYTES, type LarkReplyAttachment, type LarkReplyResource } from './lark-replies.js';
 import { larkDocumentExport } from './lark-documents.js';
 
 const imageMimes = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/bmp']);
@@ -22,6 +22,7 @@ const cardMarkdown = z.object({
 });
 export class LarkReplyAttachmentsTooLarge extends Error {}
 export class LarkReplyDocumentError extends Error {}
+export type LarkRecipient = { type: 'chat_id' | 'open_id'; id: string };
 const fileTypes = new Map([
   ['.opus', 'opus'],
   ['.mp4', 'mp4'],
@@ -104,7 +105,7 @@ export class LarkApp {
     if (typeof code !== 'number') throw new LarkDeliveryError('飞书/Lark 返回了无效响应');
     if (code === 99991663 || code === 99991664) this.token = undefined;
     throw new LarkDeliveryError(
-      `飞书/Lark ${action}失败（错误码 ${code}），请检查应用凭据、机器人权限和群聊设置`,
+      `飞书/Lark ${action}失败（错误码 ${code}），请检查应用凭据、机器人权限和接收设置`,
       [99991400, 99991663, 99991664, 230020].includes(code),
       code,
     );
@@ -113,7 +114,7 @@ export class LarkApp {
   async sender(config: NotificationConfig, signal: AbortSignal) {
     const origin =
       config.appRegion === 'feishu' ? 'https://open.feishu.cn' : 'https://open.larksuite.com';
-    const { appId, appSecret, chatId } = config;
+    const { appId, appSecret } = config;
     let token = this.token;
     if (
       !token ||
@@ -142,18 +143,18 @@ export class LarkApp {
       this.token = token;
     }
     const value = token.value;
-    const send = (uuid: string, msgType: string, content: object) =>
+    const send = (recipient: LarkRecipient, uuid: string, msgType: string, content: object) =>
       this.request(
         origin,
-        'im/v1/messages?receive_id_type=chat_id',
+        `im/v1/messages?receive_id_type=${recipient.type}`,
         {
-          receive_id: chatId,
+          receive_id: recipient.id,
           msg_type: msgType,
           content: JSON.stringify(content),
           uuid,
         },
         signal,
-        '发送群消息',
+        '发送消息',
         value,
       );
     return {
@@ -172,7 +173,7 @@ export class LarkApp {
           `im/v1/messages/${encodeURIComponent(parent)}/reply`,
           { msg_type: 'interactive', content: JSON.stringify(typeof card === 'string' ? larkCard(card, true) : card), uuid },
           signal,
-          '回复群消息',
+          '回复消息',
           value,
         );
         const id = result?.data?.message_id;
@@ -182,12 +183,15 @@ export class LarkApp {
       },
       message: async (id: string) =>
         (await this.request(origin, `im/v1/messages/${encodeURIComponent(id)}`, undefined, signal, '读取引用消息', value))?.data,
-      card: async (uuid: string, text: string, completionActions = false) => {
-        const result = await send(uuid, 'interactive', larkCard(text, true, completionActions));
+      card: async (recipient: LarkRecipient, uuid: string, text: string, completionActions = false) => {
+        const result = await send(recipient, uuid, 'interactive', larkCard(text, true, completionActions));
         const messageId = result?.data?.message_id;
-        return typeof messageId === 'string' && /^om_[\w-]{1,125}$/.test(messageId) ? messageId : undefined;
+        return {
+          messageId: typeof messageId === 'string' && /^om_[\w-]{1,125}$/.test(messageId) ? messageId : undefined,
+          chatId: recipient.type === 'chat_id' ? recipient.id : larkChatId.safeParse(result?.data?.chat_id).data,
+        };
       },
-      completeCardReply: async (messageId: string, reply: LarkCardReply, text?: string, updateToken?: string) => {
+      completeCardReply: async (messageId: string, chatId: string, reply: LarkCardReply, text?: string, updateToken?: string) => {
         const endpoint = `im/v1/messages/${encodeURIComponent(messageId)}`;
         let card;
         if (text === undefined) {
@@ -252,7 +256,7 @@ export class LarkApp {
           'DELETE',
         ),
       history: async (query: URLSearchParams) =>
-        (await this.request(origin, `im/v1/messages?${query}`, undefined, signal, '读取群消息历史', value))?.data,
+        (await this.request(origin, `im/v1/messages?${query}`, undefined, signal, '读取消息历史', value))?.data,
       readReplyAttachments: async (resources: LarkReplyResource[]) => {
         const attachments: LarkReplyAttachment[] = [];
         let remaining = LARK_REPLY_MAX_BYTES;
@@ -293,7 +297,7 @@ export class LarkApp {
         }
         return attachments;
       },
-      attachment: async (uuid: string, file: NotificationAttachment) => {
+      attachment: async (recipient: LarkRecipient, uuid: string, file: NotificationAttachment) => {
         const image = imageMimes.has(file.mime) && file.data.length <= 10 * 1024 * 1024;
         const form = new FormData();
         const blob = new Blob([new Uint8Array(file.data)], { type: file.mime });
@@ -316,7 +320,7 @@ export class LarkApp {
         const key = image ? result?.data?.image_key : result?.data?.file_key;
         if (typeof key !== 'string' || !key)
           throw new LarkDeliveryError('飞书/Lark 未返回附件标识');
-        await send(uuid, image ? 'image' : 'file', image ? { image_key: key } : { file_key: key });
+        await send(recipient, uuid, image ? 'image' : 'file', image ? { image_key: key } : { file_key: key });
       },
     };
   }

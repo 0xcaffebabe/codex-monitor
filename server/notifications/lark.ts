@@ -209,6 +209,7 @@ export async function larkRequest(
           image_key?: unknown;
           file_key?: unknown;
           message_id?: unknown;
+          chat_id?: unknown;
           reaction_id?: unknown;
           items?: unknown;
           bot?: { open_id?: unknown };

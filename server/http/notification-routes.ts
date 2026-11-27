@@ -49,6 +49,7 @@ const settings = z
     appRegion: z.enum(['lark', 'feishu']).optional(),
     appId: z.string().trim().regex(/^(?:cli_[A-Za-z0-9]{1,100})?$/).optional(),
     appSecret: z.string().trim().max(256).optional(),
+    appRecipientType: z.enum(['group', 'private']).optional(),
     chatId: z.string().trim().regex(/^(?:oc_[A-Za-z0-9_-]{1,100})?$/).optional(),
     replyOpenIds: z.array(z.string().trim().regex(/^ou_[A-Za-z0-9_-]{1,100}$/)).max(50)
       .transform((ids) => [...new Set(ids)]).optional(),
@@ -110,7 +111,9 @@ export function installNotificationRoutes(
     const config = { ...notifications.store.config(), ...parsed.data };
     if (config.enabled && !notificationConfigured(config))
       return fail(res, 400, config.mode === 'app'
-        ? '启用通知前请填写 App ID、App Secret 和群聊 ID'
+        ? config.appRecipientType === 'private'
+          ? '启用私聊通知前请填写 App ID、App Secret 和授权回复的 Open ID'
+          : '启用群聊通知前请填写 App ID、App Secret 和群聊 ID'
         : '启用通知前请先配置 Webhook');
     try {
       const result = await notifications.configure(

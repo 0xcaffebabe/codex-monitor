@@ -189,8 +189,18 @@ export function Notifications({ notify }: { notify: (message: string) => void })
                   移除已保存的 App Secret
                 </label>
               )}
+              <label className="notification-toggle">
+                <input
+                  type="checkbox"
+                  checked={form.app.appRecipientType === 'private'}
+                  onChange={(event) => form.setApp({
+                    ...form.app, appRecipientType: event.target.checked ? 'private' : 'group',
+                  })}
+                />
+                通过私聊发送通知
+              </label>
               <label>
-                群聊 ID
+                群聊 ID{form.app.appRecipientType === 'private' ? '（可选）' : ''}
                 <input
                   type="text"
                   autoComplete="off"
@@ -202,7 +212,7 @@ export function Notifications({ notify }: { notify: (message: string) => void })
                 />
               </label>
               <label>
-                授权回复的 Open ID（可选）
+                授权回复的 Open ID{form.app.appRecipientType === 'private' ? '（私聊通知接收人）' : '（可选）'}
                 <input
                   type="text"
                   autoComplete="off"

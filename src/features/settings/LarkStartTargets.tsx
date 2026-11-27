@@ -59,7 +59,7 @@ export function LarkStartTargets({ value, onChange }: {
   }
   return (
     <fieldset className="lark-start-targets">
-      <legend>群聊新建会话目标</legend>
+      <legend>Lark 新建会话目标</legend>
       {value.targets.length > 0 && (
         <>
           <label>

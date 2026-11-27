@@ -163,6 +163,7 @@ export interface NotificationSettings {
   appRegion: 'lark' | 'feishu';
   appId: string;
   appSecretConfigured: boolean;
+  appRecipientType: 'group' | 'private';
   chatId: string;
   replyOpenIds: string[];
   larkStart: LarkStartSettings;
