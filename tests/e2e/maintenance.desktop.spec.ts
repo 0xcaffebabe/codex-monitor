@@ -22,9 +22,17 @@ test('server maintenance action confirms the update and shows its status after a
   await page.getByRole('button', { name: '管理工作空间' }).click();
   const dialog = page.getByRole('dialog', { name: '管理工作空间' });
   const button = dialog.getByRole('button', { name: '更新并重启服务端' });
+  const confirmation = page.getByRole('dialog', { name: '更新服务端' });
   await button.click();
+  await expect(confirmation).toHaveAccessibleDescription('服务端重启时，网页和客户端连接会短暂中断。');
+  await confirmation.getByRole('button', { name: '取消' }).click();
+  await expect(confirmation).toBeHidden();
   expect(status).toBeUndefined();
-  await dialog.getByRole('button', { name: '确认更新服务端' }).click();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await button.click();
+  await expect(confirmation).toBeInViewport({ ratio: 1 });
+  await confirmation.getByRole('button', { name: '确认更新服务端' }).click();
+  await expect(confirmation).toBeHidden();
   await expect(button).toBeDisabled();
   await expect(dialog.getByRole('status')).toContainText('正在重启');
 
@@ -34,6 +42,5 @@ test('server maintenance action confirms the update and shows its status after a
   status = 'succeeded';
   await expect(dialog.getByRole('status')).toHaveText('服务端更新完成');
   await expect(button).toBeEnabled();
-  await page.setViewportSize({ width: 390, height: 844 });
   await expect(button).toBeInViewport();
 });

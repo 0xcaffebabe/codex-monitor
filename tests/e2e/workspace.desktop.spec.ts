@@ -800,9 +800,17 @@ test('workspace management triggers client updates next to the privacy switch', 
   const updateBox = (await update.boundingBox())!;
   expect(updateBox.x).toBeGreaterThanOrEqual(privacyBox.x + privacyBox.width);
   expect(updateBox.y).toBe(privacyBox.y);
+  const confirmation = page.getByRole('dialog', { name: '更新客户端' });
   await update.click();
+  await expect(confirmation).toHaveAccessibleDescription(`客户端「${name}」更新后将短暂离线。`);
+  await expect(confirmation.getByRole('button', { name: '取消' })).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(confirmation).toBeHidden();
+  await expect(update).toBeFocused();
   expect(updating).toBe(false);
-  await row.getByRole('button', { name: '确认更新' }).click();
+  await update.click();
+  await confirmation.getByRole('button', { name: '确认更新' }).click();
+  await expect(confirmation).toBeHidden();
   await expect(row.getByRole('status')).toHaveText('正在拉取更新');
   await expect(update).toBeDisabled();
 

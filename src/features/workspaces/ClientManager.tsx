@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useId, useLayoutEffect, useRef, useState } from 'react';
 import { Check, Copy, Monitor, Plus, RefreshCw, X } from 'lucide-react';
 import type { WorkspacesModel } from './useWorkspaces';
 import {
@@ -42,6 +42,62 @@ const updateLabels: Record<ClientUpdateStatus['phase'], string> = {
   succeeded: '更新完成',
   failed: '更新失败',
 };
+
+function UpdateConfirmation({
+  title,
+  message,
+  confirmLabel,
+  disabled,
+  onConfirm,
+  onCancel,
+}: {
+  title: string;
+  message: string;
+  confirmLabel: string;
+  disabled: boolean;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  const dialog = useRef<HTMLDialogElement>(null);
+  const titleId = useId();
+  const messageId = useId();
+  useLayoutEffect(() => {
+    const element = dialog.current!;
+    element.showModal();
+    return () => element.close();
+  }, []);
+
+  return (
+    <dialog
+      ref={dialog}
+      className="update-confirm-dialog"
+      aria-labelledby={titleId}
+      aria-describedby={messageId}
+      onCancel={(event) => {
+        event.preventDefault();
+        onCancel();
+      }}
+      onClick={(event) => {
+        if (event.target === event.currentTarget) onCancel();
+      }}
+    >
+      <div className="update-confirm-content">
+        <h2 id={titleId}>{title}</h2>
+        <p className="help" id={messageId}>
+          {message}
+        </p>
+        <div className="update-confirm-actions">
+          <button className="secondary" type="button" onClick={onCancel}>
+            取消
+          </button>
+          <button className="primary" type="button" disabled={disabled} onClick={onConfirm}>
+            {confirmLabel}
+          </button>
+        </div>
+      </div>
+    </dialog>
+  );
+}
 
 function ClientRow({ workspace, model }: { workspace: ManagedWorkspace; model: WorkspacesModel }) {
   const [name, setName] = useState(workspace.name);
@@ -99,6 +155,7 @@ function ClientRow({ workspace, model }: { workspace: ManagedWorkspace; model: W
               type="button"
               className="client-update"
               aria-label="更新并重启"
+              aria-haspopup="dialog"
               disabled={!!model.pending || !canUpdate}
               onClick={() => setConfirming('update')}
             >
@@ -179,27 +236,35 @@ function ClientRow({ workspace, model }: { workspace: ManagedWorkspace; model: W
           {update.message || updateLabels[update.phase]}
         </p>
       )}
-      {confirming && (
+      {confirming === 'update' ? (
+        <UpdateConfirmation
+          title="更新客户端"
+          message={`客户端「${workspace.name}」更新后将短暂离线。`}
+          confirmLabel="确认更新"
+          disabled={!!model.pending || !canUpdate}
+          onConfirm={() => {
+            setConfirming('');
+            void model.updateClient(workspace.id);
+          }}
+          onCancel={() => setConfirming('')}
+        />
+      ) : confirming && (
         <div className="client-confirm">
           <span>
-            {confirming === 'update'
-              ? '更新后客户端将短暂离线。'
-              : confirming === 'rotate'
-                ? '轮换后当前连接立即断开，需要更新 client 本地密钥。'
-                : '移除后此 client 将无法连接，client 本机数据保留。'}
+            {confirming === 'rotate'
+              ? '轮换后当前连接立即断开，需要更新 client 本地密钥。'
+              : '移除后此 client 将无法连接，client 本机数据保留。'}
           </span>
           <button
-            disabled={!!model.pending || (confirming === 'update' && !canUpdate)}
+            disabled={!!model.pending}
             onClick={() => {
-              void (confirming === 'update'
-                ? model.updateClient(workspace.id)
-                : confirming === 'rotate'
-                  ? model.rotate(workspace.id)
-                  : model.remove(workspace.id));
+              void (confirming === 'rotate'
+                ? model.rotate(workspace.id)
+                : model.remove(workspace.id));
               setConfirming('');
             }}
           >
-            确认{confirming === 'update' ? '更新' : confirming === 'rotate' ? '轮换' : '移除'}
+            确认{confirming === 'rotate' ? '轮换' : '移除'}
           </button>
           <button onClick={() => setConfirming('')}>取消</button>
         </div>
@@ -235,6 +300,7 @@ export function ClientManager({ model }: { model: WorkspacesModel }) {
                   type="button"
                   className="client-update"
                   aria-label="更新并重启服务端"
+                  aria-haspopup="dialog"
                   disabled={!canUpdateServer}
                   onClick={() => setConfirmingServerUpdate(true)}
                 >
@@ -257,22 +323,17 @@ export function ClientManager({ model }: { model: WorkspacesModel }) {
             </p>
           )}
           {confirmingServerUpdate && (
-            <div className="client-confirm">
-              <span>服务端重启时，网页和客户端连接会短暂中断。</span>
-              <button
-                type="button"
-                disabled={!canUpdateServer}
-                onClick={() => {
-                  setConfirmingServerUpdate(false);
-                  void model.updateServer();
-                }}
-              >
-                确认更新服务端
-              </button>
-              <button type="button" onClick={() => setConfirmingServerUpdate(false)}>
-                取消
-              </button>
-            </div>
+            <UpdateConfirmation
+              title="更新服务端"
+              message="服务端重启时，网页和客户端连接会短暂中断。"
+              confirmLabel="确认更新服务端"
+              disabled={!canUpdateServer}
+              onConfirm={() => {
+                setConfirmingServerUpdate(false);
+                void model.updateServer();
+              }}
+              onCancel={() => setConfirmingServerUpdate(false)}
+            />
           )}
           {model.error && (
             <div className="alert error" role="alert">
