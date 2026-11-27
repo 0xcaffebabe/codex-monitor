@@ -53,11 +53,6 @@ export function larkCard(text: string, app = false, completionActions = false) {
       elements: [
         { tag: 'markdown', content },
         ...(completionActions ? [
-          ...gitCommitShortcuts.map(({ id, label }) => ({
-            tag: 'button' as const,
-            text: { tag: 'plain_text', content: label },
-            behaviors: [{ type: 'callback', value: { shortcut: id } }],
-          })),
           {
             tag: 'form' as const,
             name: 'reply_to_session',
@@ -80,6 +75,18 @@ export function larkCard(text: string, app = false, completionActions = false) {
                 form_action_type: 'submit',
               },
             ],
+          },
+          {
+            tag: 'column_set' as const,
+            flex_mode: 'flow',
+            columns: gitCommitShortcuts.map(({ id, label }) => ({
+              tag: 'column',
+              elements: [{
+                tag: 'button',
+                text: { tag: 'plain_text', content: label },
+                behaviors: [{ type: 'callback', value: { shortcut: id } }],
+              }],
+            })),
           },
         ] : []),
       ] as const,

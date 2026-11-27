@@ -652,12 +652,19 @@ test('authorized Lark quotes target the card workspace and reuse the Monitor mes
 
     const card = JSON.parse(completionCards.get('om_card_2')!);
     const shortcuts = [commitCodeShortcut, commitAndPushCodeShortcut];
-    assert.deepEqual(card.body.elements.slice(1, 3), shortcuts.map(({ id, label }) => ({
-      tag: 'button', text: { tag: 'plain_text', content: label },
-      behaviors: [{ type: 'callback', value: { shortcut: id } }],
-    })));
-    const form = card.body.elements[3];
-    assert.equal(form.tag, 'form');
+    assert.deepEqual(card.body.elements.map(({ tag }: { tag: string }) => tag), ['markdown', 'form', 'column_set']);
+    const [, form, shortcutRow] = card.body.elements;
+    assert.deepEqual(shortcutRow, {
+      tag: 'column_set',
+      flex_mode: 'flow',
+      columns: shortcuts.map(({ id, label }) => ({
+        tag: 'column',
+        elements: [{
+          tag: 'button', text: { tag: 'plain_text', content: label },
+          behaviors: [{ type: 'callback', value: { shortcut: id } }],
+        }],
+      })),
+    });
     const [input, submit] = form.elements;
     assert.deepEqual([input.tag, input.input_type, input.required, input.max_length], ['input', 'multiline_text', true, 1000]);
     assert.deepEqual([submit.tag, submit.form_action_type, submit.text.content], ['button', 'submit', '发送到会话']);
