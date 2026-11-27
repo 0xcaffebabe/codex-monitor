@@ -258,6 +258,7 @@ export class MonitorClient {
               notificationReplies: true,
               notificationReplyFiles: true,
               notificationReplyStatus: true,
+              notificationReplyErrors: true,
               notificationStarts: true,
               notificationNamedStarts: true,
               larkHelp: true,
@@ -334,8 +335,9 @@ export class MonitorClient {
               .then(respond).finally(() => this.helpReads--);
           }
         } else if (frame.type === 'notification-reply-status') {
-          const result = this.runtime.larkReplyStatus(frame.userId, frame.requestId);
-          void sendFrame(socket, { type: 'notification-reply-result', id: frame.id, result })
+          const { result, error } = this.runtime.larkReplyStatus(frame.userId, frame.requestId);
+          void sendFrame(socket, { type: 'notification-reply-result', id: frame.id, result,
+            ...(frame.includeError && error && { error }) })
             .catch(() => socket.terminate());
         } else if (
           frame.type === 'request' ||
@@ -499,14 +501,15 @@ export class MonitorClient {
       }
       signal.throwIfAborted();
       this.runtime.access.syncUser(frame.user);
-      const receipt: Pick<Extract<Frame, { type: 'notification-reply-result' }>, 'result' | 'sessionId' | 'projectName'> = frame.sessionId
-        ? { result: await this.runtime.sendLarkReply(frame.user.id, frame.sessionId, frame, attachments, signal) }
+      const { error, ...receipt } = frame.sessionId
+        ? await this.runtime.sendLarkReply(frame.user.id, frame.sessionId, frame, attachments, signal)
         : await this.runtime.startLarkSession(
             frame.user,
             frame.projectId ? { projectId: frame.projectId } : { projectName: frame.projectName! },
             frame, attachments, signal,
           );
-      await sendFrame(socket, { type: 'notification-reply-result', id: frame.id, ...receipt });
+      await sendFrame(socket, { type: 'notification-reply-result', id: frame.id, ...receipt,
+        ...(frame.includeError && error && { error }) });
     } catch {
       if (!signal.aborted) await sendFrame(socket, {
         type: 'notification-reply-result', id: frame.id, result: 'unknown',

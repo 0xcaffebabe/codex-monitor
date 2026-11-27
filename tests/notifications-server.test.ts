@@ -13,6 +13,7 @@ import { FixtureDesktop, projectId } from './control-fixture.js';
 import { createMonitorServer } from '../server/server-app.js';
 import { MonitorClient } from '../server/client/connection.js';
 import { AuthStore } from '../server/auth.js';
+import { ControlError } from '../server/control-error.js';
 import { NotificationStore } from '../server/notifications/store.js';
 import type { WebhookTransport } from '../server/notifications/lark.js';
 import type { LarkReplyListener } from '../server/notifications/lark-replies.js';
@@ -448,6 +449,8 @@ test('authorized Lark quotes target the card workspace and reuse the Monitor mes
   let cardCount = 0;
   const completionCards = new Map<string, string>();
   const updatedCards = new Map<string, string>();
+  const failureReplies = new Map<string, string>();
+  let failureReplyAttempts = 0;
   let cardPatchAttempts = 0;
   let receive!: (event: unknown) => Promise<void>;
   let receiveAction!: Parameters<LarkReplyListener>[2];
@@ -529,6 +532,15 @@ test('authorized Lark quotes target the card workspace and reuse the Monitor mes
         });
       }
       return new Response(new Uint8Array(image), { headers: { 'Content-Type': 'image/png' } });
+    }
+    if (pathname === '/open-apis/im/v1/messages/om_card_2/reply' && init?.method === 'POST') {
+      assert.equal(new Headers(init.headers).get('authorization'), 'Bearer test');
+      const { msg_type, content, uuid } = JSON.parse(String(init.body));
+      assert.equal(msg_type, 'text');
+      assert.match(uuid, /^[0-9a-f-]{36}$/);
+      if (++failureReplyAttempts === 1) return Response.json({ code: 1 }, { status: 503 });
+      failureReplies.set(uuid, JSON.parse(content).text);
+      return Response.json({ code: 0, data: { message_id: 'om_reply_' + failureReplies.size } });
     }
     if (pathname === '/open-apis/im/v1/messages/om_card_2' && init?.method === 'PATCH') {
       assert.equal(new Headers(init.headers).get('authorization'), 'Bearer test');
@@ -939,12 +951,41 @@ test('authorized Lark quotes target the card workspace and reuse the Monitor mes
     assert.equal(legacyElements[0].content, '原卡片回复 **保留格式**');
     assert.equal(legacyElements[1].columns[0].elements[1].text.content, '从旧卡片继续');
 
+    const reason = '会话正在其他客户端中使用，请在原客户端处理后重试。';
+    const delayedReason = '桌面端拒绝转发，无法继续该会话。';
+    const errorText = (reason: string) => '发送到 Codex 会话失败。\n' + reason;
+    desks[1].send = async (_context, _id, prompt) => {
+      throw new ControlError(prompt === '立即失败' ? reason : delayedReason, false, 409);
+    };
+    const immediate = () => click('failed-form', undefined, { formText: '立即失败' });
+    assert.deepEqual((await immediate())?.toast, { type: 'error', content: reason });
+    assert.equal((await immediate())?.toast.content, reason);
+    const pollForFailures = async (count: number) => {
+      await server.service.notifications.poll();
+      return failureReplies.size === count;
+    };
+    await until(() => pollForFailures(1));
+    assert.deepEqual([...failureReplies.values()], [errorText(reason)]);
+    assert.equal(failureReplyAttempts, 2);
+
+    b.hist.prepare('INSERT INTO thread_turns VALUES(?,?,?,?,?,?)')
+      .run(ids.modern, 'running-during-failed-form', 1004, 'inProgress', Math.floor(Date.now() / 1000), null);
+    assert.equal((await click('queued-failed-form', undefined, { formText: '排队后失败' }))?.toast.content, '已加入 Monitor 消息队列。');
+    assert.equal(failureReplies.size, 1);
+    b.hist.prepare("UPDATE thread_turns SET status='completed',completed_at=? WHERE turn_id=?")
+      .run(Math.floor(Date.now() / 1000), 'running-during-failed-form');
+    await until(() => pollForFailures(2));
+    assert.deepEqual([...failureReplies.values()], [errorText(reason), errorText(delayedReason)]);
+    assert.equal(cardPatchAttempts, 4);
+
     await clients.pop()!.close();
     await until(() => !server.service.gateway.list().find((item) => item.id === workspaces[1].workspace.id)?.online);
     await receive(event('om_offline'));
     await until(() => reactions.has('om_offline'));
     assertReaction('om_offline', 'CrossMark');
     assert.match((await click('offline', commit))?.toast.content, /工作空间已离线/);
+    await until(() => pollForFailures(3));
+    assert.match([...failureReplies.values()][2], /工作空间已离线/);
 
     assert.equal((await save([])).status, 200);
     assert.equal(closed, true);

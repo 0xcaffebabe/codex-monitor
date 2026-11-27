@@ -29,6 +29,7 @@ import {
   type LarkActionResponse,
   type LarkReplyListener,
   type LarkReplyReceipt,
+  type LarkReplyResult,
   type LarkReplySubmission,
   type LarkStartResult,
   type LarkStartProject,
@@ -48,6 +49,12 @@ const LARK_REPLY_POLL_MS = 3_000;
 const START_UNKNOWN = '暂时无法确认会话是否已创建。请在 Monitor 检查会话记录，避免重复提交。';
 const helpCommand = /^\/?help$/i;
 const markdownLabel = (value: string) => value.replace(/[\r\n]/g, ' ').replace(/[\\`*_[\]<>~]/g, '\\$&');
+function cardReplyNotice(result: LarkReplyReceipt, error?: string) {
+  const reason = error || replyReceipts[result].text;
+  if (result === 'unknown')
+    return error ? `Codex 消息发送结果待确认。\n${error}` : reason;
+  return `发送到 Codex 会话失败。\n${reason}`;
+}
 type ReportedCompletion = Extract<NotificationEvent, { kind: 'session.completed' }>;
 type StartTarget = { workspaceId: string; project: LarkStartProject; label: string; prompt: string };
 
@@ -175,7 +182,7 @@ export class NotificationService {
     await this.onConfigure?.(this.policy(), reset);
     return this.state();
   }
-  submitReply?: (input: LarkReplySubmission, signal: AbortSignal) => Promise<LarkReplyReceipt>;
+  submitReply?: (input: LarkReplySubmission, signal: AbortSignal) => Promise<LarkReplyResult>;
   startSession?: (input: LarkStartSubmission, signal: AbortSignal) => Promise<LarkStartResult>;
   workspaceName?: (id: string) => string | undefined;
   workspacesNamed?: (name: string) => readonly { id: string }[];
@@ -183,7 +190,7 @@ export class NotificationService {
   readHelpSnapshot?: (workspaceId: string, details: boolean, signal: AbortSignal) => Promise<HelpSnapshot | undefined>;
   readReplyStatus?: (
     workspaceId: string, userId: string, requestId: string, signal: AbortSignal,
-  ) => Promise<LarkReplyReceipt | undefined>;
+  ) => Promise<LarkReplyResult | undefined>;
   startReplies(submit: NonNullable<NotificationService['submitReply']>) {
     this.submitReply = submit;
     this.syncReplyListener();
@@ -218,7 +225,7 @@ export class NotificationService {
         read: this.readHelpSnapshot,
         start: (target, workspace, prompt) =>
           this.startFromHelp(config, callback, target, workspace.name, prompt, signal),
-        send: (target, prompt) => this.submitCardReply(config, callback.eventId, target, prompt, signal),
+        send: (target, prompt) => this.submitCardReply(config, callback.eventId, target, prompt, signal, callback.messageId),
       }, signal).catch((): LarkActionResponse => ({ toast: { type: 'error', content: '菜单暂不可用，请重新发送 help。' } }));
       if (response) return response;
     }
@@ -227,7 +234,7 @@ export class NotificationService {
     if (!target) return { toast: { type: 'error', content: '此卡片的操作已不可用。' } };
     if (action.prompt === undefined)
       return { toast: { type: 'error', content: `请输入 1 至 ${larkReplyForm.maxLength} 个字符的消息。` } };
-    return this.submitCardReply(config, action.eventId, target, action.prompt, signal, action);
+    return this.submitCardReply(config, action.eventId, target, action.prompt, signal, action.messageId, action);
   }
   private canUseLarkActions(config: NotificationConfig, openId: string) {
     return larkRepliesEnabled(config) && config.replyOpenIds.includes(openId) &&
@@ -238,10 +245,10 @@ export class NotificationService {
   }
   private async submitCardReply(config: NotificationConfig, eventId: string,
     target: Pick<LarkReplySubmission, 'workspaceId' | 'sessionId'>, prompt: string, signal: AbortSignal,
-    completionCard?: { messageId: string; updateToken?: string; replyText?: string }): Promise<LarkActionResponse> {
+    messageId: string, completionCard?: { updateToken?: string; replyText?: string }): Promise<LarkActionResponse> {
     const destination = config.larkDestination;
     const receiptId = `card:${eventId}`;
-    const result = await this.submitReply!({
+    const { result, error } = await this.submitReply!({
       workspaceId: target.workspaceId,
       sessionId: target.sessionId,
       userId: config.replyAdminId,
@@ -250,23 +257,25 @@ export class NotificationService {
       attachments: [],
       nextTurn: true,
       requireNextTurn: true,
-    }, signal).catch(() => 'unknown' as const);
-    if (completionCard && !signal.aborted && (result === 'sent' || result === 'queued')) {
-      const { messageId, updateToken, replyText = prompt } = completionCard;
-      this.store.recordLarkReceipt(destination, receiptId, replyReceipts[result].text, {
+    }, signal).catch((): LarkReplyResult => ({ result: 'unknown' }));
+    const accepted = result === 'sent' || result === 'queued';
+    if (!signal.aborted && (completionCard || result !== 'sent')) {
+      this.store.recordLarkReceipt(destination, receiptId, accepted ? replyReceipts[result].text : cardReplyNotice(result, error), {
         workspaceId: target.workspaceId,
         userId: config.replyAdminId,
         cardMessageId: messageId,
-        cardUpdateToken: this.store.larkCardText(destination, messageId) === undefined ? updateToken : undefined,
-        cardReplyText: replyText,
+        cardUpdateToken: accepted && completionCard?.updateToken &&
+          this.store.larkCardText(destination, messageId) === undefined ? completionCard.updateToken : undefined,
+        cardReplyText: accepted && completionCard ? completionCard.replyText ?? prompt : undefined,
       });
+      void this.poll();
     }
     return { toast: {
       type: result === 'sent' ? 'success' : result === 'queued' || result === 'unknown' ? 'info' : 'error',
       content: result === 'offline' ? '工作空间已离线，请等客户端重新连接后再试。'
         : result === 'upgrade' ? '请更新此工作空间的 Monitor 客户端后再试。'
         : result === 'busy' ? '工作空间正在处理其他请求，请稍后再试。'
-        : replyReceipts[result].text,
+        : error || replyReceipts[result].text,
     } };
   }
   private startFromHelp(config: NotificationConfig, event: { eventId: string; messageId: string; chatId: string }, selected: LarkStartTarget,
@@ -606,7 +615,7 @@ export class NotificationService {
         }
       }
       if (signal.aborted) return 'failed';
-      return await this.submitReply!({
+      const { result } = await this.submitReply!({
         workspaceId: target.workspaceId,
         sessionId: target.sessionId,
         userId: config.replyAdminId,
@@ -615,6 +624,7 @@ export class NotificationService {
         attachments,
         nextTurn: !!reply.createdAt,
       }, signal);
+      return result;
     } finally {
       if (needsDownload) this.replyDownloads--;
     }
@@ -752,22 +762,28 @@ export class NotificationService {
       if (receipt === replyReceipts.queued.text) {
         const status = await this.readReplyStatus!(workspaceId, userId, larkRequestId(destination, messageId), signal);
         if (signal.aborted || !status) return;
-        const { text, emoji } = replyReceipts[status];
+        const { result, error } = status;
+        const { text, emoji } = replyReceipts[result];
         if (!cardMessageId) {
           const sender = await this.app.sender(config, signal);
           await sender.react(messageId, emoji);
         }
-        this.store.updateLarkReceipt(destination, messageId, text);
-        receipt = text;
+        receipt = cardMessageId && result !== 'sent' ? cardReplyNotice(result, error) : text;
+        this.store.updateLarkReceipt(destination, messageId, receipt);
       }
       if (signal.aborted) return;
-      if (cardMessageId && receipt === replyReceipts.sent.text &&
-          !this.store.hasNewerLarkCardReply(destination, cardMessageId, rowid, receipt)) {
+      if (cardMessageId) {
         try {
-          const sender = await this.app.sender(config, signal);
-          const chatId = this.store.larkTarget(destination, cardMessageId, true)?.chatId ?? config.chatId;
-          await sender.completeCardReply(cardMessageId, chatId, { status: receipt, text: cardReplyText ?? undefined },
-            this.store.larkCardText(destination, cardMessageId), cardUpdateToken ?? undefined);
+          if (receipt !== replyReceipts.sent.text) {
+            const sender = await this.app.sender(config, signal);
+            await sender.replyText(cardMessageId, larkRequestId(destination, messageId), receipt);
+          } else if (cardReplyText !== null &&
+              !this.store.hasNewerLarkCardReply(destination, cardMessageId, rowid, receipt)) {
+            const sender = await this.app.sender(config, signal);
+            const chatId = this.store.larkTarget(destination, cardMessageId, true)?.chatId ?? config.chatId;
+            await sender.completeCardReply(cardMessageId, chatId, { status: receipt, text: cardReplyText },
+              this.store.larkCardText(destination, cardMessageId), cardUpdateToken ?? undefined);
+          }
         } catch (error) {
           if (!(error instanceof LarkDeliveryError) || error.retryable) throw error;
         }

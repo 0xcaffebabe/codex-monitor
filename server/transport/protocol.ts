@@ -4,7 +4,7 @@ import { createCipheriv, createDecipheriv, createHash, createHmac, randomBytes }
 import { notificationPolicySchema, notificationReportSchema } from '../notifications/events.js';
 import { clientUpdatePhases, type HostResourceSample } from '../../src/workspaces.js';
 import { NOTIFICATION_ATTACHMENT_LIMIT } from '../notifications/attachments.js';
-import { LARK_REPLY_MAX_BYTES, LARK_REPLY_MAX_ATTACHMENTS } from '../notifications/lark-replies.js';
+import { LARK_REPLY_MAX_BYTES, LARK_REPLY_MAX_ATTACHMENTS, LARK_REPLY_MAX_ERROR_LENGTH } from '../notifications/lark-replies.js';
 import { helpSnapshotSchema } from '../notifications/help-snapshot.js';
 
 export const PROTOCOL_VERSION = 3;
@@ -92,6 +92,7 @@ export const frameSchema = z.discriminatedUnion('type', [
       .refine((files) => files.reduce((sum, file) => sum + file.size, 0) <= LARK_REPLY_MAX_BYTES)
       .optional(),
     nextTurn: z.literal(true).optional(),
+    includeError: z.literal(true).optional(),
     user: identitySchema.shape.user.extend({ role: z.literal('admin') }),
   }).strict().refine(({ prompt, imageSizes, attachments, projectId, projectName, sessionId, nextTurn }) =>
     Number(!!projectId) + Number(!!projectName) + Number(!!sessionId) === 1 && (!nextTurn || !!sessionId) &&
@@ -101,6 +102,7 @@ export const frameSchema = z.discriminatedUnion('type', [
     id,
     requestId: id,
     userId: id,
+    includeError: z.literal(true).optional(),
   }).strict(),
   z.object({
     type: z.literal('notification-reply-result'),
@@ -111,6 +113,7 @@ export const frameSchema = z.discriminatedUnion('type', [
     ]),
     sessionId: z.string().regex(/^[A-Za-z0-9_-]{1,100}$/).optional(),
     projectName: z.string().max(500).optional(),
+    error: z.string().max(LARK_REPLY_MAX_ERROR_LENGTH).optional(),
   }).strict(),
   z.object({
     type: z.literal('notification-attachment'),
@@ -133,6 +136,7 @@ export const frameSchema = z.discriminatedUnion('type', [
       notificationReplies: z.boolean().optional(),
       notificationReplyFiles: z.boolean().optional(),
       notificationReplyStatus: z.boolean().optional(),
+      notificationReplyErrors: z.boolean().optional(),
       notificationStarts: z.boolean().optional(),
       notificationNamedStarts: z.boolean().optional(),
       larkHelp: z.boolean().optional(),

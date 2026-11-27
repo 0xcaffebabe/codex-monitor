@@ -24,7 +24,7 @@ import type { NotificationService } from '../notifications/service.js';
 import type { NotificationPolicy } from '../notifications/events.js';
 import type { NotificationAttachmentRef, NotificationAttachmentResult } from '../notifications/attachments.js';
 import { LarkDeliveryError } from '../notifications/lark.js';
-import type { LarkReplyReceipt, LarkReplySubmission, LarkStartResult, LarkStartSubmission } from '../notifications/lark-replies.js';
+import type { LarkReplyResult, LarkReplySubmission, LarkStartResult, LarkStartSubmission } from '../notifications/lark-replies.js';
 import type { HelpSnapshot } from '../notifications/help-snapshot.js';
 import {
   CLIENT_UPDATE_TIMEOUT_MS,
@@ -58,6 +58,7 @@ type Peer = {
   notificationReplies: boolean;
   notificationReplyFiles: boolean;
   notificationReplyStatus: boolean;
+  notificationReplyErrors: boolean;
   notificationStarts: boolean;
   notificationNamedStarts: boolean;
   larkHelp: boolean;
@@ -237,6 +238,7 @@ export class WorkspaceGateway {
       notificationReplies: false,
       notificationReplyFiles: false,
       notificationReplyStatus: false,
+      notificationReplyErrors: false,
       notificationStarts: false,
       notificationNamedStarts: false,
       larkHelp: false,
@@ -278,6 +280,7 @@ export class WorkspaceGateway {
           peer.notificationReplies = !!frame.capabilities?.notificationReplies;
           peer.notificationReplyFiles = !!frame.capabilities?.notificationReplyFiles;
           peer.notificationReplyStatus = !!frame.capabilities?.notificationReplyStatus;
+          peer.notificationReplyErrors = !!frame.capabilities?.notificationReplyErrors;
           peer.notificationStarts = !!frame.capabilities?.notificationStarts;
           peer.notificationNamedStarts = !!frame.capabilities?.notificationNamedStarts;
           peer.larkHelp = !!frame.capabilities?.larkHelp;
@@ -466,8 +469,8 @@ export class WorkspaceGateway {
       void sendFrame(peer.socket, { type: 'lark-help-read', id, details }).catch(abort);
     });
   }
-  async submitLarkReply(input: LarkReplySubmission, signal: AbortSignal): Promise<LarkReplyReceipt> {
-    return (await this.submitLarkMessage(input, signal)).result;
+  async submitLarkReply(input: LarkReplySubmission, signal: AbortSignal): Promise<LarkReplyResult> {
+    return this.submitLarkMessage(input, signal);
   }
   async startLarkSession(input: LarkStartSubmission, signal: AbortSignal): Promise<LarkStartResult> {
     const response = await this.submitLarkMessage(input, signal);
@@ -502,6 +505,7 @@ export class WorkspaceGateway {
               ? { imageSizes: attachments.map(({ data }) => data.length) }
               : {}),
           ...(!creating && input.nextTurn && peer.notificationReplyFiles && { nextTurn: true }),
+          ...(!creating && peer.notificationReplyErrors && { includeError: true }),
         });
         for (const { data } of attachments) {
           for (let offset = 0; offset < data.length; offset += CHUNK_BYTES) {
@@ -521,14 +525,15 @@ export class WorkspaceGateway {
   async larkReplyStatus(workspaceId: string, userId: string, requestId: string, signal: AbortSignal) {
     if (signal.aborted || this.closed) return;
     const peer = this.peers.get(workspaceId);
-    if (!peer && !this.store.get(workspaceId)) return 'unavailable';
+    if (!peer && !this.store.get(workspaceId)) return { result: 'unavailable' as const };
     if (!peer?.ready || !peer.notificationReplyStatus ||
         peer.replies.size >= MAX_REQUESTS) return;
     const response = await this.requestLarkReply(peer, signal, 2000, (id) =>
-      sendFrame(peer.socket, { type: 'notification-reply-status', id, userId, requestId }));
+      sendFrame(peer.socket, { type: 'notification-reply-status', id, userId, requestId,
+        ...(peer.notificationReplyErrors && { includeError: true }) }));
     const result = response?.result;
     if (result === 'sent' || result === 'failed' || result === 'unknown' || result === 'unavailable')
-      return result;
+      return response;
   }
   private requestLarkReply(
     peer: Peer,

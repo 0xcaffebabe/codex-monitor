@@ -181,6 +181,9 @@ export class LarkApp {
           throw new LarkDeliveryError('飞书/Lark 未返回回复消息 ID', true);
         return id;
       },
+      replyText: (parent: string, uuid: string, text: string) =>
+        this.request(origin, `im/v1/messages/${encodeURIComponent(parent)}/reply`,
+          { msg_type: 'text', content: JSON.stringify({ text }), uuid }, signal, '回复消息', value),
       message: async (id: string) =>
         (await this.request(origin, `im/v1/messages/${encodeURIComponent(id)}`, undefined, signal, '读取引用消息', value))?.data,
       card: async (recipient: LarkRecipient, uuid: string, text: string, completion?: LarkCompletionStyle) => {

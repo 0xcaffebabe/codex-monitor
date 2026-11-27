@@ -12,6 +12,7 @@ const imageKey = z.string().regex(/^img_[\w-]{1,200}$/);
 const fileKey = z.string().regex(/^file_[\w-]{1,200}$/);
 export const LARK_REPLY_MAX_ATTACHMENTS = 5;
 export const LARK_REPLY_MAX_BYTES = 20 * 1024 * 1024;
+export const LARK_REPLY_MAX_ERROR_LENGTH = 500;
 export const LARK_REPLY_HISTORY_LIMIT = 50;
 const textContent = z.object({ text: z.string() });
 const imageContent = z.object({ image_key: imageKey });
@@ -337,7 +338,8 @@ export type LarkStartProject =
   | { projectId: string; projectName?: never }
   | { projectId?: never; projectName: string };
 export type LarkStartSubmission = Omit<LarkReplySubmission, 'sessionId' | 'nextTurn' | 'requireNextTurn'> & LarkStartProject;
-export type LarkStartResult = { result: LarkReplyReceipt; sessionId?: string; projectName?: string };
+export type LarkReplyResult = { result: LarkReplyReceipt; error?: string };
+export type LarkStartResult = LarkReplyResult & { sessionId?: string; projectName?: string };
 
 export const replyReceipts = {
   sent: { text: '已发送到 Codex 会话。', emoji: 'CheckMark' },

@@ -8,7 +8,7 @@ import { validId, type CodexSource } from './source.js';
 import { MessageQueue, type ControlLane } from './message-queue.js';
 import { MAX_ATTACHMENTS, type UploadStore } from './uploads.js';
 import { imageMime } from './media.js';
-import type { LarkReplyAttachment, LarkStartProject, LarkStartResult } from './notifications/lark-replies.js';
+import { LARK_REPLY_MAX_ERROR_LENGTH, type LarkReplyAttachment, type LarkReplyResult, type LarkStartProject, type LarkStartResult } from './notifications/lark-replies.js';
 import { reasoningEfforts, type SessionModelSettings } from '../src/types.js';
 import { validateModelSettings } from './model-settings.js';
 import { sessionPermissionModes } from '../src/approval-types.js';
@@ -26,6 +26,9 @@ import {
 
 type ClientLarkStartResult = LarkStartResult & {
   result: 'sent' | 'failed' | 'unknown' | 'unavailable' | 'attachmentFailed' | 'projectMissing' | 'projectAmbiguous';
+};
+type ClientLarkReplyResult = LarkReplyResult & {
+  result: 'sent' | 'queued' | 'unavailable' | 'failed' | 'unknown' | 'imageFailed' | 'attachmentFailed';
 };
 
 export type ControlAuthorization = {
@@ -138,17 +141,20 @@ export function installControl(
   const messages = new MessageQueue(db, source, bridge, context, inLane, authorization?.user);
   const adminUser = db.prepare("SELECT 1 FROM users WHERE id=? AND role='admin'");
   const larkRequests = new Map<string, ReturnType<typeof submitLarkReply>>();
-  const larkReceipt = db.prepare('SELECT user_id, state FROM control_requests WHERE id=?');
+  const larkReceipt = db.prepare('SELECT user_id, state, result_json FROM control_requests WHERE id=?');
   const creationRequest = db.prepare('SELECT user_id,fingerprint,state,result_json FROM control_requests WHERE id=?');
   const finishRequest = db.prepare('UPDATE control_requests SET state=?,result_json=? WHERE id=?');
-  const larkResult = (state: unknown) => {
-    if (state === 'succeeded') return 'sent';
-    if (state === 'queued' || state === 'pending') return 'queued';
-    return state === 'unknown' ? 'unknown' : 'failed';
+  const larkResult = (state: unknown, reason?: unknown): ClientLarkReplyResult => {
+    if (state === 'succeeded') return { result: 'sent' };
+    if (state === 'queued' || state === 'pending') return { result: 'queued' };
+    const error = typeof reason === 'string' ? reason.trim().slice(0, LARK_REPLY_MAX_ERROR_LENGTH) : '';
+    return { result: state === 'unknown' ? 'unknown' : 'failed', ...(error && { error }) };
   };
   function larkReplyStatus(userId: string, requestId: string) {
     const receipt = larkReceipt.get(requestId);
-    return receipt?.user_id === userId ? larkResult(receipt.state) : 'unavailable';
+    if (receipt?.user_id !== userId) return { result: 'unavailable' as const };
+    const details = receipt.result_json ? JSON.parse(String(receipt.result_json)) : {};
+    return larkResult(receipt.state, details.error ?? (receipt.state === 'cancelled' ? details.message : undefined));
   }
   async function uploadLarkFiles(
     userId: string, files: LarkReplyAttachment[], attachments: string[], signal: AbortSignal,
@@ -176,28 +182,31 @@ export function installControl(
     { requestId, prompt, nextTurn }: { requestId: string; prompt: string; nextTurn?: true },
     files: LarkReplyAttachment[],
     signal: AbortSignal,
-  ) {
-    if (closed || signal.aborted || !adminUser.get(userId)) return 'failed';
+  ): Promise<ClientLarkReplyResult> {
+    if (closed || signal.aborted) return { result: 'failed' };
+    if (!adminUser.get(userId)) return larkResult('failed', '发送权限已失效。');
     const previous = larkReceipt.get(requestId);
-    if (previous) return previous.user_id === userId ? larkResult(previous.state) : 'failed';
+    if (previous) return larkReplyStatus(userId, requestId);
     const session = validId(id) ? await source.get(id) : undefined;
-    if (!session || session.archived || session.subagent) return 'unavailable';
-    if (closed || signal.aborted) return 'failed';
+    if (!session || session.archived || session.subagent) return { result: 'unavailable' };
+    if (closed || signal.aborted) return { result: 'failed' };
     const attachments: string[] = [];
     const attachmentError = files.some(({ name }) => !!name) ? 'attachmentFailed' : 'imageFailed';
     try {
       await uploadLarkFiles(userId, files, attachments, signal);
-      if (closed || signal.aborted || !adminUser.get(userId)) return 'failed';
+      if (closed || signal.aborted) return { result: 'failed' };
+      if (!adminUser.get(userId)) return larkResult('failed', '发送权限已失效。');
       // Lark replies are conversation text, including text that starts with a slash.
-      const { state } = await messages.submit(userId, 'Lark', id, {
+      const { state, error } = await messages.submit(userId, 'Lark', id, {
         requestId,
         prompt: uploads?.compose(userId, requestId, prompt, attachments) ?? prompt,
         nextTurn,
       });
-      return larkResult(state);
+      return larkResult(state, error);
     } catch (error) {
-      if (files.length && !larkReceipt.get(requestId)) return attachmentError;
-      if (error instanceof ControlError || signal.aborted) return 'failed';
+      if (files.length && !larkReceipt.get(requestId)) return { result: attachmentError };
+      if (error instanceof ControlError) return larkResult(error.uncertain ? 'unknown' : 'failed', error.message);
+      if (signal.aborted) return { result: 'failed' };
       throw error;
     } finally {
       if (!closed && attachments.length && !larkReceipt.get(requestId)) removeLarkFiles(userId, attachments);
