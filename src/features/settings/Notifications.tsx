@@ -268,6 +268,7 @@ export function Notifications({ notify }: { notify: (message: string) => void })
                 次
               </small>
               {delivery.error && <small className="notification-error">{delivery.error}</small>}
+              {delivery.larkReadStatus && <small>{delivery.larkReadStatus}</small>}
             </div>
             <span className={`notification-status ${delivery.status}`}>
               {deliveryStatus(delivery)}

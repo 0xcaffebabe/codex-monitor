@@ -179,6 +179,7 @@ export interface NotificationDelivery {
   status: 'pending' | 'sending' | 'sent' | 'failed' | 'cancelled';
   attempts: number;
   error: string;
+  larkReadStatus?: string;
   createdAt: number;
   sentAt: number | null;
 }

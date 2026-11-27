@@ -49,7 +49,8 @@ export class NotificationService {
   private app: LarkApp;
   private larkReadTimer?: ReturnType<typeof setInterval>;
   private larkReadScan?: Promise<void>;
-  private larkReadCards = new Map<number, { messageId: string; expiresAt: number }>();
+  private larkReadCards = new Map<number, { deliveryId: string; messageId: string; expiresAt: number }>();
+  private larkReadStatus = new Map<string, string>();
   private replyConnection?: ReturnType<LarkReplyListener>;
   private replyDestination?: string;
   private replies = new Map<string, { accepted: Promise<string | undefined>; feedback: Promise<void> }>();
@@ -80,7 +81,10 @@ export class NotificationService {
         ...this.store.publicConfig([...this.monitorErrors.values()].join('；')),
         replyConnection: this.replyConnection?.getConnectionStatus().state,
       },
-      deliveries: this.store.history(),
+      deliveries: this.store.history().map((delivery) => ({
+        ...delivery,
+        larkReadStatus: this.larkReadStatus.get(delivery.id),
+      })),
     };
   }
   policy(): NotificationPolicy {
@@ -125,6 +129,8 @@ export class NotificationService {
     if (changed || (old.enabled && !input.enabled)) {
       this.destination.abort();
       this.destination = new AbortController();
+      for (const { deliveryId } of this.larkReadCards.values())
+        this.setLarkReadStatus(deliveryId, 'Lark 已读查询已停止，通知接收配置已变更或关闭');
       this.larkReadCards.clear();
       this.stopLarkReadTimer();
     }
@@ -378,11 +384,10 @@ export class NotificationService {
       return;
     }
     const { workspaceId, sessionId, turnId, occurredAt } = delivery;
-    if (messageId && workspaceId && sessionId && !signal.aborted) {
+    if (messageId && workspaceId && sessionId && !signal.aborted)
       this.store.recordLarkMessage(config.larkDestination, messageId, workspaceId, sessionId);
-      if (delivery.kind === 'session.completed' && delivery.eventKey)
-        this.trackLarkRead(delivery.eventKey, messageId);
-    }
+    if (delivery.kind === 'session.completed' && delivery.eventKey && !signal.aborted)
+      this.trackLarkRead(delivery.id, delivery.eventKey, messageId);
     if (!this.readAttachment || !workspaceId || !sessionId || !turnId || occurredAt === null)
       return;
     const warnings = new Set<string>();
@@ -408,10 +413,23 @@ export class NotificationService {
     }
     return [...warnings].join('；');
   }
-  private trackLarkRead(eventKey: string, messageId: string) {
+  private setLarkReadStatus(deliveryId: string, status: string) {
+    this.larkReadStatus.delete(deliveryId);
+    this.larkReadStatus.set(deliveryId, status);
+    if (this.larkReadStatus.size > 100)
+      this.larkReadStatus.delete(this.larkReadStatus.keys().next().value!);
+  }
+  private trackLarkRead(deliveryId: string, eventKey: string, messageId: string | undefined) {
     const id = this.completions.pendingId(eventKey);
-    if (id === undefined || this.larkReadCards.get(id)?.messageId === messageId) return;
-    this.larkReadCards.set(id, { messageId, expiresAt: Date.now() + LARK_READ_WINDOW_MS });
+    if (id === undefined) return;
+    if (!messageId) {
+      if (!this.larkReadCards.has(id))
+        this.setLarkReadStatus(deliveryId, '无法查询已读，Lark 未返回有效的卡片消息 ID');
+      return;
+    }
+    if (this.larkReadCards.get(id)?.messageId === messageId) return;
+    this.larkReadCards.set(id, { deliveryId, messageId, expiresAt: Date.now() + LARK_READ_WINDOW_MS });
+    this.setLarkReadStatus(deliveryId, 'Lark 已读查询等待首次检查');
     if (!this.larkReadTimer) {
       this.larkReadTimer = setInterval(() => {
         if (this.larkReadScan) return;
@@ -436,27 +454,34 @@ export class NotificationService {
     const now = Date.now();
     const pending = new Set(notifications.map(({ id }) => id));
     for (const [id, card] of this.larkReadCards) {
-      if (!pending.has(id) || card.expiresAt <= now) this.larkReadCards.delete(id);
+      if (pending.has(id) && card.expiresAt > now) continue;
+      this.larkReadCards.delete(id);
+      this.setLarkReadStatus(card.deliveryId, pending.has(id)
+        ? 'Lark 已读查询已停止，卡片已超过 7 天'
+        : 'Lark 已读查询已停止，网页通知已移除');
     }
     const cards = [...this.larkReadCards];
     if (!cards.length) return;
 
     const signal = AbortSignal.any([this.abort.signal, this.destination.signal]);
-    const sender = await this.app.sender(this.store.config(), signal);
-    if (signal.aborted) return;
+    const sender = this.app.sender(this.store.config(), signal);
     await Promise.all(cards.map(async ([id, card]) => {
       try {
-        if (!(await sender.isRead(card.messageId))) return;
+        const app = await sender;
+        if (signal.aborted) return;
+        const isRead = await app.isRead(card.messageId);
         if (signal.aborted || this.larkReadCards.get(id) !== card) return;
-        this.completions.dismiss(generation, [id]);
-        this.larkReadCards.delete(id);
+        this.setLarkReadStatus(card.deliveryId, isRead ? 'Lark 已读，网页通知已关闭' : 'Lark 暂无已读记录');
+        if (isRead) {
+          this.completions.dismiss(generation, [id]);
+          this.larkReadCards.delete(id);
+        }
       } catch (error) {
-        // Expired or deleted messages cannot be queried again.
-        if (
-          error instanceof LarkDeliveryError &&
-          (error.code === 230033 || error.code === 230110) &&
-          this.larkReadCards.get(id) === card
-        ) this.larkReadCards.delete(id);
+        if (signal.aborted || this.larkReadCards.get(id) !== card) return;
+        const detail = error instanceof LarkDeliveryError ? error.message : '请求失败';
+        this.setLarkReadStatus(card.deliveryId, `Lark 已读查询失败：${detail}`);
+        if (error instanceof LarkDeliveryError && (error.code === 230033 || error.code === 230110))
+          this.larkReadCards.delete(id);
       }
     }));
   }

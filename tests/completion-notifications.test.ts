@@ -423,11 +423,11 @@ test('Lark read scans dismiss only the matching browser notice and stop querying
     queried.push(messageId);
     if (failNextRead === messageId) {
       failNextRead = '';
-      return new Response(null, { status: 503 });
+      return Response.json({ code: 230027 }, { status: 403 });
     }
     return Response.json({
       code: 0,
-      data: { items: read.has(messageId) ? [{ user_id: 'ou_reader' }] : [] },
+      data: { items: read.has(messageId) ? [{ timestamp: '1609484183000' }] : [] },
     });
   });
   try {
@@ -464,6 +464,7 @@ test('Lark read scans dismiss only the matching browser notice and stop querying
     await flush();
     assert.deepEqual(queried.splice(0), ['om_card_1', 'om_card_2', 'om_card_3']);
     assert.deepEqual(service.completions.snapshot(), initial);
+    assert.ok(service.state().deliveries.every((delivery) => delivery.larkReadStatus === 'Lark 暂无已读记录'));
 
     service.completions.dismiss(initial.generation, [remoteNotice.id]);
     read.add('om_card_1');
@@ -473,6 +474,10 @@ test('Lark read scans dismiss only the matching browser notice and stop querying
     assert.deepEqual(queried.splice(0), ['om_card_1', 'om_card_2']);
     assert.deepEqual(service.completions.snapshot().notifications, [secondNotice]);
     assert.ok(service.completions.snapshot().revision > initial.revision);
+    const statuses = service.state().deliveries.map((delivery) => delivery.larkReadStatus);
+    assert.ok(statuses.includes('Lark 已读，网页通知已关闭'));
+    assert.ok(statuses.some((status) => status?.includes('230027')));
+    assert.ok(statuses.includes('Lark 已读查询已停止，网页通知已移除'));
 
     read.add('om_card_2');
     t.mock.timers.tick(10000);

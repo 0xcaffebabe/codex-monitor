@@ -129,7 +129,9 @@ Computer Use 时间线按需读取，支持 `cua_repl` 和通过 `node_repl` 使
 - **应用机器人**。在 Lark 或飞书开放平台创建自建应用，启用机器人能力，开通 `im:message:send_as_bot` 和 `im:resource` 权限，发布后将机器人加入目标群聊。在设置中选择平台，填写 App ID、App Secret 和群聊 ID（`oc_…`）。点击“发送测试通知”验证群里收到卡片和文本附件，再启用通知。
 - **Webhook**。填写群自定义机器人的 Webhook。开启签名校验时填写签名密钥。已有 Webhook 配置升级后继续生效。
 
-应用机器人启用 `im:message:basic`（获取消息的基础信息 V2）并发布后，Server 会每 10 秒查询仍在网页通知列表中的会话卡片。群里有人已读时，Monitor 自动关闭对应轮次的网页通知，并停止查询该卡片。查询适用于机器人仍在群内且发出未满 7 天的消息，外部群和自定义机器人 Webhook 不支持此功能。
+在应用的「权限管理」中开通 `im:message:readonly`（获取单聊、群组消息）并发布。按开放平台的接口说明，应用已有 `im:message`（获取与发送单聊、群组消息），或能开通 `im:message:basic`（获取消息的基础信息 V2），也可以查询已读。以上权限满足任意一项即可。[Lark 已读查询](https://open.larksuite.com/document/server-docs/im-v1/message/read_users?lang=en-US) · [飞书已读查询](https://open.feishu.cn/document/server-docs/im-v1/message/read_users)
+
+Server 每 10 秒查询仍在网页通知列表中的会话完成卡片。群里有人已读时，Monitor 自动关闭对应轮次的网页通知，并停止查询该卡片。可在「最近通知记录」查看已读查询结果和错误码。测试通知和需要回复的通知没有对应的网页完成通知。查询适用于机器人仍在群内且发出未满 7 天的消息，外部群和自定义机器人 Webhook 不支持此功能。
 
 ### 从群聊回复会话
 

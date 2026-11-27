@@ -156,7 +156,9 @@ export class LarkApp {
           value,
         );
         const items = result?.data?.items;
-        return Array.isArray(items) && items.some((item) => typeof item?.user_id === 'string' && item.user_id);
+        if (items == null) return false;
+        if (!Array.isArray(items)) throw new LarkDeliveryError('飞书/Lark 返回了无效的已读列表');
+        return items.length > 0;
       },
       react: (messageId: string, emoji: string) =>
         this.request(
