@@ -4,6 +4,13 @@ import type { TimelineEvent } from '../../types';
 import { EventCard } from './EventCard';
 import { isToolRunning } from './session-model';
 
+const toolTime = new Intl.DateTimeFormat('zh-CN', {
+  hour: '2-digit',
+  minute: '2-digit',
+  second: '2-digit',
+  hourCycle: 'h23',
+});
+
 export function ActivityGroup({
   events,
   onCopy,
@@ -20,12 +27,14 @@ export function ActivityGroup({
   const tools = events.filter((event) => event.kind === 'tool'),
     failed = tools.filter((event) => event.status === 'failed').length,
     running = tools.some(isToolRunning),
-    latestTitle = tools.at(-1)?.title,
-    latestToolAt = tools.reduce(
-      (latest, event) =>
-        Number.isFinite(event.timestamp) ? Math.max(latest, event.timestamp) : latest,
-      0,
-    );
+    latestTitle = tools.at(-1)?.title;
+  let earliestToolAt = Infinity;
+  let latestToolAt = 0;
+  for (const { timestamp } of tools) {
+    if (!Number.isFinite(timestamp) || timestamp <= 0) continue;
+    earliestToolAt = Math.min(earliestToolAt, timestamp);
+    latestToolAt = Math.max(latestToolAt, timestamp);
+  }
   return (
     <details className="activity-group">
       <summary className="activity-summary">
@@ -36,20 +45,21 @@ export function ActivityGroup({
         <small>{tools.length ? `${tools.length} 次工具调用` : `${events.length} 条摘要`}</small>
         {failed > 0 && <span className="activity-failed">{failed} 项失败</span>}
         {latestToolAt > 0 && (
-          <time
-            className="activity-time"
-            dateTime={new Date(latestToolAt).toISOString()}
-            title={`最新工具调用：${new Date(latestToolAt).toLocaleString('zh-CN', { hour12: false })}`}
-          >
-            {new Intl.DateTimeFormat('zh-CN', {
-              month: '2-digit',
-              day: '2-digit',
-              hour: '2-digit',
-              minute: '2-digit',
-              second: '2-digit',
-              hour12: false,
-            }).format(latestToolAt)}
-          </time>
+          <span className="activity-time">
+            <time
+              dateTime={new Date(earliestToolAt).toISOString()}
+              title={`最早工具调用：${new Date(earliestToolAt).toLocaleString('zh-CN', { hourCycle: 'h23' })}`}
+            >
+              {toolTime.format(earliestToolAt)}
+            </time>
+            {' ~ '}
+            <time
+              dateTime={new Date(latestToolAt).toISOString()}
+              title={`最新工具调用：${new Date(latestToolAt).toLocaleString('zh-CN', { hourCycle: 'h23' })}`}
+            >
+              {toolTime.format(latestToolAt)}
+            </time>
+          </span>
         )}
         <ChevronRight size={14} className="activity-chevron" />
       </summary>
