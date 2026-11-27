@@ -13,11 +13,12 @@ import type { WebhookTransport } from './notifications/lark.js';
 import type { LarkReplyListener } from './notifications/lark-replies.js';
 import { installNotificationRoutes } from './http/notification-routes.js';
 import { installSub2ApiRoutes } from './http/sub2api-routes.js';
+import type { ServerMaintenance } from './maintenance/routes.js';
 
 /** Server owns authentication, registration and notification delivery; Codex readers live in clients. */
 export function createMonitorServer(
   config: Config,
-  services: { publicDir?: string; webhookTransport?: WebhookTransport; larkReplyListener?: LarkReplyListener } = {},
+  services: { publicDir?: string; webhookTransport?: WebhookTransport; larkReplyListener?: LarkReplyListener; maintenance?: ServerMaintenance } = {},
 ) {
   const app = express(),
     auth = new AuthStore(config.dataDir, config.sessionDays);
@@ -37,7 +38,8 @@ export function createMonitorServer(
   notifications.readAttachment = (workspaceId, ref, signal) =>
     gateway.readNotificationAttachment(workspaceId, ref, signal);
   notifications.onConfigure = (policy, reset) => gateway.configureNotifications(policy, reset);
-  gateway.install(app);
+  services.maintenance?.install(app, auth);
+  gateway.install(app, services.maintenance?.snapshot);
   installFrontend(app, path.resolve(services.publicDir || 'dist/public'));
   let closing: Promise<void> | undefined;
   return {

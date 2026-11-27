@@ -4,6 +4,7 @@ import type { Express, Request, Response } from 'express';
 import { WebSocket, WebSocketServer } from 'ws';
 import { z } from 'zod';
 import type { AuthStore } from '../auth.js';
+import type { ServerMaintenance } from '../maintenance/routes.js';
 import { buildCommitAt } from '../build-info.js';
 import { admin, fail } from '../http/access.js';
 import {
@@ -555,9 +556,13 @@ export class WorkspaceGateway {
     else if (status && !request.stream) request.res.destroy();
     else request.res.end();
   }
-  install(app: Express) {
+  install(app: Express, maintenance?: ServerMaintenance['snapshot']) {
     app.get('/api/workspaces', (req, res) =>
-      res.json({ workspaces: this.list(req.identity?.user.role === 'admin'), serverBuildCommitAt: buildCommitAt }),
+      res.json({
+        workspaces: this.list(req.identity?.user.role === 'admin'),
+        serverBuildCommitAt: buildCommitAt,
+        ...(req.identity?.user.role === 'admin' && maintenance?.()),
+      }),
     );
     app.post('/api/workspaces', admin, (req, res) => {
       const parsed = nameSchema.safeParse(req.body);

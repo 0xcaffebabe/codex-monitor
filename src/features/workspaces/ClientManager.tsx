@@ -209,6 +209,10 @@ function ClientRow({ workspace, model }: { workspace: ManagedWorkspace; model: W
 }
 
 export function ClientManager({ model }: { model: WorkspacesModel }) {
+  const [confirmingServerUpdate, setConfirmingServerUpdate] = useState(false);
+  const serverUpdate = model.serverUpdate;
+  const updatingServer = clientUpdateInProgress(serverUpdate);
+  const canUpdateServer = model.serverUpdateSupported && !updatingServer && !model.pending;
   return (
     <div className="modal-backdrop" onClick={model.close}>
       <section
@@ -222,8 +226,22 @@ export function ClientManager({ model }: { model: WorkspacesModel }) {
           <Monitor size={24} />
           <div>
             <h2 id="client-manager-title">管理工作空间</h2>
-            <p>
-              服务端版本 <BuildTime commitAt={model.serverBuildCommitAt} />
+            <p className="server-version">
+              <span>
+                服务端版本 <BuildTime commitAt={model.serverBuildCommitAt} />
+              </span>
+              {model.serverUpdateSupported && (
+                <button
+                  type="button"
+                  className="client-update"
+                  aria-label="更新并重启服务端"
+                  disabled={!canUpdateServer}
+                  onClick={() => setConfirmingServerUpdate(true)}
+                >
+                  <RefreshCw size={14} aria-hidden="true" />
+                  更新
+                </button>
+              )}
             </p>
             <p>一个 client 对应一个工作空间</p>
           </div>
@@ -232,6 +250,30 @@ export function ClientManager({ model }: { model: WorkspacesModel }) {
           </button>
         </header>
         <div className="settings-body">
+          {serverUpdate && (
+            <p className={serverUpdate.phase === 'failed' ? 'alert error' : 'help'} role="status">
+              {serverUpdate.message ||
+                `服务端${serverUpdate.phase === 'requested' ? '等待开始更新' : updateLabels[serverUpdate.phase]}`}
+            </p>
+          )}
+          {confirmingServerUpdate && (
+            <div className="client-confirm">
+              <span>服务端重启时，网页和客户端连接会短暂中断。</span>
+              <button
+                type="button"
+                disabled={!canUpdateServer}
+                onClick={() => {
+                  setConfirmingServerUpdate(false);
+                  void model.updateServer();
+                }}
+              >
+                确认更新服务端
+              </button>
+              <button type="button" onClick={() => setConfirmingServerUpdate(false)}>
+                取消
+              </button>
+            </div>
+          )}
           {model.error && (
             <div className="alert error" role="alert">
               {model.error}

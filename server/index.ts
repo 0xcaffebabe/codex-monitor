@@ -12,6 +12,7 @@ import { PROTOCOL_VERSION } from './transport/protocol.js';
 import { buildDependencies } from './build-info.js';
 import { ClientUpdateChannel } from './client/update-channel.js';
 import { superviseClient } from './client/update-supervisor.js';
+import { serverMaintenance } from './maintenance/routes.js';
 
 const startup = (() => {
   try {
@@ -67,7 +68,7 @@ async function run() {
       `  Server: ${startup.client!.serverUrl}\n  Workspace: ${startup.client!.workspaceId}\n  Protocol: ${PROTOCOL_VERSION}\n  Data: ${config.dataDir}`,
     );
   } else {
-    service = createMonitorServer(config);
+    service = createMonitorServer(config, { maintenance: serverMaintenance(config, entry) });
     const cert = process.env.MONITOR_TLS_CERT,
       key = process.env.MONITOR_TLS_KEY;
     if (config.secure && (!cert || !key))

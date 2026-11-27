@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, post } from '../../api';
-import type { ManagedWorkspace } from '../../workspaces';
+import type { ManagedWorkspace, UpdateStatus } from '../../workspaces';
 import { initializeWorkspace, navigateWorkspace, subscribeNavigation } from '../../workspace-scope';
 import { copyText } from '../../shared/clipboard';
 import { preferredNewSessionWorkspace } from '../control/new-session-preferences';
@@ -9,7 +9,12 @@ type ConnectionCopy =
   | { id: string; status: 'copying' | 'copied' }
   | { id: string; status: 'error'; message: string };
 
-type WorkspaceList = { workspaces: ManagedWorkspace[]; serverBuildCommitAt?: number | null };
+type WorkspaceList = {
+  workspaces: ManagedWorkspace[];
+  serverBuildCommitAt?: number | null;
+  serverUpdateSupported?: boolean;
+  serverUpdate?: UpdateStatus;
+};
 
 function clientCommand(id: string, key: string) {
   const serverUrl = location.origin.replace(/^http/, 'ws');
@@ -17,7 +22,10 @@ function clientCommand(id: string, key: string) {
 }
 
 export function useWorkspaces(userId: string) {
-  const [{ workspaces, serverBuildCommitAt }, setWorkspaceList] = useState<WorkspaceList>({
+  const [
+    { workspaces, serverBuildCommitAt, serverUpdateSupported, serverUpdate },
+    setWorkspaceList,
+  ] = useState<WorkspaceList>({
     workspaces: [],
   });
   const [loading, setLoading] = useState(true),
@@ -132,6 +140,10 @@ export function useWorkspaces(userId: string) {
     action(id, async () => {
       await post(`/api/workspaces/${encodeURIComponent(id)}/update`);
     });
+  const updateServer = () =>
+    action('server-update', async () => {
+      await post('/api/server/update');
+    });
   const copy = async () => {
     setConnectionCopy(null);
     try {
@@ -170,6 +182,8 @@ export function useWorkspaces(userId: string) {
   return {
     workspaces,
     serverBuildCommitAt,
+    serverUpdateSupported,
+    serverUpdate,
     active: workspaces.find((item) => item.id === activeId),
     activeId,
     loading,
@@ -188,6 +202,7 @@ export function useWorkspaces(userId: string) {
     rename,
     setPrivacyWork,
     updateClient,
+    updateServer,
     copy,
     copyWorkspaceCommand,
     close: () => {

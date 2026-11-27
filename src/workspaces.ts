@@ -11,7 +11,8 @@ export const clientUpdatePhases = [
   'failed',
 ] as const;
 export type ClientUpdatePhase = (typeof clientUpdatePhases)[number];
-export type ClientUpdateStatus = { phase: ClientUpdatePhase | 'requested'; message?: string };
+export type UpdateStatus = { phase: ClientUpdatePhase | 'requested'; message?: string };
+export type ClientUpdateStatus = UpdateStatus;
 
 export function clientUpdateInProgress(status?: ClientUpdateStatus) {
   return !!status && status.phase !== 'succeeded' && status.phase !== 'failed';

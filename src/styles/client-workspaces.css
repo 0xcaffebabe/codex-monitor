@@ -49,6 +49,12 @@
 .client-manager {
   width: min(780px, calc(100vw - 24px));
 }
+.server-version {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+}
 .client-create {
   display: grid;
   gap: 8px;

@@ -1,20 +1,14 @@
 import { fork, spawn, type ChildProcess } from 'node:child_process';
-import { createHash } from 'node:crypto';
 import { once } from 'node:events';
-import { existsSync, readFileSync } from 'node:fs';
-import { copyFile, cp, mkdtemp, open, rename, rm } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
+import { mkdtemp, open, rename, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { buildDependencies } from '../build-info.js';
+import { dependencyHash, prepareDependencyInstall } from '../maintenance/build.js';
+import { UPDATE_LOCK } from '../maintenance/status.js';
 import type { UpdateStatus } from './update-channel.js';
 
-const manifests = ['package.json', 'package-lock.json'];
 const windows = process.platform === 'win32';
-
-function dependencyHash(root: string) {
-  const hash = createHash('sha256');
-  for (const name of manifests) hash.update(readFileSync(path.join(root, name))).update('\0');
-  return hash.digest('hex');
-}
 
 function run(
   command: 'git' | 'npm',
@@ -153,7 +147,7 @@ export async function superviseClient(root: string, entry: string) {
   }
 
   async function update(id: string) {
-    const lockPath = path.join(root, '.monitor-update-lock');
+    const lockPath = path.join(root, UPDATE_LOCK);
     let lock: Awaited<ReturnType<typeof open>> | undefined;
     let stage: string | undefined;
     let failure = '此目录已有更新任务在运行。';
@@ -169,14 +163,8 @@ export async function superviseClient(root: string, entry: string) {
       if (installed !== nextDependencies || !existsSync(modules)) {
         failure = '安装依赖失败，请查看客户端日志。';
         publish({ id, phase: 'installing' });
-        await Promise.all(
-          manifests.map((name) => copyFile(path.join(root, name), path.join(stage!, name))),
-        );
-        const npmConfig = path.join(root, '.npmrc');
-        if (existsSync(npmConfig)) await copyFile(npmConfig, path.join(stage, '.npmrc'));
-        // The package postinstall script uses this file relative to the checkout.
-        await cp(path.join(root, 'scripts'), path.join(stage, 'scripts'), { recursive: true });
-        await run('npm', ['ci', '--no-fund'], stage, abort.signal);
+        await prepareDependencyInstall(root, stage);
+        await run('npm', ['ci', '--include=dev', '--no-fund'], stage, abort.signal);
         abort.signal.throwIfAborted();
         await stopWorker();
         const backup = path.join(stage, 'previous-node_modules');

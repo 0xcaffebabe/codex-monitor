@@ -7,6 +7,7 @@ import type { IncomingMessage } from 'node:http';
 import type { Config } from '../config.js';
 import { fail } from './access.js';
 import { MAX_JSON_BODY } from '../transport/protocol.js';
+import { buildId } from '../build-info.js';
 
 function requestRejection(config: Config) {
   const hosts = new Set([
@@ -103,6 +104,6 @@ export function installHttpSecurity(app: Express, config: Config) {
   );
   app.use(express.json({ limit: MAX_JSON_BODY, type: 'application/json' }));
   app.get('/api/health', (_req, res) =>
-    res.json({ ok: true, app: 'codex-monitor', version: '1.0.0' }),
+    res.json({ ok: true, app: 'codex-monitor', version: '1.0.0', buildId }),
   );
 }
