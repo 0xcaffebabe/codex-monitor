@@ -161,7 +161,6 @@ async function update(job: ServerUpdateJob) {
     stage = await mkdtemp(path.join(root, '.monitor-update-'));
     failure = '拉取失败，请检查服务端的 Git 上游、凭据和工作区。';
     publish('pulling');
-    await command('git', ['diff', '--quiet', 'HEAD', '--']);
     await command('git', ['pull', '--ff-only']);
 
     const modules = path.join(root, 'node_modules');
