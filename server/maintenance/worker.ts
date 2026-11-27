@@ -64,50 +64,69 @@ async function verifyPm2(pmId: number) {
   }
 }
 
-function healthy(url: string, buildId: string) {
-  return new Promise<boolean>((resolve) => {
-    let body = '';
+function checkBuild(url: string, buildId: string) {
+  return new Promise<void>((resolve, reject) => {
+    const fail = (message: string, cause?: unknown) =>
+      reject(new Error(`Health check at ${url}: ${message}`, { cause }));
     const get = url.startsWith('https:') ? httpsGet : httpGet;
     const request = get(
       url,
       {
+        // The local listener must be checked directly, even when Node uses an environment proxy.
+        agent: false,
         // Verify the expected build on the local listener, including self-signed community deployments.
         rejectUnauthorized: false,
         signal: AbortSignal.timeout(2000),
       },
       (response) => {
+        if (response.statusCode !== 200) {
+          fail(`HTTP ${response.statusCode}`);
+          response.destroy();
+          return;
+        }
+        let body = '';
         response.setEncoding('utf8');
         response.on('data', (chunk: string) => {
           body += chunk;
-          if (body.length > 16_384) response.destroy();
+          if (body.length > 16_384) {
+            fail('response exceeded the size limit');
+            response.destroy();
+          }
         });
-        response.on('close', () => resolve(false));
+        response.on('error', (error) => fail('response failed', error));
         response.on('end', () => {
+          let status;
           try {
-            const status = JSON.parse(body);
-            resolve(
-              response.statusCode === 200 &&
-                status.ok === true &&
-                status.app === 'codex-monitor' &&
-                status.buildId === buildId,
-            );
+            status = JSON.parse(body);
           } catch {
-            resolve(false);
+            fail('invalid JSON response');
+            return;
+          }
+          if (status?.ok !== true || status.app !== 'codex-monitor') {
+            fail('response did not identify a healthy Codex Monitor server');
+          } else if (status.buildId !== buildId) {
+            fail(`build ID did not match the expected build (${buildId})`);
+          } else {
+            resolve();
           }
         });
       },
     );
-    request.on('error', () => resolve(false));
+    request.on('error', (error) => fail('request failed', error));
   });
 }
 
-async function waitForBuild(url: string, buildId: string) {
-  const deadline = Date.now() + 30_000;
-  do {
-    if (await healthy(url, buildId)) return;
+async function waitForBuild(url: string, buildId: string, timeout = 30_000) {
+  const deadline = Date.now() + timeout;
+  for (;;) {
+    try {
+      await checkBuild(url, buildId);
+      return;
+    } catch (error) {
+      if (Date.now() >= deadline) throw error;
+    }
     await delay(500);
-  } while (Date.now() < deadline);
-  throw new Error('PM2 app did not serve the expected build');
+  }
 }
 
 async function update(job: ServerUpdateJob) {
@@ -116,7 +135,7 @@ async function update(job: ServerUpdateJob) {
   let stage: string | undefined;
   let stopped = false;
   let restarted = false;
-  let failure = '无法确认 PM2 应用 server，或本机健康检查失败。';
+  let failure = '无法确认 PM2 应用 server，请查看服务端更新日志。';
   const rollback: (() => Promise<void>)[] = [];
 
   async function stop() {
@@ -137,8 +156,8 @@ async function update(job: ServerUpdateJob) {
 
   try {
     await verifyPm2(job.pmId);
-    if (!(await healthy(job.healthUrl, job.buildId)))
-      throw new Error('Current build failed health check');
+    failure = '当前版本的本机健康检查失败，请查看服务端更新日志。';
+    await waitForBuild(job.healthUrl, job.buildId, 5_000);
     stage = await mkdtemp(path.join(root, '.monitor-update-'));
     failure = '拉取失败，请检查服务端的 Git 上游、凭据和工作区。';
     publish('pulling');
