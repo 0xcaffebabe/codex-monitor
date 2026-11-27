@@ -86,7 +86,7 @@ async function central(
   };
 }
 
-test('Lark starts default and aliased sessions, quotes a file, and continues from the startup card', async () => {
+test('Lark starts sessions by name, default, or alias and continues from the startup card', async () => {
   const a = fixture(), b = fixture();
   a.config.pollMs = b.config.pollMs = 50;
   const desks = [new FixtureDesktop(a), new FixtureDesktop(b)];
@@ -140,7 +140,7 @@ test('Lark starts default and aliased sessions, quotes a file, and continues fro
   const clients: MonitorClient[] = [];
   try {
     const owner = await server.service.auth.setup('owner', 'central-notification-password');
-    const workspaces = [server.service.gateway.store.create('Windows'), server.service.gateway.store.create('Mac')];
+    const workspaces = [server.service.gateway.store.create('Windows PC'), server.service.gateway.store.create('rt-pc')];
     for (const [index, item] of [a, b].entries()) {
       clients.push(await MonitorClient.start({
         config: item.config, serverUrl: server.base, workspaceId: workspaces[index].workspace.id,
@@ -154,33 +154,17 @@ test('Lark starts default and aliased sessions, quotes a file, and continues fro
     };
     const targets = workspaces.map(({ workspace }, index) =>
       ({ alias: index === 0 ? 'w' : 'm', workspaceId: workspace.id, projectId, projectName: 'work' }));
-    const save = (defaultAlias: string) => fetch(server.base + '/api/notifications', {
+    const save = (defaultAlias: string, configured = targets) => fetch(server.base + '/api/notifications', {
       method: 'PUT', headers,
       body: JSON.stringify({
         provider: 'lark', mode: 'app', appId: 'cli_monitor', appSecret: 'test', chatId: 'oc_team',
         enabled: true, publicUrl: 'https://monitor.example.com/', replyOpenIds: ['ou_allowed'],
-        larkStart: { defaultAlias, targets },
+        larkStart: { defaultAlias, targets: configured },
       }),
     });
     assert.equal((await save('missing')).status, 400);
-    const saved = await save('w');
-    assert.equal(saved.status, 200);
-    assert.deepEqual((await saved.json()).settings.larkStart, { defaultAlias: 'w', targets });
+    assert.equal((await save('', [])).status, 200);
     const service = server.service.notifications;
-    const create = desks[0].create.bind(desks[0]);
-    desks[0].create = async (...args) => {
-      const result = await create(...args);
-      // A Client can report the completed turn before its creation RPC returns.
-      service.receive(workspaces[0].workspace, {
-        revision: service.policy().revision, monitorError: '',
-        events: [{
-          kind: 'session.completed', sessionId: result.threadId, turnId: 'early-completion',
-          title: '检查断线', project: 'work', summary: '首轮结果',
-          occurredAt: Math.floor(Date.now() / 1000) * 1000,
-        }],
-      });
-      return result;
-    };
     const event = (messageId: string, text: string, options: {
       parentId?: string; rootId?: string; mentioned?: string; sender?: string; createdAt?: string;
     } = {}) => ({
@@ -201,28 +185,85 @@ test('Lark starts default and aliased sessions, quotes a file, and continues fro
       });
       return cards.get(id)!;
     };
-    await receive(event('om_wrong_user', '任务', { sender: 'ou_other' }));
-    await receive(event('om_other_mention', '任务', { mentioned: 'ou_teammate' }));
-    await receive(event('om_help', ''));
-    assert.match((await waitForCard('om_help')).text, /w:.*Windows.*默认/);
+    await receive(event('om_wrong_user', 'rt-pc/work 任务', { sender: 'ou_other' }));
+    await receive(event('om_other_mention', 'rt-pc/work 任务', { mentioned: 'ou_teammate' }));
+    await receive(event('om_no_default', ''));
+    assert.match((await waitForCard('om_no_default')).text, /工作空间\/项目/);
+    await receive(event('om_no_workspace', 'missing/work 检查日志'));
+    assert.match((await waitForCard('om_no_workspace')).text, /找不到这个名称的工作空间/);
+    server.service.gateway.store.create('Offline');
+    await receive(event('om_offline_workspace', 'Offline/work 检查日志'));
+    assert.match((await waitForCard('om_offline_workspace')).text, /工作空间已离线/);
+    server.service.gateway.store.create('Duplicate');
+    server.service.gateway.store.create('Duplicate');
+    await receive(event('om_duplicate_workspace', 'Duplicate/work 检查日志'));
+    assert.match((await waitForCard('om_duplicate_workspace')).text, /多个同名工作空间/);
+    await receive(event('om_no_project', 'rt-pc/missing 检查日志'));
+    assert.match((await waitForCard('om_no_project')).text, /没有这个名称的项目/);
+    const listProjects = desks[1].projects.bind(desks[1]);
+    desks[1].projects = async () => {
+      const projects = await listProjects();
+      return [...projects, { ...projects[0], id: randomUUID() }];
+    };
+    await receive(event('om_duplicate_project', 'rt-pc/work 检查日志'));
+    assert.match((await waitForCard('om_duplicate_project')).text, /多个同名项目/);
+    desks[1].projects = listProjects;
     assert.deepEqual(desks.map(({ creates }) => creates), [0, 0]);
+
+    const named = event('om_named', 'rt-pc/work 检查日志');
+    await Promise.all([receive(named), receive(named)]);
+    assert.match((await waitForCard('om_named')).text, /rt-pc/);
+    const namedPrompt = b.hist.prepare("SELECT item_json FROM thread_items WHERE json_extract(item_json,'$.type')='userMessage' AND item_json LIKE ?")
+      .get('%检查日志%');
+    assert.ok(namedPrompt);
+    assert.doesNotMatch(String(namedPrompt.item_json), /rt-pc\/work/);
+    await receive(event('om_quoted_name', '"Windows PC"/work 检查日志'));
+    assert.match((await waitForCard('om_quoted_name')).text, /Windows PC/);
+    assert.deepEqual(desks.map(({ creates }) => creates), [1, 1]);
+
+    const saved = await save('w');
+    assert.equal(saved.status, 200);
+    assert.deepEqual((await saved.json()).settings.larkStart, { defaultAlias: 'w', targets });
+    const create = desks[0].create.bind(desks[0]);
+    desks[0].create = async (...args) => {
+      const result = await create(...args);
+      // A Client can report the completed turn before its creation RPC returns.
+      service.receive(workspaces[0].workspace, {
+        revision: service.policy().revision, monitorError: '',
+        events: [{
+          kind: 'session.completed', sessionId: result.threadId, turnId: 'early-completion',
+          title: '检查断线', project: 'work', summary: '首轮结果',
+          occurredAt: Math.floor(Date.now() / 1000) * 1000,
+        }],
+      });
+      return result;
+    };
+    await receive(event('om_help', ''));
+    const help = (await waitForCard('om_help')).text;
+    assert.match(help, /w.*Windows.*默认/);
+    assert.match(help, /@机器人 简称 任务内容/);
     assert.ok(!cards.has('om_other_mention') && !cards.has('om_wrong_user'));
 
-    const start = event('om_default', '查一下断线');
+    const start = event('om_default', 'migrate 查一下断线');
     await Promise.all([receive(start), receive(start)]);
     const first = await waitForCard('om_default');
     assert.match(first.text, /Windows/);
     assert.match(first.text, /monitor\.example\.com/);
+    assert.ok(a.hist.prepare("SELECT 1 FROM thread_items WHERE json_extract(item_json,'$.type')='userMessage' AND item_json LIKE ?")
+      .get('%migrate 查一下断线%'));
     await until(() => service.store.history().some(({ kind, title }) =>
       kind === 'session.completed' && title === '检查断线'));
     await receive(start);
     await receive(event('om_unknown_alias', 'z: 测试'));
     assert.match((await waitForCard('om_unknown_alias')).text, /找不到这个简称/);
-    assert.deepEqual(desks.map(({ creates }) => creates), [1, 0]);
+    assert.deepEqual(desks.map(({ creates }) => creates), [2, 1]);
 
-    await receive(event('om_quote_file', 'M：分析日志', { parentId: 'om_file' }));
+    await receive(event('om_legacy_alias', 'm：查看状态'));
+    assert.match((await waitForCard('om_legacy_alias')).text, /rt-pc/);
+
+    await receive(event('om_quote_file', 'M 分析日志', { parentId: 'om_file' }));
     const second = await waitForCard('om_quote_file');
-    assert.match(second.text, /Mac/);
+    assert.match(second.text, /rt-pc/);
     assert.match(second.text, /附件：1 个/);
     const store = server.service.notifications.store;
     const destination = store.config().larkDestination;
@@ -232,12 +273,12 @@ test('Lark starts default and aliased sessions, quotes a file, and continues fro
     const firstPrompt = String(b.hist.prepare("SELECT item_json FROM thread_items WHERE thread_id=? AND json_extract(item_json,'$.type')='userMessage'").get(target.sessionId)?.item_json);
     assert.match(firstPrompt, /分析日志/);
     assert.match(firstPrompt, /log\.txt/);
-    assert.doesNotMatch(firstPrompt, /@_user_1|M：/);
+    assert.doesNotMatch(firstPrompt, /@_user_1|M 分析日志/);
     await receive(event('om_followup', '再检查一次', {
       parentId: second.id, rootId: 'om_quote_file', createdAt: String(Date.now()),
     }));
     await until(() => reactions.has('om_followup'));
-    assert.deepEqual(desks.map(({ creates, sends }) => [creates, sends]), [[1, 1], [1, 2]]);
+    assert.deepEqual(desks.map(({ creates, sends }) => [creates, sends]), [[2, 2], [3, 4]]);
     const followup = String(b.hist.prepare("SELECT item_json FROM thread_items WHERE thread_id=? AND item_json LIKE ?")
       .get(target.sessionId, '%再检查一次%')?.item_json);
     assert.match(followup, /再检查一次/);

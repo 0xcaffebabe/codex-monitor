@@ -28,6 +28,7 @@ import {
   type LarkReplyReceipt,
   type LarkReplySubmission,
   type LarkStartResult,
+  type LarkStartProject,
   type LarkStartSubmission,
 } from './lark-replies.js';
 import {
@@ -42,6 +43,11 @@ const LARK_REPLY_POLL_MS = 3_000;
 const START_UNKNOWN = '暂时无法确认会话是否已创建。请在 Monitor 检查会话记录，避免重复提交。';
 const markdownLabel = (value: string) => value.replace(/[\r\n]/g, ' ').replace(/[\\`*_[\]<>~]/g, '\\$&');
 type ReportedCompletion = Extract<NotificationEvent, { kind: 'session.completed' }>;
+type StartTarget = { workspaceId: string; project: LarkStartProject; label: string; prompt: string };
+
+const namedTarget = /^("(?:[^"\\]|\\["\\])+"|[^\s/"\\:：]+)\/("(?:[^"\\]|\\["\\])+"|[^\s/"\\]+)(?=\s|$)/u;
+const unquoteTargetName = (name: string) =>
+  name[0] === '"' ? name.slice(1, -1).replace(/\\(["\\])/g, '$1') : name;
 
 /** Server-owned configuration and durable delivery queue, independent of clients and browsers. */
 export class NotificationService {
@@ -155,6 +161,7 @@ export class NotificationService {
   submitReply?: (input: LarkReplySubmission, signal: AbortSignal) => Promise<LarkReplyReceipt>;
   startSession?: (input: LarkStartSubmission, signal: AbortSignal) => Promise<LarkStartResult>;
   workspaceName?: (id: string) => string | undefined;
+  workspacesNamed?: (name: string) => readonly { id: string }[];
   readReplyStatus?: (
     workspaceId: string, userId: string, requestId: string, signal: AbortSignal,
   ) => Promise<LarkReplyReceipt | undefined>;
@@ -183,7 +190,7 @@ export class NotificationService {
     const target = reply.parents.map((id) => this.store.larkTarget(destination, id)).find((item) => item !== undefined);
     const key = `${destination}:${reply.messageId}`;
     if (!target) {
-      if (!this.startSession || !config.larkStart.targets.length || this.starts.has(key) || this.starts.size >= 16 ||
+      if (!this.startSession || this.starts.has(key) || this.starts.size >= 16 ||
           this.store.hasLarkStart(destination, reply.messageId)) return;
       const mentions = larkStartMentions(reply.message);
       if (!mentions.length) return;
@@ -265,6 +272,46 @@ export class NotificationService {
       this.store.finishLarkStart(destination, reply.messageId, result.text);
     }
   }
+  private resolveStartTarget(
+    { larkStart: { defaultAlias, targets } }: NotificationConfig,
+    input: string,
+    hasAttachments: boolean,
+  ): StartTarget | { text: string } {
+    const named = namedTarget.exec(input);
+    if (named) {
+      const workspace = unquoteTargetName(named[1]);
+      const projectName = unquoteTargetName(named[2]);
+      const matches = this.workspacesNamed?.(workspace) ?? [];
+      if (!matches.length) return { text: '找不到这个名称的工作空间，请核对 Monitor 中显示的名称。' };
+      if (matches.length > 1) return { text: '有多个同名工作空间，请在 Monitor 选择工作空间并设置简称。' };
+      if (projectName.length > 500) return { text: '项目名称过长，请在 Monitor 为这个项目设置简称。' };
+      return {
+        workspaceId: matches[0].id,
+        project: { projectName },
+        label: projectName,
+        prompt: input.slice(named[0].length).trimStart(),
+      };
+    }
+    const shortcut = /^([a-z0-9][a-z0-9_-]{0,15})([:：](?!\/)|(?=\s|$))/i.exec(input);
+    const selected = targets.find(({ alias }) => alias === shortcut?.[1].toLowerCase());
+    const explicitShortcut = !!shortcut?.[2];
+    const target = selected ?? (explicitShortcut ? undefined : targets.find(({ alias }) => alias === defaultAlias));
+    const prompt = selected && shortcut ? input.slice(shortcut[0].length).trimStart() : input;
+    if ((!input && !hasAttachments) || !target) {
+      const choices = targets.map(({ alias, workspaceId, projectName }) => {
+        const workspace = this.workspaceName?.(workspaceId) ?? '工作空间已移除';
+        return `- \`${alias}\` ${markdownLabel(workspace)}${projectName ? ` / ${markdownLabel(projectName)}` : ''}${alias === defaultAlias ? '（默认）' : ''}`;
+      });
+      return { text: [
+        explicitShortcut ? '找不到这个简称。' : targets.length ? '**可用会话目标**' : '当前未设置默认会话目标。',
+        ...choices,
+        ...(target ? ['直接 @ 机器人并写任务可使用默认目标。'] : []),
+        ...(targets.length ? ['可发送 “@机器人 简称 任务内容” 指定目标。'] : []),
+        '可发送 “@机器人 工作空间/项目 任务内容”。',
+      ].join('\n') };
+    }
+    return { workspaceId: target.workspaceId, project: { projectId: target.projectId }, label: target.projectName ?? target.alias, prompt };
+  }
   private async dispatchStart(
     config: NotificationConfig,
     reply: NonNullable<ReturnType<typeof larkReply>>,
@@ -273,21 +320,9 @@ export class NotificationService {
     signal: AbortSignal,
   ): Promise<{ text: string; workspaceId?: string; sessionId?: string }> {
     const { prompt: input, resources: ownResources, invalidResource } = larkStartContent(reply.message, mentionKeys);
-    const shortcut = /^([a-z0-9][a-z0-9_-]{0,15})[:：](?!\/)/i.exec(input);
-    const { defaultAlias, targets } = config.larkStart;
-    const target = targets.find(({ alias }) => alias === (shortcut?.[1].toLowerCase() ?? defaultAlias));
-    const prompt = shortcut ? input.slice(shortcut[0].length).trimStart() : input;
-    if ((!input && !ownResources.length && !reply.parents.length && !invalidResource) || !target) {
-      const choices = targets.map(({ alias, workspaceId, projectName }) => {
-        const workspace = this.workspaceName?.(workspaceId) ?? '工作空间已移除';
-        return `- \`${alias}:\` ${markdownLabel(workspace)}${projectName ? ` / ${markdownLabel(projectName)}` : ''}${alias === defaultAlias ? '（默认）' : ''}`;
-      });
-      return { text: [
-        target ? '**可用会话目标**' : '找不到这个简称，请选用下面的目标。',
-        ...choices,
-        '直接 @ 机器人并写任务可使用默认目标。指定目标时，在任务前加简称。',
-      ].join('\n') };
-    }
+    const target = this.resolveStartTarget(config, input, !!(ownResources.length || reply.parents.length || invalidResource));
+    if ('text' in target) return target;
+    const { prompt } = target;
     const workspace = this.workspaceName?.(target.workspaceId);
     if (!workspace) return { text: '目标工作空间已移除，请在 Monitor 更新会话目标。' };
     if (invalidResource) return { text: '无法读取消息中的附件，会话未创建。' };
@@ -325,19 +360,19 @@ export class NotificationService {
         this.replyDownloads--;
       }
     }
-    if (!prompt) return { text: '请在简称后写任务，或引用要提交的文件。' };
+    if (!prompt) return { text: '请在目标后写任务，或引用要提交的文件。' };
     return this.submitLarkStart(config, reply, target, workspace, prompt, [], signal);
   }
   private async submitLarkStart(
     config: NotificationConfig,
     reply: NonNullable<ReturnType<typeof larkReply>>,
-    target: NotificationConfig['larkStart']['targets'][number],
+    target: StartTarget,
     workspace: string,
     prompt: string,
     attachments: LarkStartSubmission['attachments'],
     signal: AbortSignal,
   ) {
-    const { workspaceId, projectId } = target;
+    const { workspaceId, project } = target;
     signal.throwIfAborted();
     const begunAt = Math.floor(Date.now() / 1000) * 1000;
     const starting = this.startingWorkspaces.get(workspaceId) ?? { active: 0, completions: new Map() };
@@ -346,7 +381,7 @@ export class NotificationService {
     let created: LarkStartResult;
     try {
       created = await this.startSession!({
-        workspaceId, projectId, prompt, attachments,
+        workspaceId, ...project, prompt, attachments,
         userId: config.replyAdminId,
         requestId: larkRequestId(config.larkDestination, reply.messageId),
       }, signal).catch((): LarkStartResult => ({ result: 'unknown' }));
@@ -370,6 +405,8 @@ export class NotificationService {
         unavailable: '工作空间或项目已不可用，请在 Monitor 更新会话目标。',
         upgrade: '请先更新此工作空间的 Monitor Client。',
         attachmentFailed: '附件未能保存到工作空间，会话未创建。',
+        projectMissing: replyReceipts.projectMissing.text,
+        projectAmbiguous: replyReceipts.projectAmbiguous.text,
         busy: '工作空间正在处理其他请求，请稍后重新发送。',
         failed: '会话创建失败，请在 Monitor 查看请求回执。',
       };
@@ -378,7 +415,7 @@ export class NotificationService {
     const lines = [
       '**Codex 会话已启动**',
       `工作空间：${markdownLabel(workspace)}`,
-      `项目：${markdownLabel(projectName ?? target.projectName ?? target.alias)}`,
+      `项目：${markdownLabel(projectName ?? target.label)}`,
       `附件：${attachments.length} 个`,
     ];
     if (config.publicUrl) {

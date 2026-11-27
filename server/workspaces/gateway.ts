@@ -58,6 +58,7 @@ type Peer = {
   notificationReplyFiles: boolean;
   notificationReplyStatus: boolean;
   notificationStarts: boolean;
+  notificationNamedStarts: boolean;
   replies: Map<string, PendingLarkReply>;
   privacyWork: boolean;
   clientUpdate: boolean;
@@ -234,6 +235,7 @@ export class WorkspaceGateway {
       notificationReplyFiles: false,
       notificationReplyStatus: false,
       notificationStarts: false,
+      notificationNamedStarts: false,
       replies: new Map(),
       privacyWork: false,
       clientUpdate: false,
@@ -272,6 +274,7 @@ export class WorkspaceGateway {
           peer.notificationReplyFiles = !!frame.capabilities?.notificationReplyFiles;
           peer.notificationReplyStatus = !!frame.capabilities?.notificationReplyStatus;
           peer.notificationStarts = !!frame.capabilities?.notificationStarts;
+          peer.notificationNamedStarts = !!frame.capabilities?.notificationNamedStarts;
           peer.privacyWork = frame.platform === 'win32' && !!frame.capabilities?.privacyWork;
           peer.clientUpdate = id !== 'local' && !!frame.capabilities?.clientUpdate;
           clearTimeout(handshake);
@@ -435,12 +438,13 @@ export class WorkspaceGateway {
   }
   private async submitLarkMessage(input: LarkReplySubmission | LarkStartSubmission, signal: AbortSignal): Promise<LarkStartResult> {
     const { workspaceId, userId, requestId, prompt, attachments } = input;
-    const creating = 'projectId' in input;
+    const creating = !('sessionId' in input);
     const peer = this.peers.get(workspaceId);
     if (signal.aborted || this.closed) return { result: 'failed' };
     if (!this.store.get(workspaceId)) return { result: 'unavailable' };
     if (!peer?.ready) return { result: 'offline' };
     if (creating ? !peer.notificationStarts : !peer.notificationReplies) return { result: 'upgrade' };
+    if (creating && input.projectName && !peer.notificationNamedStarts) return { result: 'upgrade' };
     const hasFiles = attachments.some(({ name }) => !!name);
     if (hasFiles && !peer.notificationReplyFiles) return { result: 'upgrade' };
     if (peer.replies.size >= MAX_REQUESTS) return { result: 'busy' };
@@ -450,7 +454,9 @@ export class WorkspaceGateway {
       async (id, reply) => {
         await sendFrame(peer.socket, {
           type: 'notification-reply', id, requestId, prompt,
-          ...(creating ? { projectId: input.projectId } : { sessionId: input.sessionId }),
+          ...(creating
+            ? input.projectId ? { projectId: input.projectId } : { projectName: input.projectName }
+            : { sessionId: input.sessionId }),
           user: { id: userId, username: String(actor.username), role: 'admin' },
           ...(hasFiles
             ? { attachments: attachments.map(({ data, name }) => ({ size: data.length, name })) }

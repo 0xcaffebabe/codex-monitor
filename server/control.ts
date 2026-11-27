@@ -8,7 +8,7 @@ import { validId, type CodexSource } from './source.js';
 import { MessageQueue, type ControlLane } from './message-queue.js';
 import { MAX_ATTACHMENTS, type UploadStore } from './uploads.js';
 import { imageMime } from './media.js';
-import type { LarkReplyAttachment, LarkStartResult } from './notifications/lark-replies.js';
+import type { LarkReplyAttachment, LarkStartProject, LarkStartResult } from './notifications/lark-replies.js';
 import { reasoningEfforts, type SessionModelSettings } from '../src/types.js';
 import { validateModelSettings } from './model-settings.js';
 import { sessionPermissionModes } from '../src/approval-types.js';
@@ -25,7 +25,7 @@ import {
 } from './creation-goal.js';
 
 type ClientLarkStartResult = LarkStartResult & {
-  result: 'sent' | 'failed' | 'unknown' | 'unavailable' | 'attachmentFailed';
+  result: 'sent' | 'failed' | 'unknown' | 'unavailable' | 'attachmentFailed' | 'projectMissing' | 'projectAmbiguous';
 };
 
 export type ControlAuthorization = {
@@ -243,14 +243,14 @@ export function installControl(
   }
   async function startLarkSession(
     user: { id: string; username: string },
-    projectId: string,
+    target: LarkStartProject,
     { requestId, prompt }: { requestId: string; prompt: string },
     files: LarkReplyAttachment[],
     signal: AbortSignal,
   ): Promise<ClientLarkStartResult> {
     const userId = user.id;
     if (closed || signal.aborted || !adminUser.get(userId)) return { result: 'failed' };
-    const fingerprint = `lark:create:${projectId}`;
+    const fingerprint = `lark:create:${target.projectId ?? `name:${target.projectName}`}`;
     const previous = creationRequest.get(requestId);
     if (previous) {
       if (previous.user_id !== userId || previous.fingerprint !== fingerprint) return { result: 'failed' };
@@ -260,16 +260,19 @@ export function installControl(
     }
     db.prepare('INSERT INTO control_requests VALUES(?,?,?,?,?,?)')
       .run(requestId, userId, fingerprint, 'pending', null, Date.now());
-    return inLane(`project:${projectId}`, async (): Promise<ClientLarkStartResult> => {
-      const attachments: string[] = [];
-      let dispatched = false;
-      try {
-        const caller = await context();
-        const project = (await bridge.projects(caller)).find(({ id }) => id === projectId);
-        if (!project) {
-          if (!closed) finishRequest.run('failed', JSON.stringify({ error: '项目不可用。' }), requestId);
-          return { result: 'unavailable' };
-        }
+    const attachments: string[] = [];
+    let dispatched = false;
+    try {
+      const caller = await context();
+      const projects = await bridge.projects(caller);
+      const matches = projects.filter(({ id, name }) => target.projectId ? id === target.projectId : name === target.projectName);
+      const project = matches[0];
+      if (!project || (target.projectName && matches.some(({ id }) => id !== project.id))) {
+        if (!closed) finishRequest.run('failed', JSON.stringify({ error: '项目不可用或名称重复。' }), requestId);
+        return { result: target.projectId ? 'unavailable' : project ? 'projectAmbiguous' : 'projectMissing' };
+      }
+      return await inLane(`project:${project.id}`, async (): Promise<ClientLarkStartResult> => {
+        if (closed || signal.aborted) throw new ControlError('会话未创建。', false, 503);
         try {
           await uploadLarkFiles(userId, files, attachments, signal);
         } catch {
@@ -279,7 +282,7 @@ export function installControl(
         if (closed || signal.aborted || !adminUser.get(userId) || (authorization && !(await authorization.user(userId))))
           throw new ControlError('操作权限已失效。', false, 403);
         signal.throwIfAborted();
-        if (closed || !adminUser.get(userId)) return { result: 'failed' };
+        if (closed || !adminUser.get(userId)) throw new ControlError('操作权限已失效。', false, 403);
         const objective = uploads?.compose(userId, requestId, prompt, attachments) ?? prompt;
         dispatched = true;
         const receipt = await createSession(caller, project.id, objective, {}, requestId, undefined, project.name.slice(0, 500));
@@ -289,16 +292,16 @@ export function installControl(
             .run(Date.now(), 'session_created', user.username, 'Lark');
         }
         return { result: 'sent', sessionId: receipt.threadId, projectName: receipt.projectName };
-      } catch (error) {
-        const unknown = dispatched && (!(error instanceof ControlError) || error.uncertain);
-        if (!closed) finishRequest.run(unknown ? 'unknown' : 'failed', JSON.stringify({ error: unknown
-          ? '创建结果待确认，请检查会话记录。'
-          : '会话创建失败。' }), requestId);
-        return { result: unknown ? 'unknown' : 'failed' };
-      } finally {
-        if (!closed && !dispatched) removeLarkFiles(userId, attachments);
-      }
-    });
+      });
+    } catch (error) {
+      const unknown = dispatched && (!(error instanceof ControlError) || error.uncertain);
+      if (!closed) finishRequest.run(unknown ? 'unknown' : 'failed', JSON.stringify({ error: unknown
+        ? '创建结果待确认，请检查会话记录。'
+        : '会话创建失败。' }), requestId);
+      return { result: unknown ? 'unknown' : 'failed' };
+    } finally {
+      if (!closed && !dispatched) removeLarkFiles(userId, attachments);
+    }
   }
   const projectPath = async (id: string) =>
     (await bridge.projects(await context())).find((project) => project.id === id)?.path;

@@ -65,13 +65,13 @@ export function LarkStartTargets({ value, onChange }: {
           <label>
             默认目标
             <select value={value.defaultAlias} onChange={(event) => onChange({ ...value, defaultAlias: event.target.value })}>
-              {value.targets.map(({ alias }) => <option value={alias} key={alias}>{alias}:</option>)}
+              {value.targets.map(({ alias }) => <option value={alias} key={alias}>{alias}</option>)}
             </select>
           </label>
           <ul>
             {value.targets.map((target) => (
               <li key={target.alias}>
-                <code>{target.alias}:</code>
+                <code>{target.alias}</code>
                 <span>{workspaces.find(({ id }) => id === target.workspaceId)?.name ?? target.workspaceId} / {target.projectName ?? target.projectId}</span>
                 <button className="icon-button" type="button" title={`移除简称 ${target.alias}`} aria-label={`移除简称 ${target.alias}`} onClick={() => remove(target.alias)}>
                   <X size={15} />

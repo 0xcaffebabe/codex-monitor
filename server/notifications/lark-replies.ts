@@ -287,7 +287,10 @@ export type LarkReplySubmission = {
   nextTurn: boolean;
 };
 
-export type LarkStartSubmission = Omit<LarkReplySubmission, 'sessionId' | 'nextTurn'> & { projectId: string };
+export type LarkStartProject =
+  | { projectId: string; projectName?: never }
+  | { projectId?: never; projectName: string };
+export type LarkStartSubmission = Omit<LarkReplySubmission, 'sessionId' | 'nextTurn'> & LarkStartProject;
 export type LarkStartResult = { result: LarkReplyReceipt; sessionId?: string; projectName?: string };
 
 export const replyReceipts = {
@@ -314,6 +317,8 @@ export const replyReceipts = {
     emoji: 'CrossMark',
   },
   attachmentFailed: { text: '无法读取或保存回复里的附件，消息未提交。', emoji: 'CrossMark' },
+  projectMissing: { text: '此工作空间没有这个名称的项目。', emoji: 'CrossMark' },
+  projectAmbiguous: { text: '此工作空间有多个同名项目，请在 Monitor 选择项目并设置简称。', emoji: 'CrossMark' },
   documentFailed: { text: '无法导出回复里的 Lark 云文档，请检查应用权限和文档共享设置。', emoji: 'CrossMark' },
   attachmentsTooLarge: { text: '每次最多合并 5 个附件，合计不超过 20 MB。', emoji: 'CrossMark' },
   historyFailed: { text: '无法读取连续消息，请检查 Lark 群消息历史权限后重试。', emoji: 'CrossMark' },

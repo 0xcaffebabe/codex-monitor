@@ -258,6 +258,7 @@ export class MonitorClient {
               notificationReplyFiles: true,
               notificationReplyStatus: true,
               notificationStarts: true,
+              notificationNamedStarts: true,
               privacyWork: process.platform === 'win32',
               clientUpdate: this.options.updates ? true : undefined,
             },
@@ -486,9 +487,13 @@ export class MonitorClient {
       }
       signal.throwIfAborted();
       this.runtime.access.syncUser(frame.user);
-      const receipt: Pick<Extract<Frame, { type: 'notification-reply-result' }>, 'result' | 'sessionId' | 'projectName'> = frame.projectId
-        ? await this.runtime.startLarkSession(frame.user, frame.projectId, frame, attachments, signal)
-        : { result: await this.runtime.sendLarkReply(frame.user.id, frame.sessionId!, frame, attachments, signal) };
+      const receipt: Pick<Extract<Frame, { type: 'notification-reply-result' }>, 'result' | 'sessionId' | 'projectName'> = frame.sessionId
+        ? { result: await this.runtime.sendLarkReply(frame.user.id, frame.sessionId, frame, attachments, signal) }
+        : await this.runtime.startLarkSession(
+            frame.user,
+            frame.projectId ? { projectId: frame.projectId } : { projectName: frame.projectName! },
+            frame, attachments, signal,
+          );
       await sendFrame(socket, { type: 'notification-reply-result', id: frame.id, ...receipt });
     } catch {
       if (!signal.aborted) await sendFrame(socket, {
