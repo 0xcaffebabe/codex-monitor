@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { WebSocket } from 'ws';
 import { createCipheriv, createDecipheriv, createHash, createHmac, randomBytes } from 'node:crypto';
 import { notificationPolicySchema, notificationReportSchema } from '../notifications/events.js';
-import type { HostResourceSample } from '../../src/workspaces.js';
+import { clientUpdatePhases, type HostResourceSample } from '../../src/workspaces.js';
 import { NOTIFICATION_ATTACHMENT_LIMIT } from '../notifications/attachments.js';
 import { LARK_REPLY_MAX_BYTES, LARK_REPLY_MAX_ATTACHMENTS } from '../notifications/lark-replies.js';
 
@@ -48,6 +48,13 @@ export const hostResourceSchema: z.ZodType<HostResourceSample> = z
 export const frameSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('host-resources'), sample: hostResourceSchema }).strict(),
   z.object({ type: z.literal('privacy-work'), enabled: z.boolean() }).strict(),
+  z.object({ type: z.literal('client-update'), id }).strict(),
+  z.object({
+    type: z.literal('client-update-status'),
+    id,
+    phase: z.enum(clientUpdatePhases),
+    message: z.string().max(300).optional(),
+  }).strict(),
   z.object({
     type: z.literal('notification-policy'),
     policy: notificationPolicySchema,
@@ -109,6 +116,7 @@ export const frameSchema = z.discriminatedUnion('type', [
       notificationReplies: z.boolean().optional(),
       notificationReplyFiles: z.boolean().optional(),
       privacyWork: z.boolean().optional(),
+      clientUpdate: z.boolean().optional(),
     }).optional(),
   }),
   z.object({
@@ -119,6 +127,7 @@ export const frameSchema = z.discriminatedUnion('type', [
       hostResources: z.boolean().optional(),
       hostUptime: z.boolean().optional(),
       longCompletionReplies: z.boolean().optional(),
+      clientUpdate: z.boolean().optional(),
     }).optional(),
     privacyWorkEnabled: z.boolean().optional(),
   }),

@@ -1,6 +1,5 @@
 import { createHash } from 'node:crypto';
 import { readFile, stat } from 'node:fs/promises';
-import sharp from 'sharp';
 import { z } from 'zod';
 
 export const imagePreviewQuery = {
@@ -120,6 +119,7 @@ export class ImagePreviews {
             : media.file
           : media.data;
       if (media.mime === 'image/png' && Buffer.isBuffer(input) && isAnimatedPng(input)) return null;
+      const { default: sharp } = await import('sharp');
       const image = sharp(input, {
         limitInputPixels: 32_000_000,
         failOn: 'warning',

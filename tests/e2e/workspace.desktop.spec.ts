@@ -744,6 +744,50 @@ test('privacy work runs on enable and survives a Windows client reconnect', asyn
   await expect(privacySwitch).toHaveAttribute('aria-checked', 'false');
 });
 
+test('workspace management triggers client updates next to the privacy switch', async ({
+  signedIn: { browserPage: page },
+  monitor,
+}) => {
+  const name = '更新测试电脑';
+  const remote = await monitor.addWorkspace(name, '远程会话');
+  let updating = false;
+  await page.route('**/api/workspaces', async (route) => {
+    const response = await route.fetch();
+    const data = await response.json();
+    const workspace = data.workspaces.find((item: { id: string }) => item.id === remote.id);
+    workspace.clientUpdateSupported = true;
+    if (updating) workspace.clientUpdate = { phase: 'pulling' };
+    await route.fulfill({ response, json: data });
+  });
+  await page.route(`**/api/workspaces/${remote.id}/update`, async (route) => {
+    expect(route.request().method()).toBe('POST');
+    updating = true;
+    await route.fulfill({ status: 202, json: { ok: true } });
+  });
+  await page.getByRole('button', { name: '管理工作空间' }).click();
+  const dialog = page.getByRole('dialog', { name: '管理工作空间' });
+  const row = dialog.getByRole('article').filter({ hasText: name });
+  const heading = row.locator('.client-heading');
+  const privacy = heading.getByRole('switch', { name: '隐私工作' });
+  const update = heading.getByRole('button', { name: '更新并重启' });
+  await expect(update).toBeEnabled();
+  const privacyBox = (await privacy.boundingBox())!;
+  const updateBox = (await update.boundingBox())!;
+  expect(updateBox.x).toBeGreaterThanOrEqual(privacyBox.x + privacyBox.width);
+  expect(updateBox.y).toBe(privacyBox.y);
+  await update.click();
+  expect(updating).toBe(false);
+  await row.getByRole('button', { name: '确认更新' }).click();
+  await expect(row.getByRole('status')).toHaveText('正在拉取更新');
+  await expect(update).toBeDisabled();
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(update).toBeVisible();
+  const narrowHeading = (await heading.boundingBox())!;
+  const narrowUpdate = (await update.boundingBox())!;
+  expect(narrowUpdate.x + narrowUpdate.width).toBeLessThan(narrowHeading.x + narrowHeading.width);
+});
+
 test('workspace management shows system uptime next to the Windows client version', async ({
   signedIn: { browserPage: page },
   monitor,

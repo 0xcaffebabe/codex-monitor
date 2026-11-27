@@ -1,7 +1,12 @@
 import { useState } from 'react';
-import { Check, Copy, Monitor, Plus, X } from 'lucide-react';
+import { Check, Copy, Monitor, Plus, RefreshCw, X } from 'lucide-react';
 import type { WorkspacesModel } from './useWorkspaces';
-import { HOST_RESOURCE_STALE_MS, type ManagedWorkspace } from '../../workspaces';
+import {
+  clientUpdateInProgress,
+  HOST_RESOURCE_STALE_MS,
+  type ClientUpdateStatus,
+  type ManagedWorkspace,
+} from '../../workspaces';
 import { relative } from '../../shared/format';
 import { ResourceMetrics } from './ResourceMetrics';
 
@@ -28,9 +33,29 @@ function formatUptime(seconds: number) {
   return `${days ? `${days} 天 ` : ''}${days || hours ? `${hours} 小时 ` : ''}${minutes} 分钟`;
 }
 
+const updateLabels: Record<ClientUpdateStatus['phase'], string> = {
+  requested: '等待客户端响应',
+  pulling: '正在拉取更新',
+  installing: '正在安装依赖',
+  building: '正在构建',
+  restarting: '正在重启，等待客户端重新连接',
+  succeeded: '更新完成',
+  failed: '更新失败',
+};
+
 function ClientRow({ workspace, model }: { workspace: ManagedWorkspace; model: WorkspacesModel }) {
   const [name, setName] = useState(workspace.name);
-  const [confirming, setConfirming] = useState<'rotate' | 'remove' | ''>('');
+  const [confirming, setConfirming] = useState<'rotate' | 'remove' | 'update' | ''>('');
+  const update = workspace.clientUpdate;
+  const updating = clientUpdateInProgress(update);
+  const canUpdate = workspace.online && !!workspace.clientUpdateSupported && !updating;
+  const updateTitle = updating
+    ? updateLabels[update!.phase]
+    : !workspace.online
+      ? '客户端离线'
+      : !workspace.clientUpdateSupported
+        ? '此客户端暂不支持在线更新'
+        : '更新并重启';
   const copy = model.connectionCopy?.id === workspace.id ? model.connectionCopy : null;
   const resources = workspace.resources;
   const uptimeSeconds =
@@ -68,6 +93,20 @@ function ClientRow({ workspace, model }: { workspace: ManagedWorkspace; model: W
             隐私工作
           </button>
         </span>
+        {workspace.id !== 'local' && (
+          <span className="client-update-action" title={updateTitle}>
+            <button
+              type="button"
+              className="client-update"
+              aria-label="更新并重启"
+              disabled={!!model.pending || !canUpdate}
+              onClick={() => setConfirming('update')}
+            >
+              <RefreshCw size={14} aria-hidden="true" />
+              更新
+            </button>
+          </span>
+        )}
         <span className={`client-status ${workspace.online ? 'client-online' : 'muted'}`}>
           {workspace.online ? '在线' : '离线'}
         </span>
@@ -135,23 +174,32 @@ function ClientRow({ workspace, model }: { workspace: ManagedWorkspace; model: W
           {copy.message}
         </p>
       )}
+      {update && (
+        <p className={update.phase === 'failed' ? 'alert error' : 'help'} role="status">
+          {update.message || updateLabels[update.phase]}
+        </p>
+      )}
       {confirming && (
         <div className="client-confirm">
           <span>
-            {confirming === 'rotate'
-              ? '轮换后当前连接立即断开，需要更新 client 本地密钥。'
-              : '移除后此 client 将无法连接，client 本机数据保留。'}
+            {confirming === 'update'
+              ? '更新后客户端将短暂离线。'
+              : confirming === 'rotate'
+                ? '轮换后当前连接立即断开，需要更新 client 本地密钥。'
+                : '移除后此 client 将无法连接，client 本机数据保留。'}
           </span>
           <button
-            disabled={!!model.pending}
+            disabled={!!model.pending || (confirming === 'update' && !canUpdate)}
             onClick={() => {
-              void (confirming === 'rotate'
-                ? model.rotate(workspace.id)
-                : model.remove(workspace.id));
+              void (confirming === 'update'
+                ? model.updateClient(workspace.id)
+                : confirming === 'rotate'
+                  ? model.rotate(workspace.id)
+                  : model.remove(workspace.id));
               setConfirming('');
             }}
           >
-            确认{confirming === 'rotate' ? '轮换' : '移除'}
+            确认{confirming === 'update' ? '更新' : confirming === 'rotate' ? '轮换' : '移除'}
           </button>
           <button onClick={() => setConfirming('')}>取消</button>
         </div>

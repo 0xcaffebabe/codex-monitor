@@ -128,6 +128,10 @@ export function useWorkspaces(userId: string) {
         body: JSON.stringify({ enabled }),
       });
     });
+  const updateClient = (id: string) =>
+    action(id, async () => {
+      await post(`/api/workspaces/${encodeURIComponent(id)}/update`);
+    });
   const copy = async () => {
     setConnectionCopy(null);
     try {
@@ -183,6 +187,7 @@ export function useWorkspaces(userId: string) {
     remove,
     rename,
     setPrivacyWork,
+    updateClient,
     copy,
     copyWorkspaceCommand,
     close: () => {

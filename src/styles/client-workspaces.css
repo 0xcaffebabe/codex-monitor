@@ -91,6 +91,18 @@
   align-items: center;
   gap: 10px;
 }
+.client-update-action {
+  flex-shrink: 0;
+}
+.client-update {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 28px;
+  padding: 0 7px;
+  font-size: var(--font-meta);
+  white-space: nowrap;
+}
 .client-heading strong {
   overflow-wrap: anywhere;
   min-width: 0;

@@ -103,6 +103,12 @@ npm run client -- --server-url "ws://server-address:9902" --workspace-id "注册
 
 Client 地址要求为 origin，不带路径、查询和用户名密码。可使用 `ws://`；本实现的 AES 保护 WebSocket 业务负载，握手不传共享密钥。若经过反向代理，代理须支持 WebSocket Upgrade；自定义 Server 域名需加入 `MONITOR_ORIGINS`。
 
+### 在线更新 Client
+
+首次部署在线更新时，先手动更新并重启 Server 和 Client。之后管理员可在「管理工作空间」中点击独立 Client 名称旁的「更新」。Client 须从 Git 检出的项目目录运行生产构建，并能使用本机的 Git 上游和 npm 凭据。
+
+客户端在启动目录执行 `git pull --ff-only` 和 `npm run build`。依赖清单有变化时会先安装依赖，切换依赖时客户端可能提前离线。构建成功后使用原启动配置重启，重新连上 Server 后页面显示更新完成。失败原因见页面状态，命令输出写入客户端日志。
+
 ### Client 连接失败
 
 启动日志会显示 Client 协议版本。Server 和 Client 必须使用相同协议版本的构建；更新源码后执行 `npm run build` 并重启进程。`npm run client` 直接运行 `dist/server.mjs`，不会自动构建。若源码仍是旧版，须先同步完整新版源码，不能只修改协议版本常量。

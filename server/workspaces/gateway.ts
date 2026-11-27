@@ -24,7 +24,12 @@ import type { NotificationPolicy } from '../notifications/events.js';
 import type { NotificationAttachmentRef, NotificationAttachmentResult } from '../notifications/attachments.js';
 import { LarkDeliveryError } from '../notifications/lark.js';
 import type { LarkReplyReceipt, LarkReplySubmission } from '../notifications/lark-replies.js';
-import type { HostResourceSample } from '../../src/workspaces.js';
+import {
+  CLIENT_UPDATE_TIMEOUT_MS,
+  clientUpdateInProgress,
+  type ClientUpdateStatus,
+  type HostResourceSample,
+} from '../../src/workspaces.js';
 
 type Pending = {
   res: Response;
@@ -52,6 +57,7 @@ type Peer = {
   notificationReplyFiles: boolean;
   replies: Map<string, PendingLarkReply>;
   privacyWork: boolean;
+  clientUpdate: boolean;
   attachments: Map<string, (frame: Frame) => void>;
   resources: (HostResourceSample & { receivedAt: number }) | null;
   pending: Map<string, Pending>;
@@ -72,6 +78,7 @@ const privacyWorkSchema = z.object({ enabled: z.boolean() }).strict();
 export class WorkspaceGateway {
   readonly store: WorkspaceStore;
   private peers = new Map<string, Peer>();
+  private clientUpdates = new Map<string, { id: string; startedAt: number; status: ClientUpdateStatus }>();
   private wss = new WebSocketServer({
     noServer: true,
     maxPayload: MAX_FRAME,
@@ -106,7 +113,13 @@ export class WorkspaceGateway {
     }, 1000);
     this.authorizationTimer.unref();
   }
-  list() {
+  private clientUpdate(workspaceId: string) {
+    const update = this.clientUpdates.get(workspaceId);
+    if (update && clientUpdateInProgress(update.status) && Date.now() - update.startedAt > CLIENT_UPDATE_TIMEOUT_MS)
+      update.status = { phase: 'failed', message: '更新超时，请查看客户端日志和在线状态。' };
+    return update;
+  }
+  list(includeUpdates = true) {
     const now = Date.now();
     return this.store.list().map((workspace) => {
       const peer = this.peers.get(workspace.id);
@@ -115,6 +128,10 @@ export class WorkspaceGateway {
         ...workspace,
         online: !!peer?.ready,
         privacyWorkSupported: !!(peer?.ready && peer.privacyWork),
+        ...(includeUpdates && workspace.id !== 'local' && {
+          clientUpdateSupported: !!(peer?.ready && peer.clientUpdate),
+          clientUpdate: this.clientUpdate(workspace.id)?.status,
+        }),
         resources: resources
           ? {
               sampledAt: resources.sampledAt,
@@ -214,6 +231,7 @@ export class WorkspaceGateway {
       notificationReplyFiles: false,
       replies: new Map(),
       privacyWork: false,
+      clientUpdate: false,
       attachments: new Map(),
       resources: null,
       pending: new Map(),
@@ -248,12 +266,13 @@ export class WorkspaceGateway {
           peer.notificationReplies = !!frame.capabilities?.notificationReplies;
           peer.notificationReplyFiles = !!frame.capabilities?.notificationReplyFiles;
           peer.privacyWork = frame.platform === 'win32' && !!frame.capabilities?.privacyWork;
+          peer.clientUpdate = id !== 'local' && !!frame.capabilities?.clientUpdate;
           clearTimeout(handshake);
           void sendFrame(socket, {
             type: 'welcome',
             version: PROTOCOL_VERSION,
             workspaceId: id,
-            capabilities: { hostResources: true, hostUptime: true, longCompletionReplies: true },
+            capabilities: { hostResources: true, hostUptime: true, longCompletionReplies: true, clientUpdate: true },
             ...(peer.privacyWork && {
               privacyWorkEnabled: this.store.get(id)?.privacyWorkEnabled ?? false,
             }),
@@ -286,6 +305,14 @@ export class WorkspaceGateway {
     startServerChannel(socket, key, proof);
   }
   private receive(peer: Peer, frame: Frame) {
+    if (frame.type === 'client-update-status') {
+      const update = this.clientUpdate(peer.workspaceId);
+      if (peer.clientUpdate && this.peers.get(peer.workspaceId) === peer &&
+          update?.id === frame.id && clientUpdateInProgress(update.status)) {
+        update.status = { phase: frame.phase, message: frame.message };
+      }
+      return;
+    }
     if (frame.type === 'notification-reply-result') {
       peer.replies.get(frame.id)?.finish(frame.result);
       return;
@@ -529,8 +556,8 @@ export class WorkspaceGateway {
     else request.res.end();
   }
   install(app: Express) {
-    app.get('/api/workspaces', (_req, res) =>
-      res.json({ workspaces: this.list(), serverBuildCommitAt: buildCommitAt }),
+    app.get('/api/workspaces', (req, res) =>
+      res.json({ workspaces: this.list(req.identity?.user.role === 'admin'), serverBuildCommitAt: buildCommitAt }),
     );
     app.post('/api/workspaces', admin, (req, res) => {
       const parsed = nameSchema.safeParse(req.body);
@@ -582,10 +609,31 @@ export class WorkspaceGateway {
       this.disconnect(id);
       res.json({ key });
     });
+    app.post('/api/workspaces/:workspace/update', admin, async (req, res) => {
+      const id = String(req.params.workspace);
+      if (!this.store.get(id)) return fail(res, 404, '找不到工作空间');
+      if (id === 'local') return fail(res, 409, '在线更新仅支持独立客户端');
+      const peer = this.peers.get(id);
+      if (!peer?.ready) return fail(res, 503, '工作空间已离线，请等待客户端重新连接');
+      if (!peer.clientUpdate) return fail(res, 409, '此客户端暂不支持在线更新');
+      if (clientUpdateInProgress(this.clientUpdate(id)?.status))
+        return fail(res, 409, '客户端正在更新');
+      const update = { id: randomUUID(), startedAt: Date.now(), status: { phase: 'requested' } as ClientUpdateStatus };
+      this.clientUpdates.set(id, update);
+      try {
+        await sendFrame(peer.socket, { type: 'client-update', id: update.id });
+      } catch {
+        // Delivery can be uncertain on disconnect. A reconnect can still report this job.
+        return fail(res, 503, '无法确认客户端已收到更新请求');
+      }
+      this.auth.log('workspace-update', req.identity!.user.username, req.ip || '');
+      res.status(202).json({ ok: true });
+    });
     app.delete('/api/workspaces/:workspace', admin, (req, res) => {
       const id = String(req.params.workspace);
       if (id === 'local') return fail(res, 409, '本机工作空间由一体启动配置管理');
       if (!this.store.remove(id)) return fail(res, 404, '找不到工作空间');
+      this.clientUpdates.delete(id);
       this.notifications.forgetWorkspace(id);
       this.disconnect(id);
       res.status(204).end();

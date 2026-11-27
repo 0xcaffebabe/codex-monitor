@@ -32,6 +32,7 @@ import { limitMarkdown } from '../notifications/markdown-limit.js';
 import { HostResourceSampler } from './resources.js';
 import { PrivacyWork } from './privacy-work.js';
 import { HOST_RESOURCE_INTERVAL_MS } from '../../src/workspaces.js';
+import type { ClientUpdateChannel, UpdateStatus } from './update-channel.js';
 
 export type ClientOptions = {
   serverUrl: string;
@@ -42,6 +43,7 @@ export type ClientOptions = {
   turnOffDisplay?: (signal: AbortSignal) => Promise<void>;
   onStatus?: (status: 'connected' | 'disconnected', reason?: string) => void;
   reconnectMs?: number;
+  updates?: ClientUpdateChannel;
 };
 type ActiveRequest = {
   abort: AbortController;
@@ -71,6 +73,7 @@ function handshakeRejection(status: number | undefined, serverProtocol: string |
 export class MonitorClient {
   private socket?: WebSocket;
   private ready = false;
+  private updateReporting = false;
   private longCompletionReplies = false;
   private stopped = false;
   private reconnectTimer?: ReturnType<typeof setTimeout>;
@@ -103,6 +106,13 @@ export class MonitorClient {
     this.url = clientConnectionUrl(options);
     this.delay = options.reconnectMs ?? 1000;
     this.privacyWork = new PrivacyWork(options.turnOffDisplay);
+    if (options.updates) options.updates.onStatus = (status) => this.reportUpdate(status);
+  }
+
+  private reportUpdate(status: UpdateStatus) {
+    const socket = this.socket;
+    if (socket && this.ready && this.updateReporting && !this.stopped)
+      void sendFrame(socket, { type: 'client-update-status', ...status }).catch(() => socket.terminate());
   }
   static async start(options: ClientOptions) {
     const client = new MonitorClient(options);
@@ -247,6 +257,7 @@ export class MonitorClient {
               notificationReplies: true,
               notificationReplyFiles: true,
               privacyWork: process.platform === 'win32',
+              clientUpdate: this.options.updates ? true : undefined,
             },
             version: PROTOCOL_VERSION,
             hostname: os.hostname(),
@@ -262,6 +273,8 @@ export class MonitorClient {
           clearTimeout(handshake);
           this.longCompletionReplies = !!frame.capabilities?.longCompletionReplies;
           this.ready = true;
+          this.updateReporting = !!frame.capabilities?.clientUpdate;
+          if (this.options.updates?.status) this.reportUpdate(this.options.updates.status);
           this.delay = this.options.reconnectMs ?? 1000;
           if (frame.capabilities?.hostResources)
             this.startResourceReporting(
@@ -271,7 +284,9 @@ export class MonitorClient {
           this.privacyWork.setEnabled(process.platform === 'win32' && !!frame.privacyWorkEnabled);
           this.options.onStatus?.('connected');
         } else if (!this.ready) throw new Error('Handshake required');
-        else if (frame.type === 'privacy-work') {
+        else if (frame.type === 'client-update' && this.updateReporting && this.options.updates) {
+          this.options.updates.start(frame.id);
+        } else if (frame.type === 'privacy-work') {
           this.privacyWork.setEnabled(process.platform === 'win32' && frame.enabled, {
             runImmediately: true,
           });

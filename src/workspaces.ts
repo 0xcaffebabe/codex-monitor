@@ -1,6 +1,22 @@
 export const HOST_RESOURCE_INTERVAL_MS = 5000;
 export const HOST_RESOURCE_STALE_MS = 15000;
 
+export const CLIENT_UPDATE_TIMEOUT_MS = 26 * 60_000;
+export const clientUpdatePhases = [
+  'pulling',
+  'installing',
+  'building',
+  'restarting',
+  'succeeded',
+  'failed',
+] as const;
+export type ClientUpdatePhase = (typeof clientUpdatePhases)[number];
+export type ClientUpdateStatus = { phase: ClientUpdatePhase | 'requested'; message?: string };
+
+export function clientUpdateInProgress(status?: ClientUpdateStatus) {
+  return !!status && status.phase !== 'succeeded' && status.phase !== 'failed';
+}
+
 export type HostResourceSample = {
   sampledAt: number;
   cpuPercent: number | null;
@@ -24,5 +40,7 @@ export type ManagedWorkspace = {
   buildCommitAt?: number | null;
   privacyWorkEnabled?: boolean;
   privacyWorkSupported?: boolean;
+  clientUpdateSupported?: boolean;
+  clientUpdate?: ClientUpdateStatus;
   resources?: WorkspaceResources | null;
 };
