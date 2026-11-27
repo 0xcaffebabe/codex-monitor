@@ -247,6 +247,7 @@ export class NotificationService {
         userId: config.replyAdminId,
         cardMessageId: messageId,
         cardUpdateToken: this.store.larkCardText(destination, messageId) === undefined ? updateToken : undefined,
+        cardReplyText: prompt,
       });
     }
     return { toast: {
@@ -720,8 +721,13 @@ export class NotificationService {
     const destination = config.larkDestination;
     const signal = AbortSignal.any([this.abort.signal, this.destination.signal, this.replyAuthorization.signal]);
     const now = Date.now();
+    const checkedCards = new Set<string>();
     await Promise.allSettled(this.store.pendingLarkReplies(destination, now).map(async (reply) => {
-      const { messageId, workspaceId, userId, reactionId, cardMessageId, cardUpdateToken } = reply;
+      const { rowid, messageId, workspaceId, userId, reactionId, cardMessageId, cardUpdateToken, cardReplyText } = reply;
+      if (cardMessageId) {
+        if (checkedCards.has(cardMessageId)) return;
+        checkedCards.add(cardMessageId);
+      }
       let { receipt } = reply;
       this.store.delayLarkReplyCheck(destination, messageId, now + LARK_REPLY_POLL_MS);
       // Let the initial feedback record the waiting reaction before trying to replace it.
@@ -738,10 +744,11 @@ export class NotificationService {
         receipt = text;
       }
       if (signal.aborted) return;
-      if (cardMessageId && receipt === replyReceipts.sent.text) {
+      if (cardMessageId && receipt === replyReceipts.sent.text &&
+          !this.store.hasNewerLarkCardReply(destination, cardMessageId, rowid, receipt)) {
         try {
           const sender = await this.app.sender(config, signal);
-          await sender.completeCardReply(cardMessageId, receipt,
+          await sender.completeCardReply(cardMessageId, { status: receipt, text: cardReplyText ?? undefined },
             this.store.larkCardText(destination, cardMessageId), cardUpdateToken ?? undefined);
         } catch (error) {
           if (!(error instanceof LarkDeliveryError) || error.retryable) throw error;

@@ -42,14 +42,16 @@ export const larkReplyForm = {
   maxLength: 1000,
 } as const;
 
-export function larkCard(text: string, app = false, completionActions = false, replyStatus?: string) {
+export type LarkCardReply = { status: string; text?: string };
+
+export function larkCard(text: string, app = false, completionActions = false, reply?: LarkCardReply) {
   return larkCardFromMarkdown(limitMarkdown(
     larkMarkdown(text, app),
     (markdown) => Buffer.byteLength(JSON.stringify(markdown)) <= LARK_MARKDOWN_BYTES,
-  ), completionActions, replyStatus);
+  ), completionActions, reply);
 }
 
-export function larkCardFromMarkdown(content: string, completionActions: boolean, replyStatus?: string) {
+export function larkCardFromMarkdown(content: string, completionActions: boolean, reply?: LarkCardReply) {
   return {
     schema: '2.0',
     ...(completionActions && { config: { update_multi: true } }),
@@ -57,10 +59,24 @@ export function larkCardFromMarkdown(content: string, completionActions: boolean
       elements: [
         { tag: 'markdown', content },
         ...(completionActions ? [
-          ...(replyStatus ? [{
-            tag: 'div',
-            text: { tag: 'plain_text', content: replyStatus },
-          }] : []),
+          ...(reply?.text ? [{
+            tag: 'column_set',
+            background_style: 'blue-50',
+            columns: [{
+              tag: 'column',
+              width: 'weighted',
+              weight: 1,
+              padding: '8px 12px',
+              vertical_spacing: '4px',
+              elements: [
+                {
+                  tag: 'div',
+                  text: { tag: 'plain_text', content: '追加消息 · 已发送', text_size: 'notation', text_color: 'blue' },
+                },
+                { tag: 'div', text: { tag: 'plain_text', content: reply.text } },
+              ],
+            }],
+          }] : reply ? [{ tag: 'div', text: { tag: 'plain_text', content: reply.status } }] : []),
           {
             tag: 'form' as const,
             name: 'reply_to_session',
@@ -72,7 +88,7 @@ export function larkCardFromMarkdown(content: string, completionActions: boolean
                 input_type: 'multiline_text',
                 rows: 2,
                 width: 'fill',
-                ...(replyStatus && { default_value: '' }),
+                ...(reply && { default_value: '' }),
                 required: true,
                 max_length: larkReplyForm.maxLength,
               },

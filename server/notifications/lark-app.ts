@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { z } from 'zod';
-import { LarkDeliveryError, larkCard, larkCardFromMarkdown, larkRequest, type WebhookTransport } from './lark.js';
+import { LarkDeliveryError, larkCard, larkCardFromMarkdown, larkRequest, type LarkCardReply, type WebhookTransport } from './lark.js';
 import type { NotificationConfig } from './store.js';
 import type { NotificationAttachment } from './attachments.js';
 import { imageMime } from '../media.js';
@@ -187,7 +187,7 @@ export class LarkApp {
         const messageId = result?.data?.message_id;
         return typeof messageId === 'string' && /^om_[\w-]{1,125}$/.test(messageId) ? messageId : undefined;
       },
-      completeCardReply: async (messageId: string, receipt: string, text?: string, updateToken?: string) => {
+      completeCardReply: async (messageId: string, reply: LarkCardReply, text?: string, updateToken?: string) => {
         const endpoint = `im/v1/messages/${encodeURIComponent(messageId)}`;
         let card;
         if (text === undefined) {
@@ -204,14 +204,14 @@ export class LarkApp {
           }
           const original = cardMarkdown.safeParse(raw).data;
           if (!original) throw new LarkDeliveryError('飞书/Lark 返回了无效的原通知卡片');
-          card = larkCardFromMarkdown(original.body.elements[0].content, true, receipt);
+          card = larkCardFromMarkdown(original.body.elements[0].content, true, reply);
           if (updateToken) {
             await this.request(origin, 'interactive/v1/card/update', { token: updateToken, card },
               signal, '更新通知卡片', value);
             return;
           }
         } else {
-          card = larkCard(text, true, true, receipt);
+          card = larkCard(text, true, true, reply);
         }
         await this.request(origin, endpoint, { content: JSON.stringify(card) }, signal, '更新通知卡片', value, 'PATCH');
       },

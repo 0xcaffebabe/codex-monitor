@@ -831,7 +831,14 @@ test('authorized Lark quotes target the card workspace and reuse the Monitor mes
     b.hist.prepare('INSERT INTO thread_turns VALUES(?,?,?,?,?,?)')
       .run(ids.modern, 'running-during-click', 1002, 'inProgress', Math.floor(Date.now() / 1000), null);
     assert.equal((await click('commit-and-push', commitAndPushCodeShortcut.id))?.toast.content, '已加入 Monitor 消息队列。');
-    const formText = '请检查构建结果\n先看 Windows 客户端。';
+    const { larkDestination: destination, replyAdminId } = store.config();
+    const staleReceipt = 'card:older-form';
+    store.recordLarkReceipt(destination, staleReceipt, '已发送到 Codex 会话。', {
+      workspaceId: workspaces[1].workspace.id, userId: replyAdminId,
+      cardMessageId: 'om_card_2', cardReplyText: '更早发送的消息',
+    });
+    store.delayLarkReplyCheck(destination, staleReceipt, Date.now() + 60_000);
+    const formText = '请检查 **构建结果**\n先看 Windows 客户端。';
     for (const receipt of await Promise.all([
       click('send-form', undefined, { formText }), click('send-form', undefined, { formText }),
     ])) assert.equal(receipt?.toast.content, '已加入 Monitor 消息队列。');
@@ -854,11 +861,20 @@ test('authorized Lark quotes target the card workspace and reuse the Monitor mes
     assert.equal(cardPatchAttempts, 2);
     const updatedCard = JSON.parse(updatedCards.get('om_card_2')!);
     assert.equal(updatedCard.config.update_multi, true);
-    const [original, sentStatus, clearedForm, preservedShortcuts] = updatedCard.body.elements;
+    const [original, sentReply, clearedForm, preservedShortcuts] = updatedCard.body.elements;
     assert.deepEqual(original, card.body.elements[0]);
-    assert.equal(sentStatus.text.content, '已发送到 Codex 会话。');
+    assert.equal(sentReply.background_style, 'blue-50');
+    const [label, message] = sentReply.columns[0].elements;
+    assert.equal(label.text.content, '追加消息 · 已发送');
+    assert.deepEqual(message.text, { tag: 'plain_text', content: formText });
     assert.deepEqual(clearedForm.elements, [{ ...input, default_value: '' }, submit]);
     assert.deepEqual(preservedShortcuts, shortcutRow);
+    store.delayLarkReplyCheck(destination, staleReceipt, 0);
+    await until(async () => {
+      await server.service.notifications.poll();
+      return !store.pendingLarkReplies(destination, Date.now() + 60_000).some(({ messageId }) => messageId === staleReceipt);
+    });
+    assert.equal(cardPatchAttempts, 2);
 
     store.recordLarkMessage(store.config().larkDestination, 'om_legacy', workspaces[0].workspace.id, ids.modern, true);
     assert.equal((await click('send-legacy-form', undefined, {
@@ -867,7 +883,7 @@ test('authorized Lark quotes target the card workspace and reuse the Monitor mes
     await waitForCardUpdate('om_legacy');
     const legacyElements = JSON.parse(updatedCards.get('om_legacy')!).body.elements;
     assert.equal(legacyElements[0].content, '原卡片回复 **保留格式**');
-    assert.equal(legacyElements[1].text.content, '已发送到 Codex 会话。');
+    assert.equal(legacyElements[1].columns[0].elements[1].text.content, '从旧卡片继续');
 
     await clients.pop()!.close();
     await until(() => !server.service.gateway.list().find((item) => item.id === workspaces[1].workspace.id)?.online);
