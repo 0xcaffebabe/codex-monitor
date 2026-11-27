@@ -1,6 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite';
 import type { CompletionNotification } from '../../src/types.js';
-import { LarkDeliveryError, sendLark, type WebhookTransport } from './lark.js';
+import { LarkDeliveryError, larkReplyForm, sendLark, type WebhookTransport } from './lark.js';
 import {
   NotificationStore,
   notificationConfigured,
@@ -190,11 +190,13 @@ export class NotificationService {
     const action = larkCompletionAction(config, event);
     if (!action) return;
     const target = this.store.larkTarget(destination, action.messageId, true);
-    if (!target) return { toast: { type: 'error', content: '此卡片的快捷操作已不可用。' } };
+    if (!target) return { toast: { type: 'error', content: '此卡片的操作已不可用。' } };
     if (!larkRepliesEnabled(config) || !config.replyOpenIds.includes(action.openId) ||
         !this.db.prepare("SELECT 1 FROM users WHERE id=? AND role='admin'").get(config.replyAdminId)) {
-      return { toast: { type: 'error', content: '此账号未获授权使用快捷操作。' } };
+      return { toast: { type: 'error', content: '此账号未获授权操作此卡片。' } };
     }
+    if (action.prompt === undefined)
+      return { toast: { type: 'error', content: `请输入 1 至 ${larkReplyForm.maxLength} 个字符的消息。` } };
     const signal = AbortSignal.any([this.abort.signal, this.destination.signal, this.replyAuthorization.signal]);
     const result = await this.submitReply({
       ...target,

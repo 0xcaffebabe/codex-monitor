@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { gitCommitShortcuts } from '../../src/shared/git-commit-shortcuts.js';
 import { notificationConfigured, type NotificationConfig } from './store.js';
 import { larkDocuments, type LarkDocument } from './lark-documents.js';
+import { larkReplyForm } from './lark.js';
 
 const messageId = z.string().regex(/^om_[\w-]{1,125}$/);
 const imageKey = z.string().regex(/^img_[\w-]{1,200}$/);
@@ -57,7 +58,16 @@ const cardActionSchema = z.object({
   event_id: z.string().min(1).max(128),
   operator: z.object({ open_id: z.string() }),
   context: z.object({ open_message_id: messageId, open_chat_id: z.string() }),
-  action: z.object({ tag: z.literal('button'), value: z.object({ shortcut: z.string() }) }),
+  action: z.object({
+    tag: z.literal('button'),
+    name: z.string().optional(),
+    value: z.unknown().optional(),
+    form_value: z.unknown().optional(),
+  }),
+});
+const cardShortcutValue = z.object({ shortcut: z.string() });
+const cardReplyValue = z.object({
+  [larkReplyForm.inputName]: z.string().max(larkReplyForm.maxLength).trim().min(1),
 });
 
 export function larkCompletionAction(config: NotificationConfig, event: unknown) {
@@ -65,9 +75,15 @@ export function larkCompletionAction(config: NotificationConfig, event: unknown)
   if (!parsed.success) return;
   const { app_id, event_id, operator, context, action } = parsed.data;
   if (app_id !== config.appId || context.open_chat_id !== config.chatId) return;
-  const shortcut = gitCommitShortcuts.find(({ id }) => id === action.value.shortcut);
+  const target = { eventId: event_id, messageId: context.open_message_id, openId: operator.open_id };
+  if (action.name === larkReplyForm.submitName) {
+    const form = cardReplyValue.safeParse(action.form_value);
+    return { ...target, prompt: form.data?.[larkReplyForm.inputName] };
+  }
+  const value = cardShortcutValue.safeParse(action.value);
+  const shortcut = gitCommitShortcuts.find(({ id }) => id === value.data?.shortcut);
   if (!shortcut) return;
-  return { eventId: event_id, messageId: context.open_message_id, openId: operator.open_id, prompt: shortcut.prompt };
+  return { ...target, prompt: shortcut.prompt };
 }
 
 const historyPage = z.object({

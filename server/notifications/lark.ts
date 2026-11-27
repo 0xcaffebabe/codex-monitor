@@ -36,6 +36,12 @@ export class LarkDeliveryError extends Error {
 
 export type WebhookTransport = typeof fetch;
 
+export const larkReplyForm = {
+  inputName: 'session_reply',
+  submitName: 'send_to_session',
+  maxLength: 1000,
+} as const;
+
 export function larkCard(text: string, app = false, completionActions = false) {
   const content = limitMarkdown(
     larkMarkdown(text, app),
@@ -46,11 +52,36 @@ export function larkCard(text: string, app = false, completionActions = false) {
     body: {
       elements: [
         { tag: 'markdown', content },
-        ...(completionActions ? gitCommitShortcuts.map(({ id, label }) => ({
-          tag: 'button' as const,
-          text: { tag: 'plain_text', content: label },
-          behaviors: [{ type: 'callback', value: { shortcut: id } }],
-        })) : []),
+        ...(completionActions ? [
+          ...gitCommitShortcuts.map(({ id, label }) => ({
+            tag: 'button' as const,
+            text: { tag: 'plain_text', content: label },
+            behaviors: [{ type: 'callback', value: { shortcut: id } }],
+          })),
+          {
+            tag: 'form' as const,
+            name: 'reply_to_session',
+            elements: [
+              {
+                tag: 'input',
+                name: larkReplyForm.inputName,
+                placeholder: { tag: 'plain_text', content: '输入后续消息' },
+                input_type: 'multiline_text',
+                rows: 2,
+                width: 'fill',
+                required: true,
+                max_length: larkReplyForm.maxLength,
+              },
+              {
+                tag: 'button',
+                name: larkReplyForm.submitName,
+                text: { tag: 'plain_text', content: '发送到会话' },
+                type: 'primary',
+                form_action_type: 'submit',
+              },
+            ],
+          },
+        ] : []),
       ] as const,
     },
   };

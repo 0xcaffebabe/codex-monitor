@@ -652,20 +652,31 @@ test('authorized Lark quotes target the card workspace and reuse the Monitor mes
 
     const card = JSON.parse(completionCards.get('om_card_2')!);
     const shortcuts = [commitCodeShortcut, commitAndPushCodeShortcut];
-    assert.deepEqual(card.body.elements.slice(1), shortcuts.map(({ id, label }) => ({
+    assert.deepEqual(card.body.elements.slice(1, 3), shortcuts.map(({ id, label }) => ({
       tag: 'button', text: { tag: 'plain_text', content: label },
       behaviors: [{ type: 'callback', value: { shortcut: id } }],
     })));
+    const form = card.body.elements[3];
+    assert.equal(form.tag, 'form');
+    const [input, submit] = form.elements;
+    assert.deepEqual([input.tag, input.input_type, input.required, input.max_length], ['input', 'multiline_text', true, 1000]);
+    assert.deepEqual([submit.tag, submit.form_action_type, submit.text.content], ['button', 'submit', '发送到会话']);
     const { EventDispatcher, LoggerLevel } = await import('@larksuiteoapi/node-sdk');
     const dispatcher = new EventDispatcher({ loggerLevel: LoggerLevel.error }).register({ 'card.action.trigger': receiveAction });
-    const click = (id: string, shortcut: string, options: { openId?: string; chatId?: string; messageId?: string; appId?: string } = {}) =>
+    const click = (id: string, shortcut: string | undefined, options: {
+      openId?: string; chatId?: string; messageId?: string; appId?: string; formText?: unknown;
+    } = {}) =>
       dispatcher.invoke({
         schema: '2.0',
         header: { app_id: options.appId ?? 'cli_monitor', event_type: 'card.action.trigger', event_id: id },
         event: {
           operator: { open_id: options.openId ?? 'ou_allowed' },
           context: { open_chat_id: options.chatId ?? 'oc_team', open_message_id: options.messageId ?? 'om_card_2' },
-          action: { tag: 'button', value: { shortcut, prompt: 'ignored' } },
+          action: {
+            tag: 'button',
+            ...(shortcut ? { value: { shortcut, prompt: 'ignored' } } : { name: submit.name }),
+            ...(options.formText !== undefined && { form_value: { [input.name]: options.formText } }),
+          },
         },
       }, { needCheck: false });
     const commit = commitCodeShortcut.id;
@@ -675,22 +686,32 @@ test('authorized Lark quotes target the card workspace and reuse the Monitor mes
     assert.equal(await click('wrong-chat', commit, { chatId: 'oc_other' }), undefined);
     assert.equal(await click('wrong-app', commit, { appId: 'cli_other' }), undefined);
     assert.equal(await click('wrong-shortcut', 'push-code'), undefined);
+    assert.match((await click('wrong-form-user', undefined, { formText: '未授权消息', openId: 'ou_other' }))?.toast.content, /未获授权/);
+    for (const [index, formText] of [undefined, '  \n ', ['非文本'], '字'.repeat(1001)].entries()) {
+      assert.match((await click(`invalid-form-${index}`, undefined, { formText }))?.toast.content, /1 至 1000/);
+    }
     assert.deepEqual(desks.map(({ sends }) => sends), [0, 5]);
 
-    const receipts = await Promise.all([click('commit', commit), click('commit', commit)]);
+    const receipts = await Promise.all([click('commit', commit, { formText: '不覆盖快捷提示词' }), click('commit', commit)]);
     assert.ok(receipts.every((receipt) => receipt?.toast.type === 'success' || receipt?.toast.type === 'info'));
     await until(() => desks[1].sends === 6);
     b.hist.prepare('INSERT INTO thread_turns VALUES(?,?,?,?,?,?)')
       .run(ids.modern, 'running-during-click', 1002, 'inProgress', Math.floor(Date.now() / 1000), null);
     assert.equal((await click('commit-and-push', commitAndPushCodeShortcut.id))?.toast.content, '已加入 Monitor 消息队列。');
+    const formText = '请检查构建结果\n先看 Windows 客户端。';
+    for (const receipt of await Promise.all([
+      click('send-form', undefined, { formText }), click('send-form', undefined, { formText }),
+    ])) assert.equal(receipt?.toast.content, '已加入 Monitor 消息队列。');
     assert.deepEqual(desks.map(({ sends }) => sends), [0, 6]);
     b.hist.prepare("UPDATE thread_turns SET status='completed',completed_at=? WHERE turn_id=?")
       .run(Math.floor(Date.now() / 1000), 'running-during-click');
-    await until(() => desks[1].sends === 7);
+    await until(() => desks[1].sends === 8);
     const inputs = b.hist.prepare("SELECT item_json,turn_id FROM thread_items WHERE thread_id=? AND json_extract(item_json, '$.type')='userMessage'")
       .all(ids.modern).map(({ item_json, turn_id }) => ({ text: JSON.parse(String(item_json)).content[0].text, turn_id }));
     for (const { prompt } of shortcuts) assert.equal(inputs.filter(({ text }) => text === prompt).length, 1);
+    assert.equal(inputs.filter(({ text }) => text === formText).length, 1);
     assert.notEqual(inputs.find(({ text }) => text === commitAndPushCodeShortcut.prompt)?.turn_id, 'running-during-click');
+    assert.notEqual(inputs.find(({ text }) => text === formText)?.turn_id, 'running-during-click');
 
     await clients.pop()!.close();
     await until(() => !server.service.gateway.list().find((item) => item.id === workspaces[1].workspace.id)?.online);
