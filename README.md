@@ -147,6 +147,10 @@ Server 每 10 秒查询仍在网页通知列表中的会话完成卡片。群里
 
 回复入口包括应用机器人发出的会话通知卡片和启动回执。结构化问题在 Codex 中选择或提交，群聊回复会作为会话消息提交。机器人用 `im:resource` 权限下载回复图片，Client 将图片存为会话附件。分离部署时需更新 Server 和 Client。
 
+### 从轮次完成卡片提交代码
+
+应用机器人配置「授权回复的 Open ID」后，新发出的轮次完成卡片会显示「提交代码」和「提交并推送代码」。在开放平台的「事件与回调 → 回调配置」中选择使用长连接接收回调，添加「卡片回传交互」`card.action.trigger` 并发布。按钮与群聊回复共用授权名单和长连接。授权成员点击后，Monitor 将与网页快捷操作相同的提示词发给卡片对应的 Codex 会话。会话正在运行时，提示词进入队列，等当前轮次结束后开启新一轮。分离部署时需更新 Server 和 Client。群自定义机器人 Webhook 仅支持跳转交互。[卡片回传交互](https://open.larksuite.com/document/uAjLw4CM/ukzMukzMukzM/feishu-cards/card-callback-communication)
+
 ### 从群聊新建会话
 
 在 **设置与访问管理 → 飞书 / Lark 通知 → 应用机器人** 填好授权 Open ID。Server 和目标 Client 都需要更新。

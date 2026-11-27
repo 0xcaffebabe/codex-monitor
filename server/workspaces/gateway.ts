@@ -444,6 +444,7 @@ export class WorkspaceGateway {
     if (!this.store.get(workspaceId)) return { result: 'unavailable' };
     if (!peer?.ready) return { result: 'offline' };
     if (creating ? !peer.notificationStarts : !peer.notificationReplies) return { result: 'upgrade' };
+    if (!creating && input.requireNextTurn && !peer.notificationReplyFiles) return { result: 'upgrade' };
     if (creating && input.projectName && !peer.notificationNamedStarts) return { result: 'upgrade' };
     const hasFiles = attachments.some(({ name }) => !!name);
     if (hasFiles && !peer.notificationReplyFiles) return { result: 'upgrade' };

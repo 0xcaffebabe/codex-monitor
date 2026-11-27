@@ -13,6 +13,7 @@ import { notificationMessage } from './messages.js';
 import { CompletionNotifications } from './completions.js';
 import { LarkApp, LarkReplyAttachmentsTooLarge, LarkReplyDocumentError } from './lark-app.js';
 import {
+  larkCompletionAction,
   larkRepliesEnabled,
   larkReply,
   larkReplyHistory,
@@ -24,6 +25,7 @@ import {
   listenForLarkReplies,
   LARK_REPLY_MAX_ATTACHMENTS,
   replyReceipts,
+  type LarkActionResponse,
   type LarkReplyListener,
   type LarkReplyReceipt,
   type LarkReplySubmission,
@@ -178,8 +180,38 @@ export class NotificationService {
     this.replyConnection?.close({ force: true });
     this.replyDestination = destination;
     this.replyConnection = destination
-      ? this.listenForReplies(config, (event) => this.receiveReply(destination, event))
+      ? this.listenForReplies(config, (event) => this.receiveReply(destination, event),
+        (event) => this.receiveCompletionAction(destination, event))
       : undefined;
+  }
+  private async receiveCompletionAction(destination: string, event: unknown): Promise<LarkActionResponse | undefined> {
+    if (this.closed || destination !== this.replyDestination || !this.submitReply) return;
+    const config = this.store.config();
+    const action = larkCompletionAction(config, event);
+    if (!action) return;
+    const target = this.store.larkTarget(destination, action.messageId, true);
+    if (!target) return { toast: { type: 'error', content: '此卡片的快捷操作已不可用。' } };
+    if (!larkRepliesEnabled(config) || !config.replyOpenIds.includes(action.openId) ||
+        !this.db.prepare("SELECT 1 FROM users WHERE id=? AND role='admin'").get(config.replyAdminId)) {
+      return { toast: { type: 'error', content: '此账号未获授权使用快捷操作。' } };
+    }
+    const signal = AbortSignal.any([this.abort.signal, this.destination.signal, this.replyAuthorization.signal]);
+    const result = await this.submitReply({
+      ...target,
+      userId: config.replyAdminId,
+      requestId: larkRequestId(destination, `card:${action.eventId}`),
+      prompt: action.prompt,
+      attachments: [],
+      nextTurn: true,
+      requireNextTurn: true,
+    }, signal).catch(() => 'unknown' as const);
+    return { toast: {
+      type: result === 'sent' ? 'success' : result === 'queued' || result === 'unknown' ? 'info' : 'error',
+      content: result === 'offline' ? '工作空间已离线，请等客户端重新连接后再试。'
+        : result === 'upgrade' ? '请更新此工作空间的 Monitor 客户端后再试。'
+        : result === 'busy' ? '工作空间正在处理其他请求，请稍后再试。'
+        : replyReceipts[result].text,
+    } };
   }
   private async receiveReply(destination: string, event: unknown) {
     if (this.closed || destination !== this.replyDestination || !this.submitReply)
@@ -665,7 +697,8 @@ export class NotificationService {
     signal: AbortSignal,
   ) {
     const sender = await this.app.sender(config, signal);
-    const messageId = await sender.card(delivery.id, delivery.message);
+    const completionActions = delivery.kind === 'session.completed' && larkRepliesEnabled(config);
+    const messageId = await sender.card(delivery.id, delivery.message, completionActions);
     if (delivery.kind === 'test') {
       await sender.attachment(`${delivery.id}-test`, {
         name: 'codex-monitor-test.txt',
@@ -676,7 +709,7 @@ export class NotificationService {
     }
     const { workspaceId, sessionId, turnId, occurredAt } = delivery;
     if (messageId && workspaceId && sessionId && !signal.aborted)
-      this.store.recordLarkMessage(config.larkDestination, messageId, workspaceId, sessionId);
+      this.store.recordLarkMessage(config.larkDestination, messageId, workspaceId, sessionId, completionActions);
     if (delivery.kind === 'session.completed' && delivery.eventKey && !signal.aborted)
       this.trackLarkRead(delivery.id, delivery.eventKey, messageId);
     if (!this.readAttachment || !workspaceId || !sessionId || !turnId || occurredAt === null)

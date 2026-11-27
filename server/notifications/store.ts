@@ -71,6 +71,7 @@ export class NotificationStore {
       CREATE TABLE IF NOT EXISTS notification_lark_messages (
         destination TEXT NOT NULL, message_id TEXT NOT NULL,
         workspace_id TEXT NOT NULL, session_id TEXT NOT NULL,
+        completion_actions INTEGER NOT NULL DEFAULT 0,
         PRIMARY KEY(destination,message_id)
       );
       CREATE TABLE IF NOT EXISTS notification_lark_replies (
@@ -129,6 +130,9 @@ export class NotificationStore {
       db.exec(`ALTER TABLE notification_deliveries ADD COLUMN workspace_name TEXT;
         UPDATE notification_deliveries SET workspace_name='本机工作空间' WHERE workspace_id='local';`);
     }
+    const messageColumns = db.prepare('PRAGMA table_info(notification_lark_messages)').all();
+    if (!messageColumns.some(({ name }) => name === 'completion_actions'))
+      db.exec('ALTER TABLE notification_lark_messages ADD COLUMN completion_actions INTEGER NOT NULL DEFAULT 0');
     const replyColumns = db.prepare('PRAGMA table_info(notification_lark_replies)').all();
     for (const column of ['workspace_id', 'user_id', 'reaction_id']) {
       if (!replyColumns.some(({ name }) => name === column))
@@ -241,14 +245,15 @@ export class NotificationStore {
       throw error;
     }
   }
-  recordLarkMessage(destination: string, messageId: string, workspaceId: string, sessionId: string) {
-    this.db.prepare('INSERT OR IGNORE INTO notification_lark_messages VALUES(?,?,?,?)')
-      .run(destination, messageId, workspaceId, sessionId);
+  recordLarkMessage(destination: string, messageId: string, workspaceId: string, sessionId: string, completionActions = false) {
+    this.db.prepare(`INSERT OR IGNORE INTO notification_lark_messages
+      (destination,message_id,workspace_id,session_id,completion_actions) VALUES(?,?,?,?,?)`)
+      .run(destination, messageId, workspaceId, sessionId, Number(completionActions));
   }
-  larkTarget(destination: string, messageId: string) {
+  larkTarget(destination: string, messageId: string, requireCompletionActions = false) {
     return this.db.prepare(`SELECT workspace_id AS workspaceId, session_id AS sessionId
-      FROM notification_lark_messages WHERE destination=? AND message_id=?`)
-      .get(destination, messageId) as { workspaceId: string; sessionId: string } | undefined;
+      FROM notification_lark_messages WHERE destination=? AND message_id=? AND completion_actions>=?`)
+      .get(destination, messageId, Number(requireCompletionActions)) as { workspaceId: string; sessionId: string } | undefined;
   }
   claimLarkStart(destination: string, messageId: string, text: string) {
     return !!this.db.prepare(`INSERT OR IGNORE INTO notification_lark_starts

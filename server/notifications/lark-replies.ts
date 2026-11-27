@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import type { WSClient } from '@larksuiteoapi/node-sdk';
 import { z } from 'zod';
+import { gitCommitShortcuts } from '../../src/shared/git-commit-shortcuts.js';
 import { notificationConfigured, type NotificationConfig } from './store.js';
 import { larkDocuments, type LarkDocument } from './lark-documents.js';
 
@@ -51,6 +52,23 @@ const eventSchema = z.object({
     })).optional(),
   }),
 });
+const cardActionSchema = z.object({
+  app_id: z.string(),
+  event_id: z.string().min(1).max(128),
+  operator: z.object({ open_id: z.string() }),
+  context: z.object({ open_message_id: messageId, open_chat_id: z.string() }),
+  action: z.object({ tag: z.literal('button'), value: z.object({ shortcut: z.string() }) }),
+});
+
+export function larkCompletionAction(config: NotificationConfig, event: unknown) {
+  const parsed = cardActionSchema.safeParse(event);
+  if (!parsed.success) return;
+  const { app_id, event_id, operator, context, action } = parsed.data;
+  if (app_id !== config.appId || context.open_chat_id !== config.chatId) return;
+  const shortcut = gitCommitShortcuts.find(({ id }) => id === action.value.shortcut);
+  if (!shortcut) return;
+  return { eventId: event_id, messageId: context.open_message_id, openId: operator.open_id, prompt: shortcut.prompt };
+}
 
 const historyPage = z.object({
   items: z.array(z.unknown()).optional().default([]),
@@ -285,12 +303,13 @@ export type LarkReplySubmission = {
   prompt: string;
   attachments: LarkReplyAttachment[];
   nextTurn: boolean;
+  requireNextTurn?: true;
 };
 
 export type LarkStartProject =
   | { projectId: string; projectName?: never }
   | { projectId?: never; projectName: string };
-export type LarkStartSubmission = Omit<LarkReplySubmission, 'sessionId' | 'nextTurn'> & LarkStartProject;
+export type LarkStartSubmission = Omit<LarkReplySubmission, 'sessionId' | 'nextTurn' | 'requireNextTurn'> & LarkStartProject;
 export type LarkStartResult = { result: LarkReplyReceipt; sessionId?: string; projectName?: string };
 
 export const replyReceipts = {
@@ -334,12 +353,14 @@ export function larkReplyReaction(receipt: string) {
   return reactionByReceipt.get(receipt);
 }
 
+export type LarkActionResponse = { toast: { type: 'success' | 'info' | 'error', content: string } };
 export type LarkReplyListener = (
   config: NotificationConfig,
   receive: (event: unknown) => Promise<void>,
+  receiveAction: (event: unknown) => Promise<LarkActionResponse | undefined>,
 ) => Pick<WSClient, 'getConnectionStatus' | 'close'>;
 
-export const listenForLarkReplies: LarkReplyListener = (config, receive) => {
+export const listenForLarkReplies: LarkReplyListener = (config, receive, receiveAction) => {
   // The SDK can log event contents and request details. Only expose connection state.
   const quiet = () => {};
   const logger = { error: quiet, warn: quiet, info: quiet, debug: quiet, trace: quiet };
@@ -358,6 +379,7 @@ export const listenForLarkReplies: LarkReplyListener = (config, receive) => {
       });
       const eventDispatcher = new EventDispatcher({ logger }).register({
         'im.message.receive_v1': receive,
+        'card.action.trigger': receiveAction,
       });
       await client.start({ eventDispatcher });
     })

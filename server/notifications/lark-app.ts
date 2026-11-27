@@ -169,8 +169,8 @@ export class LarkApp {
       },
       message: async (id: string) =>
         (await this.request(origin, `im/v1/messages/${encodeURIComponent(id)}`, undefined, signal, '读取引用消息', value))?.data,
-      card: async (uuid: string, text: string) => {
-        const result = await send(uuid, 'interactive', larkCard(text, true));
+      card: async (uuid: string, text: string, completionActions = false) => {
+        const result = await send(uuid, 'interactive', larkCard(text, true, completionActions));
         const messageId = result?.data?.message_id;
         return typeof messageId === 'string' && /^om_[\w-]{1,125}$/.test(messageId) ? messageId : undefined;
       },

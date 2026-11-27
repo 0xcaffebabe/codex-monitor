@@ -17,6 +17,7 @@ import { NotificationStore } from '../server/notifications/store.js';
 import type { WebhookTransport } from '../server/notifications/lark.js';
 import type { LarkReplyListener } from '../server/notifications/lark-replies.js';
 import { CHUNK_BYTES, frameSchema, workspacePath } from '../server/transport/protocol.js';
+import { commitAndPushCodeShortcut, commitCodeShortcut } from '../src/shared/git-commit-shortcuts.js';
 
 const webhook =
   'https://open.larksuite.com/open-apis/bot/v2/hook/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
@@ -308,7 +309,9 @@ test('authorized Lark quotes target the card workspace and reuse the Monitor mes
   let exportPolls = 0;
   const downloaded: string[] = [];
   let cardCount = 0;
+  const completionCards = new Map<string, string>();
   let receive!: (event: unknown) => Promise<void>;
+  let receiveAction!: Parameters<LarkReplyListener>[2];
   let slowImageSignal: AbortSignal | undefined;
   let closed = false;
   const server = await central(a, async (url, init) => {
@@ -389,9 +392,12 @@ test('authorized Lark quotes target the card workspace and reuse the Monitor mes
       return new Response(new Uint8Array(image), { headers: { 'Content-Type': 'image/png' } });
     }
     assert.equal(pathname, '/open-apis/im/v1/messages');
-    return Response.json({ code: 0, data: { message_id: 'om_card_' + ++cardCount } });
-  }, 0, (_config, handler) => {
+    const cardId = 'om_card_' + ++cardCount;
+    completionCards.set(cardId, JSON.parse(String(init?.body)).content);
+    return Response.json({ code: 0, data: { message_id: cardId } });
+  }, 0, (_config, handler, actionHandler) => {
     receive = handler;
+    receiveAction = actionHandler;
     return {
       close: () => { closed = true; },
       getConnectionStatus: () => ({ state: 'connected', reconnectAttempts: 0 }),
@@ -644,16 +650,60 @@ test('authorized Lark quotes target the card workspace and reuse the Monitor mes
     assert.equal(desks[1].sends, 5);
     assert.equal((await save(['ou_allowed'])).status, 200);
 
+    const card = JSON.parse(completionCards.get('om_card_2')!);
+    const shortcuts = [commitCodeShortcut, commitAndPushCodeShortcut];
+    assert.deepEqual(card.body.elements.slice(1), shortcuts.map(({ id, label }) => ({
+      tag: 'button', text: { tag: 'plain_text', content: label },
+      behaviors: [{ type: 'callback', value: { shortcut: id } }],
+    })));
+    const { EventDispatcher, LoggerLevel } = await import('@larksuiteoapi/node-sdk');
+    const dispatcher = new EventDispatcher({ loggerLevel: LoggerLevel.error }).register({ 'card.action.trigger': receiveAction });
+    const click = (id: string, shortcut: string, options: { openId?: string; chatId?: string; messageId?: string; appId?: string } = {}) =>
+      dispatcher.invoke({
+        schema: '2.0',
+        header: { app_id: options.appId ?? 'cli_monitor', event_type: 'card.action.trigger', event_id: id },
+        event: {
+          operator: { open_id: options.openId ?? 'ou_allowed' },
+          context: { open_chat_id: options.chatId ?? 'oc_team', open_message_id: options.messageId ?? 'om_card_2' },
+          action: { tag: 'button', value: { shortcut, prompt: 'ignored' } },
+        },
+      }, { needCheck: false });
+    const commit = commitCodeShortcut.id;
+    store.recordLarkMessage(store.config().larkDestination, 'om_startup_card', workspaces[1].workspace.id, ids.modern);
+    assert.equal((await click('wrong-user', commit, { openId: 'ou_other' }))?.toast.type, 'error');
+    assert.equal((await click('startup-card', commit, { messageId: 'om_startup_card' }))?.toast.type, 'error');
+    assert.equal(await click('wrong-chat', commit, { chatId: 'oc_other' }), undefined);
+    assert.equal(await click('wrong-app', commit, { appId: 'cli_other' }), undefined);
+    assert.equal(await click('wrong-shortcut', 'push-code'), undefined);
+    assert.deepEqual(desks.map(({ sends }) => sends), [0, 5]);
+
+    const receipts = await Promise.all([click('commit', commit), click('commit', commit)]);
+    assert.ok(receipts.every((receipt) => receipt?.toast.type === 'success' || receipt?.toast.type === 'info'));
+    await until(() => desks[1].sends === 6);
+    b.hist.prepare('INSERT INTO thread_turns VALUES(?,?,?,?,?,?)')
+      .run(ids.modern, 'running-during-click', 1002, 'inProgress', Math.floor(Date.now() / 1000), null);
+    assert.equal((await click('commit-and-push', commitAndPushCodeShortcut.id))?.toast.content, '已加入 Monitor 消息队列。');
+    assert.deepEqual(desks.map(({ sends }) => sends), [0, 6]);
+    b.hist.prepare("UPDATE thread_turns SET status='completed',completed_at=? WHERE turn_id=?")
+      .run(Math.floor(Date.now() / 1000), 'running-during-click');
+    await until(() => desks[1].sends === 7);
+    const inputs = b.hist.prepare("SELECT item_json,turn_id FROM thread_items WHERE thread_id=? AND json_extract(item_json, '$.type')='userMessage'")
+      .all(ids.modern).map(({ item_json, turn_id }) => ({ text: JSON.parse(String(item_json)).content[0].text, turn_id }));
+    for (const { prompt } of shortcuts) assert.equal(inputs.filter(({ text }) => text === prompt).length, 1);
+    assert.notEqual(inputs.find(({ text }) => text === commitAndPushCodeShortcut.prompt)?.turn_id, 'running-during-click');
+
     await clients.pop()!.close();
     await until(() => !server.service.gateway.list().find((item) => item.id === workspaces[1].workspace.id)?.online);
     await receive(event('om_offline'));
     await until(() => reactions.has('om_offline'));
     assertReaction('om_offline', 'CrossMark');
+    assert.match((await click('offline', commit))?.toast.content, /工作空间已离线/);
 
     assert.equal((await save([])).status, 200);
     assert.equal(closed, true);
     await receive(event('om_disabled'));
     assert.equal(reactions.has('om_disabled'), false);
+    assert.equal(await click('disabled', commit), undefined);
   } finally {
     await Promise.all(clients.map((client) => client.close()));
     await server.close();
@@ -784,6 +834,7 @@ test('Lark app settings send cards, native images and files from a remote worksp
       ['interactive', 'image', 'file'],
     );
     assert.match(messages[2].content, /截图/);
+    assert.deepEqual(JSON.parse(messages[2].content).body.elements.map(({ tag }: { tag: string }) => tag), ['markdown']);
     assert.doesNotMatch(messages[2].content, /shot\.png|\.env/);
     assert.deepEqual(JSON.parse(messages[3].content), { image_key: 'img_test' });
     assert.deepEqual(JSON.parse(messages[4].content), { file_key: 'file_test' });

@@ -1,4 +1,5 @@
 import { createHmac } from 'node:crypto';
+import { gitCommitShortcuts } from '../../src/shared/git-commit-shortcuts.js';
 import { larkMarkdown } from './lark-markdown.js';
 import { limitMarkdown } from './markdown-limit.js';
 
@@ -35,14 +36,23 @@ export class LarkDeliveryError extends Error {
 
 export type WebhookTransport = typeof fetch;
 
-export function larkCard(text: string, app = false) {
+export function larkCard(text: string, app = false, completionActions = false) {
   const content = limitMarkdown(
     larkMarkdown(text, app),
     (markdown) => Buffer.byteLength(JSON.stringify(markdown)) <= LARK_MARKDOWN_BYTES,
   );
   return {
     schema: '2.0',
-    body: { elements: [{ tag: 'markdown', content }] },
+    body: {
+      elements: [
+        { tag: 'markdown', content },
+        ...(completionActions ? gitCommitShortcuts.map(({ id, label }) => ({
+          tag: 'button' as const,
+          text: { tag: 'plain_text', content: label },
+          behaviors: [{ type: 'callback', value: { shortcut: id } }],
+        })) : []),
+      ] as const,
+    },
   };
 }
 
