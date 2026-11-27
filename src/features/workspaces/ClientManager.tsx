@@ -274,122 +274,138 @@ function ClientRow({ workspace, model }: { workspace: ManagedWorkspace; model: W
 }
 
 export function ClientManager({ model }: { model: WorkspacesModel }) {
+  const dialog = useRef<HTMLDialogElement>(null);
   const [confirmingServerUpdate, setConfirmingServerUpdate] = useState(false);
   const serverUpdate = model.serverUpdate;
   const updatingServer = clientUpdateInProgress(serverUpdate);
   const canUpdateServer = model.serverUpdateSupported && !updatingServer && !model.pending;
+  useLayoutEffect(() => {
+    const element = dialog.current!;
+    element.showModal();
+    return () => element.close();
+  }, []);
+
   return (
-    <div className="modal-backdrop" onClick={model.close}>
-      <section
-        className="settings-modal client-manager"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="client-manager-title"
-        onClick={(event) => event.stopPropagation()}
-      >
-        <header>
-          <Monitor size={24} />
-          <div>
-            <h2 id="client-manager-title">管理工作空间</h2>
-            <p className="server-version">
-              <span>
-                服务端版本 <BuildTime commitAt={model.serverBuildCommitAt} />
-              </span>
-              {model.serverUpdateSupported && (
-                <button
-                  type="button"
-                  className="client-update"
-                  aria-label="更新并重启服务端"
-                  aria-haspopup="dialog"
-                  disabled={!canUpdateServer}
-                  onClick={() => setConfirmingServerUpdate(true)}
-                >
-                  <RefreshCw size={14} aria-hidden="true" />
-                  更新
-                </button>
-              )}
-            </p>
-            <p>一个 client 对应一个工作空间</p>
-          </div>
-          <button className="icon-button" aria-label="关闭工作空间管理" onClick={model.close}>
-            <X size={20} />
-          </button>
-        </header>
-        <div className="settings-body">
-          {serverUpdate && (
-            <p className={serverUpdate.phase === 'failed' ? 'alert error' : 'help'} role="status">
-              {serverUpdate.message ||
-                `服务端${serverUpdate.phase === 'requested' ? '等待开始更新' : updateLabels[serverUpdate.phase]}`}
-            </p>
-          )}
-          {confirmingServerUpdate && (
-            <UpdateConfirmation
-              title="更新服务端"
-              message="服务端重启时，网页和客户端连接会短暂中断。"
-              confirmLabel="确认更新服务端"
-              disabled={!canUpdateServer}
-              onConfirm={() => {
-                setConfirmingServerUpdate(false);
-                void model.updateServer();
-              }}
-              onCancel={() => setConfirmingServerUpdate(false)}
-            />
-          )}
-          {model.error && (
-            <div className="alert error" role="alert">
-              {model.error}
-            </div>
-          )}
-          <form
-            className="client-create"
-            onSubmit={(event) => {
-              event.preventDefault();
-              void model.create();
-            }}
-          >
-            <label htmlFor="new-workspace">添加工作空间</label>
-            <div>
-              <input
-                id="new-workspace"
-                placeholder="例如：办公室电脑"
-                value={model.name}
-                maxLength={80}
-                onChange={(event) => model.setName(event.target.value)}
-                required
-              />
-              <button className="primary" disabled={!!model.pending || !model.name.trim()}>
-                <Plus size={16} />
-                添加
+    <dialog
+      ref={dialog}
+      className="settings-modal client-manager"
+      aria-labelledby="client-manager-title"
+      onCancel={(event) => {
+        if (event.target !== event.currentTarget) return;
+        event.preventDefault();
+        model.close();
+      }}
+      onClick={(event) => {
+        if (event.target === event.currentTarget) model.close();
+      }}
+    >
+      <header>
+        <Monitor size={24} />
+        <div>
+          <h2 id="client-manager-title">管理工作空间</h2>
+          <p className="server-version">
+            <span>
+              服务端版本 <BuildTime commitAt={model.serverBuildCommitAt} />
+            </span>
+            {model.serverUpdateSupported && (
+              <button
+                type="button"
+                className="client-update"
+                aria-label="更新并重启服务端"
+                aria-haspopup="dialog"
+                disabled={!canUpdateServer}
+                onClick={() => setConfirmingServerUpdate(true)}
+              >
+                <RefreshCw size={14} aria-hidden="true" />
+                更新
               </button>
-            </div>
-          </form>
-          {model.connectionCommand && (
-            <section className="client-config" aria-label="Client 连接命令">
-              <h3>client 启动命令</h3>
-              <p className="help">
-                复制下方命令，在 client 机器的项目目录中运行。固定 AES 密钥只在此显示，请妥善保存。
-              </p>
-              <textarea
-                readOnly
-                aria-label="Client 启动命令"
-                value={model.connectionCommand}
-                rows={5}
-                spellCheck={false}
-              />
-              <button disabled={!!model.pending} onClick={() => void model.copy()}>
-                <Copy size={15} />
-                {model.copied ? '已复制' : '复制 client 启动命令'}
-              </button>
-              <p className="help">
-                在 client 机器启动应用后，此工作空间将显示在线。关闭此窗口后不再显示密钥。
-              </p>
-            </section>
-          )}
-          {model.workspaces.map((workspace) => (
-            <ClientRow key={workspace.id} workspace={workspace} model={model} />
-          ))}
+            )}
+          </p>
+          <p>一个 client 对应一个工作空间</p>
         </div>
-      </section>
-    </div>
+        <button
+          autoFocus
+          className="icon-button"
+          aria-label="关闭工作空间管理"
+          onClick={model.close}
+        >
+          <X size={20} />
+        </button>
+      </header>
+      <div className="settings-body">
+        {serverUpdate && (
+          <p className={serverUpdate.phase === 'failed' ? 'alert error' : 'help'} role="status">
+            {serverUpdate.message ||
+              `服务端${serverUpdate.phase === 'requested' ? '等待开始更新' : updateLabels[serverUpdate.phase]}`}
+          </p>
+        )}
+        {confirmingServerUpdate && (
+          <UpdateConfirmation
+            title="更新服务端"
+            message="服务端重启时，网页和客户端连接会短暂中断。"
+            confirmLabel="确认更新服务端"
+            disabled={!canUpdateServer}
+            onConfirm={() => {
+              setConfirmingServerUpdate(false);
+              void model.updateServer();
+            }}
+            onCancel={() => setConfirmingServerUpdate(false)}
+          />
+        )}
+        {model.error && (
+          <div className="alert error" role="alert">
+            {model.error}
+          </div>
+        )}
+        <form
+          className="client-create"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void model.create();
+          }}
+        >
+          <label htmlFor="new-workspace">添加工作空间</label>
+          <div>
+            <input
+              id="new-workspace"
+              placeholder="例如：办公室电脑"
+              value={model.name}
+              maxLength={80}
+              onChange={(event) => model.setName(event.target.value)}
+              required
+            />
+            <button className="primary" disabled={!!model.pending || !model.name.trim()}>
+              <Plus size={16} />
+              添加
+            </button>
+          </div>
+        </form>
+        {model.connectionCommand && (
+          <section className="client-config" aria-label="Client 连接命令">
+            <h3>client 启动命令</h3>
+            <p className="help">
+              复制下方命令，在 client 机器的项目目录中运行。固定 AES 密钥只在此显示，请妥善保存。
+            </p>
+            <textarea
+              readOnly
+              aria-label="Client 启动命令"
+              value={model.connectionCommand}
+              rows={5}
+              spellCheck={false}
+            />
+            <button disabled={!!model.pending} onClick={() => void model.copy()}>
+              <Copy size={15} />
+              {model.copied ? '已复制' : '复制 client 启动命令'}
+            </button>
+            <p className="help">
+              在 client 机器启动应用后，此工作空间将显示在线。关闭此窗口后不再显示密钥。
+            </p>
+          </section>
+        )}
+        {model.workspaces.map((workspace) => (
+          <ClientRow key={workspace.id} workspace={workspace} model={model} />
+        ))}
+      </div>
+    </dialog>
   );
 }

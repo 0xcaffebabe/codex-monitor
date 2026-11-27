@@ -1,4 +1,4 @@
-import { BarChart3, RefreshCw } from 'lucide-react';
+import { BarChart3, RefreshCw, X } from 'lucide-react';
 import { compact, integer, localDay, money } from './format';
 import { Heatmap } from './Heatmap';
 import { Trend } from './Trend';
@@ -8,8 +8,12 @@ import { UsageRequests } from './UsageRequests';
 import { Sub2ApiUsage } from './Sub2ApiUsage';
 import { UsageDashboardProps, useUsageDashboard } from './useUsageDashboard';
 
-export function UsageDashboard(props: UsageDashboardProps) {
-  const { onSession } = props;
+export function UsageDashboard(
+  props: UsageDashboardProps & {
+    dialogHeading?: { id: string; workspaceName: string; onClose: () => void };
+  },
+) {
+  const { onSession, dialogHeading } = props;
   const modelState = useUsageDashboard(props);
   const {
     range,
@@ -28,23 +32,42 @@ export function UsageDashboard(props: UsageDashboardProps) {
     change,
     s,
   } = modelState;
+  const Heading = dialogHeading ? 'h2' : 'h1';
   return (
     <section className="usage-dashboard" aria-label="用量统计">
       <div className="usage-page-heading">
-        <h1>
-          用量统计<span className="title-dot">.</span>
-        </h1>
-        <button
-          className="secondary"
-          onClick={() => {
-            setAnchor(Date.now());
-            reload();
-          }}
-          disabled={data?.scan.running || busy}
-        >
-          <RefreshCw size={15} className={data?.scan.running ? 'spin' : ''} />
-          {data?.scan.running ? '正在同步' : '立即同步'}
-        </button>
+        <div className="usage-heading-title">
+          <Heading id={dialogHeading?.id}>
+            用量统计{!dialogHeading && <span className="title-dot">.</span>}
+          </Heading>
+          {dialogHeading && (
+            <span title={dialogHeading.workspaceName}>{dialogHeading.workspaceName}</span>
+          )}
+        </div>
+        <div className="usage-heading-actions">
+          <button
+            className="secondary"
+            onClick={() => {
+              setAnchor(Date.now());
+              reload();
+            }}
+            disabled={data?.scan.running || busy}
+          >
+            <RefreshCw size={15} className={data?.scan.running ? 'spin' : ''} />
+            {data?.scan.running ? '正在同步' : '立即同步'}
+          </button>
+          {dialogHeading && (
+            <button
+              autoFocus
+              type="button"
+              className="icon-button"
+              aria-label="关闭用量统计"
+              onClick={dialogHeading.onClose}
+            >
+              <X size={18} aria-hidden="true" />
+            </button>
+          )}
+        </div>
       </div>
       <UsageFilters model={modelState} />
       {error && (

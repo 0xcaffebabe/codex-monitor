@@ -1,4 +1,5 @@
 import {
+  Activity,
   ArrowDown,
   ArrowUpRight,
   ChevronLeft,
@@ -10,6 +11,7 @@ import {
   LoaderCircle,
   Maximize2,
   Minimize2,
+  Monitor,
   SquarePen,
   X,
 } from 'lucide-react';
@@ -37,6 +39,7 @@ import { useSessionControl } from '../control/useSessionControl';
 import { ActivityGroup } from '../session/ActivityGroup';
 import { groupTimelineEvents, mergeSessionPage } from '../session/session-model';
 import { useSessionActions } from '../session/useSessionActions';
+import { UsageDialog } from '../usage/UsageDialog';
 import { OverviewNewSession } from './OverviewNewSession';
 import { SessionPickerDialog } from './SessionPickerDialog';
 import type { WorkspaceSession } from './session-list-model';
@@ -67,11 +70,13 @@ export function RunningOverviewDialog({
   groups,
   workspaceId,
   onRefresh,
+  onManageWorkspaces,
 }: {
   user: User;
   groups: AttentionWorkspace[];
   workspaceId: string;
   onRefresh: () => void;
+  onManageWorkspaces?: () => void;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   useLayoutEffect(() => {
@@ -99,6 +104,7 @@ export function RunningOverviewDialog({
         workspaceId={workspaceId}
         unavailable={groups.filter(({ fresh }) => !fresh).map(({ workspace }) => workspace.name)}
         onRefresh={onRefresh}
+        onManageWorkspaces={onManageWorkspaces}
         onClose={closeOverview}
         onOpenSession={(targetWorkspaceId, sessionId) => {
           const params = new URLSearchParams(location.search);
@@ -150,6 +156,7 @@ function RunningOverview({
   onClose,
   onOpenSession,
   onRefresh,
+  onManageWorkspaces,
 }: {
   user: User;
   running: RunningTask[];
@@ -159,13 +166,14 @@ function RunningOverview({
   onClose: () => void;
   onOpenSession: (workspaceId: string, sessionId: string) => void;
   onRefresh: () => void;
+  onManageWorkspaces?: () => void;
 }) {
   const storageKey = `codex-monitor.overview-order.v1.${user.id}`;
   const [trackedTasks, setTrackedTasks] = useState(running);
   const [preferredOrder, setPreferredOrder] = useState(() => readTaskOrder(storageKey));
   const [page, setPage] = useState(0);
   const [expanded, setExpanded] = useState<string>();
-  const [picker, setPicker] = useState<'new' | 'history'>();
+  const [overlay, setOverlay] = useState<'new' | 'history' | 'usage'>();
   const [size, setSize] = useState({ width: 0, height: 0 });
   const [notice, setNotice] = useState('');
   const [sortStatus, setSortStatus] = useState('');
@@ -209,6 +217,7 @@ function RunningOverview({
   }, [trackedTasks, preferredOrder]);
   const current = new Map(running.map((item) => [taskKey(item), item]));
   const observations = new Map(groups.map((group) => [group.workspace.id, group]));
+  const activeWorkspace = observations.get(workspaceId)?.workspace;
   const maxColumns = Math.max(1, Math.floor((size.width + gap) / (paneMinWidth + gap)));
   const rowsFor = (height: number) =>
     Math.max(1, Math.floor((height + gap) / (paneMinHeight + gap)));
@@ -296,7 +305,7 @@ function RunningOverview({
     const workspace = observations.get(session.workspaceId)?.workspace;
     if (!workspace?.online) return;
     showTask({ workspace, session });
-    setPicker(undefined);
+    setOverlay(undefined);
   }
 
   return (
@@ -329,13 +338,34 @@ function RunningOverview({
           <span>{running.length} 个运行中</span>
         </div>
         <div className="running-overview-actions">
+          {onManageWorkspaces && (
+            <button
+              type="button"
+              className="secondary"
+              aria-haspopup="dialog"
+              onClick={onManageWorkspaces}
+            >
+              <Monitor size={16} aria-hidden="true" />
+              工作空间
+            </button>
+          )}
+          <button
+            type="button"
+            className="secondary"
+            aria-haspopup="dialog"
+            disabled={!activeWorkspace}
+            onClick={() => setOverlay('usage')}
+          >
+            <Activity size={16} aria-hidden="true" />
+            用量统计
+          </button>
           {user.role === 'admin' && (
             <>
               <button
                 type="button"
                 className="secondary"
                 aria-haspopup="dialog"
-                onClick={() => setPicker('history')}
+                onClick={() => setOverlay('history')}
               >
                 <History size={16} aria-hidden="true" />
                 继续历史会话
@@ -344,7 +374,7 @@ function RunningOverview({
                 type="button"
                 className="primary"
                 aria-haspopup="dialog"
-                onClick={() => setPicker('new')}
+                onClick={() => setOverlay('new')}
               >
                 <SquarePen size={16} aria-hidden="true" />
                 新建会话
@@ -498,22 +528,30 @@ function RunningOverview({
           {notice}
         </div>
       )}
-      {picker === 'new' && (
+      {overlay === 'usage' && activeWorkspace && (
+        <UsageDialog
+          key={activeWorkspace.id}
+          workspaceName={activeWorkspace.name}
+          onClose={() => setOverlay(undefined)}
+          onSession={(id) => onOpenSession(activeWorkspace.id, id)}
+        />
+      )}
+      {overlay === 'new' && (
         <OverviewNewSession
           user={user}
           workspaceId={workspaceId}
           groups={groups}
-          onClose={() => setPicker(undefined)}
+          onClose={() => setOverlay(undefined)}
           onCreated={showCreatedSession}
         />
       )}
-      {picker === 'history' && (
+      {overlay === 'history' && (
         <SessionPickerDialog
           mode="history"
           workspaces={groups.map(({ workspace }) => workspace)}
           portalContainer={area.current?.closest('dialog') ?? undefined}
           onSelect={showHistorySession}
-          onClose={() => setPicker(undefined)}
+          onClose={() => setOverlay(undefined)}
         />
       )}
     </div>

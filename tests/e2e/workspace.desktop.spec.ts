@@ -57,6 +57,55 @@ test('the desktop dock stays fixed on usage and opens a running session across w
   await expect(remoteSession).toHaveAttribute('aria-current', 'page');
 });
 
+test('overview shortcuts open usage and workspace management over an expanded session', async ({
+  signedIn: { browserPage: page },
+  monitor,
+}) => {
+  const remoteName = '远程工作空间';
+  await monitor.addWorkspace(remoteName, '远程会话');
+  await page.goto('/overview?workspace=local&view=all');
+  const overviewUrl = page.url();
+  const overview = page.getByRole('dialog', { name: '任务全览' });
+  const pane = overview.getByRole('region', { name: `本机工作空间 · ${localTitle}` });
+  await pane.getByRole('button', { name: '放大此会话' }).click();
+  const usageTrigger = overview.getByRole('button', { name: '用量统计', exact: true });
+  const usage = page.getByRole('dialog', { name: '用量统计', exact: true });
+  const tokens = usage.locator('.usage-stat').filter({ hasText: '消耗 Tokens' }).locator('strong');
+
+  await usageTrigger.click();
+  await expect(usage.getByText('本机工作空间', { exact: true })).toBeVisible();
+  await expect(tokens).toHaveText(/^\d/);
+  await expect(usage.getByRole('button', { name: localTitle, exact: true })).toBeVisible();
+  await usage.getByLabel('统计时间范围').selectOption('7d');
+  await expect(tokens).toHaveText(/^\d/);
+  await page.keyboard.press('Escape');
+  await expect(usage).toBeHidden();
+  await expect(usageTrigger).toBeFocused();
+  await expect(pane.getByRole('button', { name: '恢复分屏' })).toBeVisible();
+  await expect(page).toHaveURL(overviewUrl);
+
+  const workspaceTrigger = overview.getByRole('button', { name: '工作空间', exact: true });
+  const manager = page.getByRole('dialog', { name: '管理工作空间' });
+  await workspaceTrigger.click();
+  for (const name of ['本机工作空间', remoteName]) {
+    const row = manager.getByRole('article').filter({ hasText: name });
+    await expect(row.getByText('在线', { exact: true })).toBeVisible();
+  }
+  await page.keyboard.press('Escape');
+  await expect(manager).toBeHidden();
+  await expect(workspaceTrigger).toBeFocused();
+  await expect(pane.getByRole('button', { name: '恢复分屏' })).toBeVisible();
+  await expect(page).toHaveURL(overviewUrl);
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await usageTrigger.click();
+  await expect(tokens).toHaveText(/^\d/);
+  await usage.getByRole('button', { name: '关闭用量统计' }).click();
+  await workspaceTrigger.click();
+  await manager.getByRole('button', { name: '关闭工作空间管理' }).click();
+  await expect(pane.getByRole('button', { name: '恢复分屏' })).toBeVisible();
+});
+
 test('the overview URL survives reload and follows browser navigation', async ({
   signedIn: { browserPage: page, usage },
   context,

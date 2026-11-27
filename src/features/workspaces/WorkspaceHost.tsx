@@ -101,6 +101,7 @@ export function WorkspaceHost(props: WorkspaceProps) {
           groups={attention.groups}
           workspaceId={model.activeId}
           onRefresh={attention.refresh}
+          onManageWorkspaces={props.user.role === 'admin' ? () => model.setManaging(true) : undefined}
         />
       )}
       <CompletionNotifications key={props.user.id} />
