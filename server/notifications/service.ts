@@ -216,8 +216,7 @@ export class NotificationService {
     if (!target) return { toast: { type: 'error', content: '此卡片的操作已不可用。' } };
     if (action.prompt === undefined)
       return { toast: { type: 'error', content: `请输入 1 至 ${larkReplyForm.maxLength} 个字符的消息。` } };
-    return this.submitCardReply(config, action.eventId, target, action.prompt, signal,
-      callback.action.name === larkReplyForm.submitName ? action : undefined);
+    return this.submitCardReply(config, action.eventId, target, action.prompt, signal, action);
   }
   private canUseLarkActions(config: NotificationConfig, openId: string) {
     return larkRepliesEnabled(config) && config.replyOpenIds.includes(openId) &&
@@ -228,7 +227,7 @@ export class NotificationService {
   }
   private async submitCardReply(config: NotificationConfig, eventId: string,
     target: Pick<LarkReplySubmission, 'workspaceId' | 'sessionId'>, prompt: string, signal: AbortSignal,
-    completionCard?: { messageId: string; updateToken?: string }): Promise<LarkActionResponse> {
+    completionCard?: { messageId: string; updateToken?: string; replyText?: string }): Promise<LarkActionResponse> {
     const destination = config.larkDestination;
     const receiptId = `card:${eventId}`;
     const result = await this.submitReply!({
@@ -241,13 +240,13 @@ export class NotificationService {
       requireNextTurn: true,
     }, signal).catch(() => 'unknown' as const);
     if (completionCard && !signal.aborted && (result === 'sent' || result === 'queued')) {
-      const { messageId, updateToken } = completionCard;
+      const { messageId, updateToken, replyText = prompt } = completionCard;
       this.store.recordLarkReceipt(destination, receiptId, replyReceipts[result].text, {
         workspaceId: target.workspaceId,
         userId: config.replyAdminId,
         cardMessageId: messageId,
         cardUpdateToken: this.store.larkCardText(destination, messageId) === undefined ? updateToken : undefined,
-        cardReplyText: prompt,
+        cardReplyText: replyText,
       });
     }
     return { toast: {

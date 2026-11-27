@@ -825,12 +825,30 @@ test('authorized Lark quotes target the card workspace and reuse the Monitor mes
     }
     assert.deepEqual(desks.map(({ sends }) => sends), [0, 5]);
 
+    const waitForCardReply = (id: string, text: string) => until(async () => {
+      await server.service.notifications.poll();
+      const updated = updatedCards.get(id);
+      return !!updated && JSON.parse(updated).body.elements[1]?.columns?.[0]?.elements[1]?.text.content === text;
+    });
     const receipts = await Promise.all([click('commit', commit, { formText: '不覆盖快捷提示词' }), click('commit', commit)]);
     assert.ok(receipts.every((receipt) => receipt?.toast.type === 'success' || receipt?.toast.type === 'info'));
     await until(() => desks[1].sends === 6);
+    await waitForCardReply('om_card_2', commitCodeShortcut.label);
+    assert.equal(cardPatchAttempts, 2);
+
     b.hist.prepare('INSERT INTO thread_turns VALUES(?,?,?,?,?,?)')
       .run(ids.modern, 'running-during-click', 1002, 'inProgress', Math.floor(Date.now() / 1000), null);
     assert.equal((await click('commit-and-push', commitAndPushCodeShortcut.id))?.toast.content, '已加入 Monitor 消息队列。');
+    await server.service.notifications.poll();
+    assert.equal(cardPatchAttempts, 2);
+    b.hist.prepare("UPDATE thread_turns SET status='completed',completed_at=? WHERE turn_id=?")
+      .run(Math.floor(Date.now() / 1000), 'running-during-click');
+    await waitForCardReply('om_card_2', commitAndPushCodeShortcut.label);
+    assert.equal(desks[1].sends, 7);
+    assert.equal(cardPatchAttempts, 3);
+
+    b.hist.prepare('INSERT INTO thread_turns VALUES(?,?,?,?,?,?)')
+      .run(ids.modern, 'running-during-form', 1003, 'inProgress', Math.floor(Date.now() / 1000), null);
     const { larkDestination: destination, replyAdminId } = store.config();
     const staleReceipt = 'card:older-form';
     store.recordLarkReceipt(destination, staleReceipt, '已发送到 Codex 会话。', {
@@ -842,23 +860,19 @@ test('authorized Lark quotes target the card workspace and reuse the Monitor mes
     for (const receipt of await Promise.all([
       click('send-form', undefined, { formText }), click('send-form', undefined, { formText }),
     ])) assert.equal(receipt?.toast.content, '已加入 Monitor 消息队列。');
-    assert.deepEqual(desks.map(({ sends }) => sends), [0, 6]);
-    assert.equal(cardPatchAttempts, 0);
+    assert.deepEqual(desks.map(({ sends }) => sends), [0, 7]);
+    assert.equal(cardPatchAttempts, 3);
     b.hist.prepare("UPDATE thread_turns SET status='completed',completed_at=? WHERE turn_id=?")
-      .run(Math.floor(Date.now() / 1000), 'running-during-click');
+      .run(Math.floor(Date.now() / 1000), 'running-during-form');
     await until(() => desks[1].sends === 8);
     const inputs = b.hist.prepare("SELECT item_json,turn_id FROM thread_items WHERE thread_id=? AND json_extract(item_json, '$.type')='userMessage'")
       .all(ids.modern).map(({ item_json, turn_id }) => ({ text: JSON.parse(String(item_json)).content[0].text, turn_id }));
     for (const { prompt } of shortcuts) assert.equal(inputs.filter(({ text }) => text === prompt).length, 1);
     assert.equal(inputs.filter(({ text }) => text === formText).length, 1);
     assert.notEqual(inputs.find(({ text }) => text === commitAndPushCodeShortcut.prompt)?.turn_id, 'running-during-click');
-    assert.notEqual(inputs.find(({ text }) => text === formText)?.turn_id, 'running-during-click');
-    const waitForCardUpdate = (id: string) => until(async () => {
-      await server.service.notifications.poll();
-      return updatedCards.has(id);
-    });
-    await waitForCardUpdate('om_card_2');
-    assert.equal(cardPatchAttempts, 2);
+    assert.notEqual(inputs.find(({ text }) => text === formText)?.turn_id, 'running-during-form');
+    await waitForCardReply('om_card_2', formText);
+    assert.equal(cardPatchAttempts, 4);
     const updatedCard = JSON.parse(updatedCards.get('om_card_2')!);
     assert.equal(updatedCard.config.update_multi, true);
     const [original, sentReply, clearedForm, preservedShortcuts] = updatedCard.body.elements;
@@ -874,13 +888,13 @@ test('authorized Lark quotes target the card workspace and reuse the Monitor mes
       await server.service.notifications.poll();
       return !store.pendingLarkReplies(destination, Date.now() + 60_000).some(({ messageId }) => messageId === staleReceipt);
     });
-    assert.equal(cardPatchAttempts, 2);
+    assert.equal(cardPatchAttempts, 4);
 
     store.recordLarkMessage(store.config().larkDestination, 'om_legacy', workspaces[0].workspace.id, ids.modern, true);
     assert.equal((await click('send-legacy-form', undefined, {
       messageId: 'om_legacy', formText: '从旧卡片继续', token: 'c-legacy-token',
     }))?.toast.type, 'success');
-    await waitForCardUpdate('om_legacy');
+    await waitForCardReply('om_legacy', '从旧卡片继续');
     const legacyElements = JSON.parse(updatedCards.get('om_legacy')!).body.elements;
     assert.equal(legacyElements[0].content, '原卡片回复 **保留格式**');
     assert.equal(legacyElements[1].columns[0].elements[1].text.content, '从旧卡片继续');

@@ -88,7 +88,7 @@ export function larkCompletionAction(event: NonNullable<ReturnType<typeof larkCa
   const value = cardShortcutValue.safeParse(action.value);
   const shortcut = gitCommitShortcuts.find(({ id }) => id === value.data?.shortcut);
   if (!shortcut) return;
-  return { ...target, prompt: shortcut.prompt };
+  return { ...target, prompt: shortcut.prompt, replyText: shortcut.label };
 }
 
 const historyPage = z.object({
