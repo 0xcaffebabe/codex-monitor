@@ -216,7 +216,8 @@ export class NotificationService {
     if (!target) return { toast: { type: 'error', content: '此卡片的操作已不可用。' } };
     if (action.prompt === undefined)
       return { toast: { type: 'error', content: `请输入 1 至 ${larkReplyForm.maxLength} 个字符的消息。` } };
-    return this.submitCardReply(config, action.eventId, target, action.prompt, signal);
+    return this.submitCardReply(config, action.eventId, target, action.prompt, signal,
+      callback.action.name === larkReplyForm.submitName ? action : undefined);
   }
   private canUseLarkActions(config: NotificationConfig, openId: string) {
     return larkRepliesEnabled(config) && config.replyOpenIds.includes(openId) &&
@@ -226,16 +227,28 @@ export class NotificationService {
     return AbortSignal.any([this.abort.signal, this.destination.signal, this.replyAuthorization.signal]);
   }
   private async submitCardReply(config: NotificationConfig, eventId: string,
-    target: Pick<LarkReplySubmission, 'workspaceId' | 'sessionId'>, prompt: string, signal: AbortSignal): Promise<LarkActionResponse> {
+    target: Pick<LarkReplySubmission, 'workspaceId' | 'sessionId'>, prompt: string, signal: AbortSignal,
+    completionCard?: { messageId: string; updateToken?: string }): Promise<LarkActionResponse> {
+    const destination = config.larkDestination;
+    const receiptId = `card:${eventId}`;
     const result = await this.submitReply!({
       ...target,
       userId: config.replyAdminId,
-      requestId: larkRequestId(config.larkDestination, `card:${eventId}`),
+      requestId: larkRequestId(destination, receiptId),
       prompt,
       attachments: [],
       nextTurn: true,
       requireNextTurn: true,
     }, signal).catch(() => 'unknown' as const);
+    if (completionCard && !signal.aborted && (result === 'sent' || result === 'queued')) {
+      const { messageId, updateToken } = completionCard;
+      this.store.recordLarkReceipt(destination, receiptId, replyReceipts[result].text, {
+        workspaceId: target.workspaceId,
+        userId: config.replyAdminId,
+        cardMessageId: messageId,
+        cardUpdateToken: this.store.larkCardText(destination, messageId) === undefined ? updateToken : undefined,
+      });
+    }
     return { toast: {
       type: result === 'sent' ? 'success' : result === 'queued' || result === 'unknown' ? 'info' : 'error',
       content: result === 'offline' ? '工作空间已离线，请等客户端重新连接后再试。'
@@ -708,7 +721,8 @@ export class NotificationService {
     const signal = AbortSignal.any([this.abort.signal, this.destination.signal, this.replyAuthorization.signal]);
     const now = Date.now();
     await Promise.allSettled(this.store.pendingLarkReplies(destination, now).map(async (reply) => {
-      const { messageId, workspaceId, userId, receipt, reactionId } = reply;
+      const { messageId, workspaceId, userId, reactionId, cardMessageId, cardUpdateToken } = reply;
+      let { receipt } = reply;
       this.store.delayLarkReplyCheck(destination, messageId, now + LARK_REPLY_POLL_MS);
       // Let the initial feedback record the waiting reaction before trying to replace it.
       if (this.replies.has(`${destination}:${messageId}`)) return;
@@ -716,11 +730,24 @@ export class NotificationService {
         const status = await this.readReplyStatus!(workspaceId, userId, larkRequestId(destination, messageId), signal);
         if (signal.aborted || !status) return;
         const { text, emoji } = replyReceipts[status];
-        const sender = await this.app.sender(config, signal);
-        await sender.react(messageId, emoji);
+        if (!cardMessageId) {
+          const sender = await this.app.sender(config, signal);
+          await sender.react(messageId, emoji);
+        }
         this.store.updateLarkReceipt(destination, messageId, text);
+        receipt = text;
       }
       if (signal.aborted) return;
+      if (cardMessageId && receipt === replyReceipts.sent.text) {
+        try {
+          const sender = await this.app.sender(config, signal);
+          await sender.completeCardReply(cardMessageId, receipt,
+            this.store.larkCardText(destination, cardMessageId), cardUpdateToken ?? undefined);
+        } catch (error) {
+          if (!(error instanceof LarkDeliveryError) || error.retryable) throw error;
+        }
+        if (signal.aborted) return;
+      }
       if (reactionId) {
         const sender = await this.app.sender(config, signal);
         await sender.removeReaction(messageId, reactionId);
@@ -779,7 +806,8 @@ export class NotificationService {
     }
     const { workspaceId, sessionId, turnId, occurredAt } = delivery;
     if (messageId && workspaceId && sessionId && !signal.aborted)
-      this.store.recordLarkMessage(config.larkDestination, messageId, workspaceId, sessionId, completionActions);
+      this.store.recordLarkMessage(config.larkDestination, messageId, workspaceId, sessionId, completionActions,
+        completionActions ? delivery.id : undefined);
     if (delivery.kind === 'session.completed' && delivery.eventKey && !signal.aborted)
       this.trackLarkRead(delivery.id, delivery.eventKey, messageId);
     if (!this.readAttachment || !workspaceId || !sessionId || !turnId || occurredAt === null)

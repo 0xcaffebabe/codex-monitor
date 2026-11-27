@@ -1,5 +1,6 @@
 import path from 'node:path';
-import { LarkDeliveryError, larkCard, larkRequest, type WebhookTransport } from './lark.js';
+import { z } from 'zod';
+import { LarkDeliveryError, larkCard, larkCardFromMarkdown, larkRequest, type WebhookTransport } from './lark.js';
 import type { NotificationConfig } from './store.js';
 import type { NotificationAttachment } from './attachments.js';
 import { imageMime } from '../media.js';
@@ -7,6 +8,18 @@ import { LARK_REPLY_MAX_BYTES, type LarkReplyAttachment, type LarkReplyResource 
 import { larkDocumentExport } from './lark-documents.js';
 
 const imageMimes = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/bmp']);
+const cardMessage = z.array(z.object({
+  message_id: z.string(),
+  chat_id: z.string(),
+  msg_type: z.literal('interactive'),
+  body: z.object({ content: z.string().max(64 * 1024) }),
+})).nonempty();
+const cardMarkdown = z.object({
+  schema: z.literal('2.0'),
+  body: z.object({ elements: z.tuple([
+    z.object({ tag: z.literal('markdown'), content: z.string() }),
+  ]).rest(z.unknown()) }),
+});
 export class LarkReplyAttachmentsTooLarge extends Error {}
 export class LarkReplyDocumentError extends Error {}
 const fileTypes = new Map([
@@ -75,7 +88,7 @@ export class LarkApp {
     signal: AbortSignal,
     action: string,
     token?: string,
-    method?: 'DELETE',
+    method?: 'DELETE' | 'PATCH',
   ) {
     const result = await larkRequest(
       origin + '/open-apis/' + endpoint,
@@ -173,6 +186,34 @@ export class LarkApp {
         const result = await send(uuid, 'interactive', larkCard(text, true, completionActions));
         const messageId = result?.data?.message_id;
         return typeof messageId === 'string' && /^om_[\w-]{1,125}$/.test(messageId) ? messageId : undefined;
+      },
+      completeCardReply: async (messageId: string, receipt: string, text?: string, updateToken?: string) => {
+        const endpoint = `im/v1/messages/${encodeURIComponent(messageId)}`;
+        let card;
+        if (text === undefined) {
+          const result = await this.request(origin, `${endpoint}?card_msg_content_type=user_card_content`,
+            undefined, signal, '读取原通知卡片', value);
+          const message = cardMessage.safeParse(result?.data?.items).data?.[0];
+          if (message?.message_id !== messageId || message.chat_id !== chatId)
+            throw new LarkDeliveryError('飞书/Lark 未返回原通知卡片');
+          let raw: unknown;
+          try {
+            raw = JSON.parse(message.body.content);
+          } catch {
+            throw new LarkDeliveryError('飞书/Lark 返回了无效的原通知卡片');
+          }
+          const original = cardMarkdown.safeParse(raw).data;
+          if (!original) throw new LarkDeliveryError('飞书/Lark 返回了无效的原通知卡片');
+          card = larkCardFromMarkdown(original.body.elements[0].content, true, receipt);
+          if (updateToken) {
+            await this.request(origin, 'interactive/v1/card/update', { token: updateToken, card },
+              signal, '更新通知卡片', value);
+            return;
+          }
+        } else {
+          card = larkCard(text, true, true, receipt);
+        }
+        await this.request(origin, endpoint, { content: JSON.stringify(card) }, signal, '更新通知卡片', value, 'PATCH');
       },
       isRead: async (messageId: string) => {
         const result = await this.request(

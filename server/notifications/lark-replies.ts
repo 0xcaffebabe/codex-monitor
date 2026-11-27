@@ -56,6 +56,7 @@ const eventSchema = z.object({
 const cardActionSchema = z.object({
   app_id: z.string(),
   event_id: z.string().min(1).max(128),
+  token: z.string().max(512).optional(),
   operator: z.object({ open_id: z.string() }),
   context: z.object({ open_message_id: messageId, open_chat_id: z.string() }),
   action: z.object({
@@ -73,9 +74,9 @@ const cardReplyValue = z.object({
 export function larkCardAction(config: NotificationConfig, event: unknown) {
   const parsed = cardActionSchema.safeParse(event);
   if (!parsed.success) return;
-  const { app_id, event_id, operator, context, action } = parsed.data;
+  const { app_id, event_id, token, operator, context, action } = parsed.data;
   if (app_id !== config.appId || context.open_chat_id !== config.chatId) return;
-  return { eventId: event_id, messageId: context.open_message_id, openId: operator.open_id, action };
+  return { eventId: event_id, messageId: context.open_message_id, openId: operator.open_id, updateToken: token, action };
 }
 
 export function larkCompletionAction(event: NonNullable<ReturnType<typeof larkCardAction>>) {

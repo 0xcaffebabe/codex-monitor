@@ -411,6 +411,8 @@ test('authorized Lark quotes target the card workspace and reuse the Monitor mes
   const downloaded: string[] = [];
   let cardCount = 0;
   const completionCards = new Map<string, string>();
+  const updatedCards = new Map<string, string>();
+  let cardPatchAttempts = 0;
   let receive!: (event: unknown) => Promise<void>;
   let receiveAction!: Parameters<LarkReplyListener>[2];
   let slowImageSignal: AbortSignal | undefined;
@@ -491,6 +493,27 @@ test('authorized Lark quotes target the card workspace and reuse the Monitor mes
         });
       }
       return new Response(new Uint8Array(image), { headers: { 'Content-Type': 'image/png' } });
+    }
+    if (pathname === '/open-apis/im/v1/messages/om_card_2' && init?.method === 'PATCH') {
+      assert.equal(new Headers(init.headers).get('authorization'), 'Bearer test');
+      if (++cardPatchAttempts === 1) return Response.json({ code: 1 }, { status: 503 });
+      updatedCards.set('om_card_2', JSON.parse(String(init.body)).content);
+      return Response.json({ code: 0 });
+    }
+    if (pathname === '/open-apis/im/v1/messages/om_legacy' && init?.method === 'GET') {
+      assert.equal(endpoint.searchParams.get('card_msg_content_type'), 'user_card_content');
+      return Response.json({ code: 0, data: { items: [{
+        message_id: 'om_legacy', chat_id: 'oc_team', msg_type: 'interactive',
+        body: { content: JSON.stringify({ schema: '2.0', body: { elements: [
+          { tag: 'markdown', content: '原卡片回复 **保留格式**' },
+        ] } }) },
+      }] } });
+    }
+    if (pathname === '/open-apis/interactive/v1/card/update' && init?.method === 'POST') {
+      const { token, card } = JSON.parse(String(init.body));
+      assert.equal(token, 'c-legacy-token');
+      updatedCards.set('om_legacy', JSON.stringify(card));
+      return Response.json({ code: 0 });
     }
     assert.equal(pathname, '/open-apis/im/v1/messages');
     const cardId = 'om_card_' + ++cardCount;
@@ -752,6 +775,7 @@ test('authorized Lark quotes target the card workspace and reuse the Monitor mes
     assert.equal((await save(['ou_allowed'])).status, 200);
 
     const card = JSON.parse(completionCards.get('om_card_2')!);
+    assert.equal(card.config.update_multi, true);
     const shortcuts = [commitCodeShortcut, commitAndPushCodeShortcut];
     assert.deepEqual(card.body.elements.map(({ tag }: { tag: string }) => tag), ['markdown', 'form', 'column_set']);
     const [, form, shortcutRow] = card.body.elements;
@@ -772,12 +796,13 @@ test('authorized Lark quotes target the card workspace and reuse the Monitor mes
     const { EventDispatcher, LoggerLevel } = await import('@larksuiteoapi/node-sdk');
     const dispatcher = new EventDispatcher({ loggerLevel: LoggerLevel.error }).register({ 'card.action.trigger': receiveAction });
     const click = (id: string, shortcut: string | undefined, options: {
-      openId?: string; chatId?: string; messageId?: string; appId?: string; formText?: unknown;
+      openId?: string; chatId?: string; messageId?: string; appId?: string; formText?: unknown; token?: string;
     } = {}) =>
       dispatcher.invoke({
         schema: '2.0',
         header: { app_id: options.appId ?? 'cli_monitor', event_type: 'card.action.trigger', event_id: id },
         event: {
+          token: options.token,
           operator: { open_id: options.openId ?? 'ou_allowed' },
           context: { open_chat_id: options.chatId ?? 'oc_team', open_message_id: options.messageId ?? 'om_card_2' },
           action: {
@@ -811,6 +836,7 @@ test('authorized Lark quotes target the card workspace and reuse the Monitor mes
       click('send-form', undefined, { formText }), click('send-form', undefined, { formText }),
     ])) assert.equal(receipt?.toast.content, '已加入 Monitor 消息队列。');
     assert.deepEqual(desks.map(({ sends }) => sends), [0, 6]);
+    assert.equal(cardPatchAttempts, 0);
     b.hist.prepare("UPDATE thread_turns SET status='completed',completed_at=? WHERE turn_id=?")
       .run(Math.floor(Date.now() / 1000), 'running-during-click');
     await until(() => desks[1].sends === 8);
@@ -820,6 +846,28 @@ test('authorized Lark quotes target the card workspace and reuse the Monitor mes
     assert.equal(inputs.filter(({ text }) => text === formText).length, 1);
     assert.notEqual(inputs.find(({ text }) => text === commitAndPushCodeShortcut.prompt)?.turn_id, 'running-during-click');
     assert.notEqual(inputs.find(({ text }) => text === formText)?.turn_id, 'running-during-click');
+    const waitForCardUpdate = (id: string) => until(async () => {
+      await server.service.notifications.poll();
+      return updatedCards.has(id);
+    });
+    await waitForCardUpdate('om_card_2');
+    assert.equal(cardPatchAttempts, 2);
+    const updatedCard = JSON.parse(updatedCards.get('om_card_2')!);
+    assert.equal(updatedCard.config.update_multi, true);
+    const [original, sentStatus, clearedForm, preservedShortcuts] = updatedCard.body.elements;
+    assert.deepEqual(original, card.body.elements[0]);
+    assert.equal(sentStatus.text.content, '已发送到 Codex 会话。');
+    assert.deepEqual(clearedForm.elements, [{ ...input, default_value: '' }, submit]);
+    assert.deepEqual(preservedShortcuts, shortcutRow);
+
+    store.recordLarkMessage(store.config().larkDestination, 'om_legacy', workspaces[0].workspace.id, ids.modern, true);
+    assert.equal((await click('send-legacy-form', undefined, {
+      messageId: 'om_legacy', formText: '从旧卡片继续', token: 'c-legacy-token',
+    }))?.toast.type, 'success');
+    await waitForCardUpdate('om_legacy');
+    const legacyElements = JSON.parse(updatedCards.get('om_legacy')!).body.elements;
+    assert.equal(legacyElements[0].content, '原卡片回复 **保留格式**');
+    assert.equal(legacyElements[1].text.content, '已发送到 Codex 会话。');
 
     await clients.pop()!.close();
     await until(() => !server.service.gateway.list().find((item) => item.id === workspaces[1].workspace.id)?.online);

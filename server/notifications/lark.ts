@@ -42,17 +42,25 @@ export const larkReplyForm = {
   maxLength: 1000,
 } as const;
 
-export function larkCard(text: string, app = false, completionActions = false) {
-  const content = limitMarkdown(
+export function larkCard(text: string, app = false, completionActions = false, replyStatus?: string) {
+  return larkCardFromMarkdown(limitMarkdown(
     larkMarkdown(text, app),
     (markdown) => Buffer.byteLength(JSON.stringify(markdown)) <= LARK_MARKDOWN_BYTES,
-  );
+  ), completionActions, replyStatus);
+}
+
+export function larkCardFromMarkdown(content: string, completionActions: boolean, replyStatus?: string) {
   return {
     schema: '2.0',
+    ...(completionActions && { config: { update_multi: true } }),
     body: {
       elements: [
         { tag: 'markdown', content },
         ...(completionActions ? [
+          ...(replyStatus ? [{
+            tag: 'div',
+            text: { tag: 'plain_text', content: replyStatus },
+          }] : []),
           {
             tag: 'form' as const,
             name: 'reply_to_session',
@@ -64,6 +72,7 @@ export function larkCard(text: string, app = false, completionActions = false) {
                 input_type: 'multiline_text',
                 rows: 2,
                 width: 'fill',
+                ...(replyStatus && { default_value: '' }),
                 required: true,
                 max_length: larkReplyForm.maxLength,
               },
@@ -134,7 +143,7 @@ export async function larkRequest(
   transport: WebhookTransport,
   token?: string,
   maxResponseBytes = 16384,
-  method: 'GET' | 'POST' | 'DELETE' = body ? 'POST' : 'GET',
+  method: 'GET' | 'POST' | 'DELETE' | 'PATCH' = body ? 'POST' : 'GET',
 ) {
   try {
     const multipart = body instanceof FormData;
