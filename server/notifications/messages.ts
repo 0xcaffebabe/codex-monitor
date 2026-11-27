@@ -1,13 +1,22 @@
 import type { NotificationEvent } from './events.js';
 
+function metadata(label: string, value: string) {
+  const text = value.replace(/\s+/g, ' ').trim().replace(/[\\`*_[\]<>~!&]/g, '\\$&');
+  return `**${label}** ${text}`;
+}
+
 export function notificationMessage(
   event: Exclude<NotificationEvent, { kind: 'session.input_resolved' }>,
   workspace: { id: string; name: string },
   publicUrl: string,
 ) {
   const completed = event.kind === 'session.completed';
-  const lines = [
-    completed ? '✅ Codex 本轮已结束' : '🙋 Codex 需要你选择或回答',
+  const lines = completed ? [
+    metadata('工作空间', workspace.name),
+    metadata('会话', event.title),
+    metadata('项目', event.project),
+  ] : [
+    '🙋 Codex 需要你选择或回答',
     `工作空间：${workspace.name}`,
     `会话：${event.title}`,
     `项目：${event.project}`,
@@ -23,7 +32,7 @@ export function notificationMessage(
       second: '2-digit',
       hour12: false,
     }).format(event.occurredAt);
-    lines.push(`完成时间：${date} (UTC+8)`);
+    lines.push(metadata('完成时间', `${date} (UTC+8)`));
   }
   // Keep navigation above the reply so it stays visible in long cards.
   if (publicUrl) {
@@ -36,7 +45,7 @@ export function notificationMessage(
     lines.push('', `[${completed ? '查看本轮结果' : '查看会话'}](<${url.href}>)`);
   }
   if (completed) {
-    if (event.summary.trim()) lines.push('', `回复内容：\n\n${event.summary}`);
+    if (event.summary.trim()) lines.push('', `**回复内容**\n\n${event.summary}`);
   } else {
     event.questions.forEach((question, index) => {
       lines.push('', `${index + 1}. ${question.title}`);

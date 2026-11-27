@@ -794,7 +794,7 @@ export class NotificationService {
       const warning =
         config.mode === 'app'
           ? await this.deliverApp(config, delivery, signal)
-          : await sendLark(config, delivery.message, signal, this.transport);
+          : await sendLark(config, delivery.message, signal, this.transport, delivery.kind === 'session.completed');
       signal.throwIfAborted();
       if (!this.closed) this.store.sent(delivery.id, warning || '');
     } catch (error) {
@@ -853,8 +853,10 @@ export class NotificationService {
     uuid: string,
     signal: AbortSignal,
   ): Promise<string> {
-    const completionActions = delivery.kind === 'session.completed' && larkRepliesEnabled(config);
-    const { messageId, chatId } = await sender.card(recipient, uuid, delivery.message, completionActions);
+    const completed = delivery.kind === 'session.completed';
+    const completionActions = completed && larkRepliesEnabled(config);
+    const completion = completionActions ? 'interactive' : completed ? 'read-only' : undefined;
+    const { messageId, chatId } = await sender.card(recipient, uuid, delivery.message, completion);
     signal.throwIfAborted();
     if (delivery.kind === 'test') {
       await sender.attachment(recipient, `${uuid}-test`, {

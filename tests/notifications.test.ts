@@ -355,9 +355,16 @@ test('background completion outbox delivers fast turns over real HTTP without SS
     assert.equal(received.length, 2);
     assert.equal(received[0].msg_type, 'interactive');
     assert.equal(received[0].card.schema, '2.0');
-    assert.match(received[0].card.body.elements[0].content, new RegExp(`result=${first}`));
-    assert.ok(received[0].card.body.elements[0].content.includes(summary));
-    assert.doesNotMatch(received[0].card.body.elements[0].content, /第二轮独立摘要/);
+    assert.deepEqual(received[0].card.header, {
+      title: { tag: 'plain_text', content: 'Codex 本轮已结束' },
+      template: 'green',
+    });
+    const [{ content }] = received[0].card.body.elements;
+    assert.equal(received[0].card.body.elements.length, 1);
+    assert.match(content, /^\*\*工作空间\*\* .+\n\*\*会话\*\* .+\n\*\*项目\*\* .+\n\*\*完成时间\*\* .+/);
+    assert.match(content, new RegExp(`result=${first}`));
+    assert.ok(content.endsWith(`\n\n**回复内容**\n\n${summary}`));
+    assert.doesNotMatch(content, /本轮已结束|第二轮独立摘要/);
     assert.match(received[1].card.body.elements[0].content, new RegExp(`result=${second}`));
     assert.match(
       received[1].card.body.elements[0].content,

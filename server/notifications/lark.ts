@@ -43,18 +43,29 @@ export const larkReplyForm = {
 } as const;
 
 export type LarkCardReply = { status: string; text?: string };
+export type LarkCompletionStyle = 'read-only' | 'interactive';
+const completionTitle = 'Codex 本轮已结束';
+const legacyCompletionHeading = `✅ ${completionTitle}\n`;
 
-export function larkCard(text: string, app = false, completionActions = false, reply?: LarkCardReply) {
+export function larkCard(
+  text: string,
+  { app, completion, reply }: { app?: boolean; completion?: LarkCompletionStyle; reply?: LarkCardReply } = {},
+) {
   return larkCardFromMarkdown(limitMarkdown(
     larkMarkdown(text, app),
     (markdown) => Buffer.byteLength(JSON.stringify(markdown)) <= LARK_MARKDOWN_BYTES,
-  ), completionActions, reply);
+  ), completion, reply);
 }
 
-export function larkCardFromMarkdown(content: string, completionActions: boolean, reply?: LarkCardReply) {
+export function larkCardFromMarkdown(content: string, completion?: LarkCompletionStyle, reply?: LarkCardReply) {
+  // Queued deliveries and previously sent cards may still carry the title in the body.
+  if (completion && content.startsWith(legacyCompletionHeading))
+    content = content.slice(legacyCompletionHeading.length);
+  const completionActions = completion === 'interactive';
   return {
     schema: '2.0',
     ...(completionActions && { config: { update_multi: true } }),
+    ...(completion && { header: { title: { tag: 'plain_text', content: completionTitle }, template: 'green' } }),
     body: {
       elements: [
         { tag: 'markdown', content },
@@ -125,13 +136,14 @@ export async function sendLark(
   text: string,
   signal: AbortSignal,
   transport: WebhookTransport = fetch,
+  completed = false,
 ) {
   if (!validLarkWebhook(config.webhookUrl))
     throw new LarkDeliveryError('请配置有效的飞书/Lark Webhook');
   const timestamp = String(Math.floor(Date.now() / 1000));
   const body = {
     msg_type: 'interactive',
-    card: larkCard(text),
+    card: larkCard(text, { completion: completed ? 'read-only' : undefined }),
     ...(config.signingSecret
       ? {
           timestamp,

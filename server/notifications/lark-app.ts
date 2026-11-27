@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { z } from 'zod';
-import { LarkDeliveryError, larkCard, larkCardFromMarkdown, larkRequest, type LarkCardReply, type WebhookTransport } from './lark.js';
+import { LarkDeliveryError, larkCard, larkCardFromMarkdown, larkRequest, type LarkCardReply, type LarkCompletionStyle, type WebhookTransport } from './lark.js';
 import type { NotificationConfig } from './store.js';
 import type { NotificationAttachment } from './attachments.js';
 import { imageMime } from '../media.js';
@@ -171,7 +171,7 @@ export class LarkApp {
         const result = await this.request(
           origin,
           `im/v1/messages/${encodeURIComponent(parent)}/reply`,
-          { msg_type: 'interactive', content: JSON.stringify(typeof card === 'string' ? larkCard(card, true) : card), uuid },
+          { msg_type: 'interactive', content: JSON.stringify(typeof card === 'string' ? larkCard(card, { app: true }) : card), uuid },
           signal,
           '回复消息',
           value,
@@ -183,8 +183,8 @@ export class LarkApp {
       },
       message: async (id: string) =>
         (await this.request(origin, `im/v1/messages/${encodeURIComponent(id)}`, undefined, signal, '读取引用消息', value))?.data,
-      card: async (recipient: LarkRecipient, uuid: string, text: string, completionActions = false) => {
-        const result = await send(recipient, uuid, 'interactive', larkCard(text, true, completionActions));
+      card: async (recipient: LarkRecipient, uuid: string, text: string, completion?: LarkCompletionStyle) => {
+        const result = await send(recipient, uuid, 'interactive', larkCard(text, { app: true, completion }));
         const messageId = result?.data?.message_id;
         return {
           messageId: typeof messageId === 'string' && /^om_[\w-]{1,125}$/.test(messageId) ? messageId : undefined,
@@ -208,14 +208,14 @@ export class LarkApp {
           }
           const original = cardMarkdown.safeParse(raw).data;
           if (!original) throw new LarkDeliveryError('飞书/Lark 返回了无效的原通知卡片');
-          card = larkCardFromMarkdown(original.body.elements[0].content, true, reply);
+          card = larkCardFromMarkdown(original.body.elements[0].content, 'interactive', reply);
           if (updateToken) {
             await this.request(origin, 'interactive/v1/card/update', { token: updateToken, card },
               signal, '更新通知卡片', value);
             return;
           }
         } else {
-          card = larkCard(text, true, true, reply);
+          card = larkCard(text, { app: true, completion: 'interactive', reply });
         }
         await this.request(origin, endpoint, { content: JSON.stringify(card) }, signal, '更新通知卡片', value, 'PATCH');
       },

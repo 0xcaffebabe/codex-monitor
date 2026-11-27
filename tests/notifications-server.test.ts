@@ -541,7 +541,7 @@ test('authorized Lark quotes target the card workspace and reuse the Monitor mes
       return Response.json({ code: 0, data: { items: [{
         message_id: 'om_legacy', chat_id: 'oc_team', msg_type: 'interactive',
         body: { content: JSON.stringify({ schema: '2.0', body: { elements: [
-          { tag: 'markdown', content: '原卡片回复 **保留格式**' },
+          { tag: 'markdown', content: '✅ Codex 本轮已结束\n原卡片回复 **保留格式**' },
         ] } }) },
       }] } });
     }
@@ -811,6 +811,7 @@ test('authorized Lark quotes target the card workspace and reuse the Monitor mes
     assert.equal((await save(['ou_allowed'])).status, 200);
 
     const card = JSON.parse(completionCards.get('om_card_2')!);
+    assert.equal(card.header.template, 'green');
     assert.equal(card.config.update_multi, true);
     const shortcuts = [commitCodeShortcut, commitAndPushCodeShortcut];
     assert.deepEqual(card.body.elements.map(({ tag }: { tag: string }) => tag), ['markdown', 'form', 'column_set']);
@@ -910,6 +911,7 @@ test('authorized Lark quotes target the card workspace and reuse the Monitor mes
     await waitForCardReply('om_card_2', formText);
     assert.equal(cardPatchAttempts, 4);
     const updatedCard = JSON.parse(updatedCards.get('om_card_2')!);
+    assert.deepEqual(updatedCard.header, card.header);
     assert.equal(updatedCard.config.update_multi, true);
     const [original, sentReply, clearedForm, preservedShortcuts] = updatedCard.body.elements;
     assert.deepEqual(original, card.body.elements[0]);
@@ -931,7 +933,9 @@ test('authorized Lark quotes target the card workspace and reuse the Monitor mes
       messageId: 'om_legacy', formText: '从旧卡片继续', token: 'c-legacy-token',
     }))?.toast.type, 'success');
     await waitForCardReply('om_legacy', '从旧卡片继续');
-    const legacyElements = JSON.parse(updatedCards.get('om_legacy')!).body.elements;
+    const legacyCard = JSON.parse(updatedCards.get('om_legacy')!);
+    assert.deepEqual(legacyCard.header, card.header);
+    const legacyElements = legacyCard.body.elements;
     assert.equal(legacyElements[0].content, '原卡片回复 **保留格式**');
     assert.equal(legacyElements[1].columns[0].elements[1].text.content, '从旧卡片继续');
 
@@ -1077,7 +1081,9 @@ test('Lark app settings send cards, native images and files from a remote worksp
       ['interactive', 'image', 'file'],
     );
     assert.match(messages[2].content, /截图/);
-    assert.deepEqual(JSON.parse(messages[2].content).body.elements.map(({ tag }: { tag: string }) => tag), ['markdown']);
+    const completionCard = JSON.parse(messages[2].content);
+    assert.equal(completionCard.header.template, 'green');
+    assert.deepEqual(completionCard.body.elements.map(({ tag }: { tag: string }) => tag), ['markdown']);
     assert.doesNotMatch(messages[2].content, /shot\.png|\.env/);
     assert.deepEqual(JSON.parse(messages[3].content), { image_key: 'img_test' });
     assert.deepEqual(JSON.parse(messages[4].content), { file_key: 'file_test' });
