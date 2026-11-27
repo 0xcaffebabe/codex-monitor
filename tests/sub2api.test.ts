@@ -133,7 +133,11 @@ test('Sub2API uses saved server credentials and exposes only admin usage fields'
       '/openai/accounts/41/quota',
       {
         credits: { balance: '1250.50', hasCredits: true, unlimited: false },
-        resetCredits: { available: 2, remaining: null },
+        resetCredits: {
+          available: 2,
+          remaining: null,
+          expirations: ['2026-12-01T20:00:00+08:00', '2027-01-02T12:00:00Z'],
+        },
       },
     ],
     [
@@ -142,7 +146,7 @@ test('Sub2API uses saved server credentials and exposes only admin usage fields'
       '/openai/accounts/42/quota',
       {
         credits: { balance: '0', hasCredits: false, unlimited: false },
-        resetCredits: { available: 0, remaining: null },
+        resetCredits: { available: 0, remaining: null, expirations: [] },
       },
     ],
     [
@@ -155,13 +159,20 @@ test('Sub2API uses saved server credentials and exposes only admin usage fields'
       45,
       'openai',
       '/openai/accounts/45/quota',
-      { credits: null, resetCredits: { available: 5, remaining: null } },
+      { credits: null, resetCredits: { available: 5, remaining: null, expirations: [] } },
     ],
     [
       46,
       'anthropic',
       '/accounts/46/claude/reset-credits',
-      { credits: null, resetCredits: { available: 1, remaining: 3 } },
+      {
+        credits: null,
+        resetCredits: {
+          available: 1,
+          remaining: 3,
+          expirations: ['2026-12-02T12:00:00Z', '2026-12-05T12:00:00Z'],
+        },
+      },
     ],
   ] as const) {
     const before: number = upstream.calls.length;

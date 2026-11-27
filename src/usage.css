@@ -561,6 +561,15 @@
 .sub2api-credits[role='alert'] {
   color: var(--danger);
 }
+.sub2api-reset-details summary {
+  width: fit-content;
+  cursor: pointer;
+}
+.sub2api-reset-details ul {
+  margin: 4px 0 0;
+  padding-inline-start: 1.25em;
+  color: var(--muted);
+}
 .sub2api-quotas {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(130px, 100%), 1fr));

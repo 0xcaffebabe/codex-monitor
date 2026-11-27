@@ -133,7 +133,14 @@ export async function sub2ApiFixture() {
         if (behavior.rejectCredits) return json(403, { message: upstreamCredential });
         return json(200, {
           credits: { balance: '1250.50', has_credits: true, unlimited: false },
-          rate_limit_reset_credits: { available_count: 2 },
+          rate_limit_reset_credits: {
+            available_count: 2,
+            credits: [
+              { expires_at: '2027-01-02T12:00:00Z', id: upstreamCredential },
+              { expires_at: '2026-12-01T20:00:00+08:00' },
+              { expires_at: 'invalid' },
+            ],
+          },
           access_token: upstreamCredential,
         });
       case '/openai/accounts/42/quota':
@@ -150,8 +157,8 @@ export async function sub2ApiFixture() {
         return json(200, {
           available_count: 1,
           credits: [
-            { resets_left: 1, redeemable: true },
-            { resets_left: 2, redeemable: false },
+            { resets_left: 1, redeemable: true, expires_at: '2026-12-02T12:00:00Z' },
+            { resets_left: 2, redeemable: false, expires_at: '2026-12-05T12:00:00Z' },
           ],
           access_token: upstreamCredential,
         });

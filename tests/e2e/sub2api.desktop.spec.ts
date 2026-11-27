@@ -67,7 +67,18 @@ test('configure Sub2API and query subscription accounts and API keys', async ({
     await expect(plusResets).toHaveText('重置卡可用 2 次');
     await expect(backup.getByRole('status', { name: '重置卡' })).toHaveText('重置卡可用 0 次');
     await expect(claudeResets).toHaveText('重置卡剩余 3 次 · 当前可用 1 次');
-    await expect(usage.subscriptions.getByRole('button')).toHaveCount(0);
+    await expect(backup.locator('summary')).toHaveCount(0);
+
+    const plusExpirationList = plus.getByRole('list', { name: '重置卡过期时间' });
+    await expect(plusExpirationList).toBeHidden();
+    await plus.locator('summary').press('Enter');
+    await expect(plusExpirationList).toBeVisible();
+    const plusDates = plusExpirationList.locator('time');
+    await expect(plusDates).toHaveCount(2);
+    await expect(plusDates.first()).toHaveAttribute('datetime', '2026-12-01T20:00:00+08:00');
+    await expect(plusDates.last()).toContainText('2027');
+    await plus.locator('summary').click();
+    await expect(plusExpirationList).toBeHidden();
 
     upstream.behavior.rejectCredits = true;
     upstream.behavior.legacyClaudeReset = true;
@@ -88,6 +99,11 @@ test('configure Sub2API and query subscription accounts and API keys', async ({
     await expect(backupBalance).toHaveText('0 点');
     await expect(plusResets).toHaveText('重置卡可用 2 次');
     await expect(claudeResets).toHaveText('重置卡剩余 3 次 · 当前可用 1 次');
+    const claudeExpirationList = claudeOAuth.getByRole('list', { name: '重置卡过期时间' });
+    await expect(claudeExpirationList).toBeHidden();
+    await claudeOAuth.locator('summary').click();
+    await expect(claudeExpirationList).toBeVisible();
+    await expect(claudeExpirationList.getByRole('listitem')).toHaveCount(2);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
       true,
     );

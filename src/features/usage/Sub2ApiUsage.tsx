@@ -54,10 +54,11 @@ function useQuery<T>(url: string | undefined, revision = 0) {
   return { data: current?.data, error: busy ? undefined : current?.error, busy };
 }
 
-function timestamp(value: string | null) {
+function timestamp(value: string | null, includeYear = false) {
   const epoch = value ? Date.parse(value) : NaN;
   return Number.isFinite(epoch)
     ? new Date(epoch).toLocaleString('zh-CN', {
+        year: includeYear ? 'numeric' : undefined,
         month: 'numeric',
         day: 'numeric',
         hour: '2-digit',
@@ -103,6 +104,12 @@ function AccountDetails({
         ? `重置卡可用 ${available} 次`
         : `重置卡剩余 ${integer(resetCredits.remaining)} 次 · 当前可用 ${available} 次`;
   }
+  const resetStatus = (
+    <span role="status" aria-label="重置卡">
+      {resetLabel}
+    </span>
+  );
+  const expirations = resetCredits?.expirations ?? [];
   return (
     <>
       {platform === 'openai' && (
@@ -110,9 +117,20 @@ function AccountDetails({
           {data ? creditBalance(data.credits) : '正在查询点数…'}
         </span>
       )}
-      <span className="sub2api-credits" role="status" aria-label="重置卡">
-        {resetLabel}
-      </span>
+      {expirations.length > 0 ? (
+        <details className="sub2api-credits sub2api-reset-details">
+          <summary>{resetStatus}</summary>
+          <ul aria-label="重置卡过期时间">
+            {expirations.map((expiresAt, index) => (
+              <li key={index}>
+                <time dateTime={expiresAt}>{timestamp(expiresAt, true)}</time> 过期
+              </li>
+            ))}
+          </ul>
+        </details>
+      ) : (
+        <div className="sub2api-credits">{resetStatus}</div>
+      )}
     </>
   );
 }

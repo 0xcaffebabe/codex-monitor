@@ -36,7 +36,7 @@ export type Sub2ApiCredits = {
 
 export type Sub2ApiAccountDetails = {
   credits: Sub2ApiCredits | null;
-  resetCredits: { available: number; remaining: number | null } | null;
+  resetCredits: { available: number; remaining: number | null; expirations: string[] } | null;
 };
 
 export type Sub2ApiKeyUsage = {

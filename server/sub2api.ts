@@ -93,6 +93,7 @@ const keyStats = z.object({
   total_actual_cost: z.number().nullish(),
 });
 const resetCount = z.number().int().nonnegative();
+const resetCredit = z.object({ expires_at: z.iso.datetime({ offset: true }).nullish().catch(null) });
 const openAiQuota = z.object({
   credits: z
     .object({
@@ -104,12 +105,19 @@ const openAiQuota = z.object({
       unlimited: z.boolean(),
     })
     .nullish(),
-  rate_limit_reset_credits: z.object({ available_count: resetCount }).nullish().catch(null),
+  rate_limit_reset_credits: z
+    .object({
+      available_count: resetCount,
+      credits: z.array(resetCredit.catch({})).nullish().catch(null),
+    })
+    .nullish()
+    .catch(null),
 });
 const claudeResetCredits = z.object({
   available_count: resetCount,
-  credits: z.array(z.object({ resets_left: resetCount })),
+  credits: z.array(resetCredit.extend({ resets_left: resetCount })),
 });
+
 const named = z.object({ name: z.string() });
 const callRecordPage = z.object({
   items: z.array(
@@ -147,6 +155,12 @@ const callRecordPage = z.object({
   page_size: id,
 });
 const keyMatches = z.array(named.extend({ id }));
+
+function resetCreditExpirations(credits: z.infer<typeof resetCredit>[] | null | undefined) {
+  return (credits ?? [])
+    .flatMap(({ expires_at }) => (expires_at ? [expires_at] : []))
+    .sort((a, b) => Date.parse(a) - Date.parse(b));
+}
 
 function requestedKeyId(value: string) {
   const keyId = Number(value.match(/^#([1-9]\d*)$/)?.[1]);
@@ -405,6 +419,7 @@ export class Sub2ApiClient {
         resetCredits: {
           available: available_count,
           remaining: credits.reduce((total, credit) => total + credit.resets_left, 0),
+          expirations: resetCreditExpirations(credits),
         },
       };
     }
@@ -422,7 +437,11 @@ export class Sub2ApiClient {
           }
         : null,
       resetCredits: rate_limit_reset_credits
-        ? { available: rate_limit_reset_credits.available_count, remaining: null }
+        ? {
+            available: rate_limit_reset_credits.available_count,
+            remaining: null,
+            expirations: resetCreditExpirations(rate_limit_reset_credits.credits),
+          }
         : null,
     };
   }
