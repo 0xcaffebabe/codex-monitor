@@ -25,6 +25,7 @@ import type { NotificationPolicy } from '../notifications/events.js';
 import type { NotificationAttachmentRef, NotificationAttachmentResult } from '../notifications/attachments.js';
 import { LarkDeliveryError } from '../notifications/lark.js';
 import type { LarkReplyReceipt, LarkReplySubmission, LarkStartResult, LarkStartSubmission } from '../notifications/lark-replies.js';
+import type { HelpSnapshot } from '../notifications/help-snapshot.js';
 import {
   CLIENT_UPDATE_TIMEOUT_MS,
   clientUpdateInProgress,
@@ -59,6 +60,8 @@ type Peer = {
   notificationReplyStatus: boolean;
   notificationStarts: boolean;
   notificationNamedStarts: boolean;
+  larkHelp: boolean;
+  helpReads: Map<string, (snapshot?: HelpSnapshot) => void>;
   replies: Map<string, PendingLarkReply>;
   privacyWork: boolean;
   clientUpdate: boolean;
@@ -236,6 +239,8 @@ export class WorkspaceGateway {
       notificationReplyStatus: false,
       notificationStarts: false,
       notificationNamedStarts: false,
+      larkHelp: false,
+      helpReads: new Map(),
       replies: new Map(),
       privacyWork: false,
       clientUpdate: false,
@@ -275,6 +280,7 @@ export class WorkspaceGateway {
           peer.notificationReplyStatus = !!frame.capabilities?.notificationReplyStatus;
           peer.notificationStarts = !!frame.capabilities?.notificationStarts;
           peer.notificationNamedStarts = !!frame.capabilities?.notificationNamedStarts;
+          peer.larkHelp = !!frame.capabilities?.larkHelp;
           peer.privacyWork = frame.platform === 'win32' && !!frame.capabilities?.privacyWork;
           peer.clientUpdate = id !== 'local' && !!frame.capabilities?.clientUpdate;
           clearTimeout(handshake);
@@ -310,6 +316,7 @@ export class WorkspaceGateway {
         );
       peer.grants.clear();
       for (const reply of peer.replies.values()) reply.finish();
+      for (const finish of peer.helpReads.values()) finish();
       for (const policy of peer.notificationPolicies.values()) policy.done();
     });
     startServerChannel(socket, key, proof);
@@ -325,6 +332,10 @@ export class WorkspaceGateway {
     }
     if (frame.type === 'notification-reply-result') {
       peer.replies.get(frame.id)?.finish(frame);
+      return;
+    }
+    if (frame.type === 'lark-help-result') {
+      peer.helpReads.get(frame.id)?.(frame.snapshot);
       return;
     }
     if (frame.type === 'body-ack' || frame.type === 'error') {
@@ -428,6 +439,32 @@ export class WorkspaceGateway {
     const peer = this.peers.get(workspaceId);
     if (peer?.ready && peer.notificationMarkRead)
       await sendFrame(peer.socket, { type: 'notification-mark-read', sessionId });
+  }
+  larkHelpWorkspaces() {
+    return this.store.list().map(({ id, name }) => {
+      const peer = this.peers.get(id);
+      return { id, name, online: !!peer?.ready, readable: !!peer?.ready && peer.larkHelp };
+    });
+  }
+  larkHelpSnapshot(workspaceId: string, details: boolean, signal: AbortSignal) {
+    const peer = this.peers.get(workspaceId);
+    if (this.closed || signal.aborted || !peer?.ready || !peer.larkHelp || peer.helpReads.size >= 2)
+      return Promise.resolve(undefined);
+    const id = randomUUID();
+    return new Promise<HelpSnapshot | undefined>((resolve) => {
+      const finish = (snapshot?: HelpSnapshot) => {
+        if (!peer.helpReads.delete(id)) return;
+        clearTimeout(timer);
+        signal.removeEventListener('abort', abort);
+        resolve(snapshot);
+      };
+      const abort = () => finish();
+      const timer = setTimeout(abort, 1400);
+      timer.unref();
+      signal.addEventListener('abort', abort, { once: true });
+      peer.helpReads.set(id, finish);
+      void sendFrame(peer.socket, { type: 'lark-help-read', id, details }).catch(abort);
+    });
   }
   async submitLarkReply(input: LarkReplySubmission, signal: AbortSignal): Promise<LarkReplyReceipt> {
     return (await this.submitLarkMessage(input, signal)).result;

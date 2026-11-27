@@ -21,6 +21,7 @@ import { installGitRoutes } from './http/git-routes.js';
 import { SessionFilePreviews } from './file-preview.js';
 import { installFilePreviewRoutes } from './http/file-preview-routes.js';
 import { NotificationAttachments } from './notifications/attachments.js';
+import { readHelpSnapshot } from './notifications/help-snapshot.js';
 
 export type WorkspaceServices = {
   control?: DesktopControl;
@@ -97,6 +98,7 @@ export function installWorkspaceRuntime(
     usage,
     terminals,
     notificationAttachments,
+    larkHelpSnapshot: (details: boolean) => readHelpSnapshot(source, desktop.approvals, details),
     sendLarkReply: control.sendLarkReply,
     larkReplyStatus: control.larkReplyStatus,
     startLarkSession: control.startLarkSession,

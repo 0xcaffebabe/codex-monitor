@@ -153,11 +153,11 @@ export class LarkApp {
         token.botOpenId = id;
         return id;
       },
-      replyCard: async (parent: string, uuid: string, text: string) => {
+      replyCard: async (parent: string, uuid: string, card: string | object) => {
         const result = await this.request(
           origin,
           `im/v1/messages/${encodeURIComponent(parent)}/reply`,
-          { msg_type: 'interactive', content: JSON.stringify(larkCard(text, true)), uuid },
+          { msg_type: 'interactive', content: JSON.stringify(typeof card === 'string' ? larkCard(card, true) : card), uuid },
           signal,
           '回复群消息',
           value,

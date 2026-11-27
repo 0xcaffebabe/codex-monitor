@@ -5,6 +5,7 @@ import { notificationPolicySchema, notificationReportSchema } from '../notificat
 import { clientUpdatePhases, type HostResourceSample } from '../../src/workspaces.js';
 import { NOTIFICATION_ATTACHMENT_LIMIT } from '../notifications/attachments.js';
 import { LARK_REPLY_MAX_BYTES, LARK_REPLY_MAX_ATTACHMENTS } from '../notifications/lark-replies.js';
+import { helpSnapshotSchema } from '../notifications/help-snapshot.js';
 
 export const PROTOCOL_VERSION = 3;
 export const MAX_BODY = 20 * 1024 * 1024;
@@ -66,6 +67,8 @@ export const frameSchema = z.discriminatedUnion('type', [
   }),
   z.object({ type: z.literal('notification-report'), id, report: notificationReportSchema }),
   z.object({ type: z.literal('notification-report-ack'), id, accepted: z.boolean() }),
+  z.object({ type: z.literal('lark-help-read'), id, details: z.boolean() }).strict(),
+  z.object({ type: z.literal('lark-help-result'), id, snapshot: helpSnapshotSchema.optional() }).strict(),
   z.object({
     type: z.literal('notification-mark-read'),
     sessionId: z.string().regex(/^[A-Za-z0-9_-]{1,100}$/),
@@ -132,6 +135,7 @@ export const frameSchema = z.discriminatedUnion('type', [
       notificationReplyStatus: z.boolean().optional(),
       notificationStarts: z.boolean().optional(),
       notificationNamedStarts: z.boolean().optional(),
+      larkHelp: z.boolean().optional(),
       privacyWork: z.boolean().optional(),
       clientUpdate: z.boolean().optional(),
     }).optional(),

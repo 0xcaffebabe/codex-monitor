@@ -91,7 +91,21 @@ test('Lark starts sessions by name, default, or alias and continues from the sta
   const a = fixture(), b = fixture();
   a.config.pollMs = b.config.pollMs = 50;
   const desks = [new FixtureDesktop(a), new FixtureDesktop(b)];
-  const cards = new Map<string, { id: string; text: string }>();
+  type MenuCard = {
+    header?: { title: { content: string } };
+    body: { elements: MenuElement[] };
+  };
+  type MenuElement = {
+    tag: string;
+    name?: string;
+    content?: string;
+    text?: { content: string };
+    behaviors?: { value?: object }[];
+    elements?: MenuElement[];
+    options?: { value: string; text: { content: string } }[];
+    initial_option?: string;
+  };
+  const cards = new Map<string, { id: string; text: string; card: MenuCard }>();
   const reactions = new Set<string>();
   const sender = { id: 'ou_allowed', id_type: 'open_id', sender_type: 'user' };
   const history = (id: string, text: string) => ({
@@ -100,6 +114,7 @@ test('Lark starts sessions by name, default, or alias and continues from the sta
   });
   const file = 'quoted file contents';
   let receive!: (event: unknown) => Promise<void>;
+  let receiveAction!: Parameters<LarkReplyListener>[2];
   const server = await central(a, async (url, init) => {
     const { pathname } = new URL(String(url));
     if (pathname.includes('/auth/'))
@@ -119,7 +134,8 @@ test('Lark starts sessions by name, default, or alias and continues from the sta
       const { content, msg_type } = JSON.parse(String(init?.body));
       assert.equal(msg_type, 'interactive');
       const id = `om_card_${parent}`;
-      cards.set(parent, { id, text: JSON.parse(content).body.elements[0].content });
+      const card: MenuCard = JSON.parse(content);
+      cards.set(parent, { id, text: card.body.elements[0].content ?? '', card });
       return Response.json({ code: 0, data: { message_id: id } });
     }
     if (pathname.endsWith('/reactions')) {
@@ -134,8 +150,9 @@ test('Lark starts sessions by name, default, or alias and continues from the sta
       return Response.json({ code: 0, data: { message_id: `om_completed_${randomUUID()}` } });
     }
     throw new Error(`Unexpected Lark request: ${pathname}`);
-  }, 0, (_config, callback) => {
+  }, 0, (_config, callback, action) => {
     receive = callback;
+    receiveAction = action;
     return { close() {}, getConnectionStatus: () => ({ state: 'connected', reconnectAttempts: 0 }) };
   });
   const clients: MonitorClient[] = [];
@@ -284,6 +301,90 @@ test('Lark starts sessions by name, default, or alias and continues from the sta
       .get(target.sessionId, '%再检查一次%')?.item_json);
     assert.match(followup, /再检查一次/);
     assert.doesNotMatch(followup, /查一下断线/);
+
+    assert.equal((await fetch(server.base + '/api/notifications', {
+      method: 'PUT', headers,
+      body: JSON.stringify({
+        provider: 'lark', mode: 'app', appId: 'cli_monitor', appSecret: 'test', chatId: 'oc_team',
+        enabled: true, publicUrl: 'https://monitor.example.com/', replyOpenIds: ['ou_allowed', 'ou_member'],
+        larkStart: { defaultAlias: 'w', targets },
+      }),
+    })).status, 200);
+    await receive(event('om_incorrect_help_mention', 'help', { mentioned: 'ou_teammate' }));
+    await receive(event('om_ignore_help', 'help', { sender: 'ou_other' }));
+    const menuEvent = event('om_menu', '/help');
+    await Promise.all([receive(menuEvent), receive(menuEvent)]);
+    const menu = await waitForCard('om_menu');
+    assert.equal(menu.card.header?.title.content, 'Codex Monitor');
+    assert.deepEqual(menu.card.body.elements.map(({ text }) => text?.content),
+      ['新建会话', '继续会话', '任务动态', '工作空间', '打开 Monitor']);
+    const plainHelp = event('om_plain_help', 'help');
+    await receive({ ...plainHelp, message: { ...plainHelp.message, mentions: [], content: '{"text":"help"}' } });
+    assert.equal((await waitForCard('om_plain_help')).card.header?.title.content, 'Codex Monitor');
+    assert.ok(!cards.has('om_incorrect_help_mention') && !cards.has('om_ignore_help'));
+    assert.deepEqual(desks.map(({ creates }) => creates), [2, 3]);
+    const click = (action: object, overrides: { id?: string; openId?: string; chatId?: string; messageId?: string } = {}) =>
+      receiveAction({
+        app_id: 'cli_monitor', event_id: overrides.id ?? randomUUID(), operator: { open_id: overrides.openId ?? 'ou_allowed' },
+        context: { open_chat_id: overrides.chatId ?? 'oc_team', open_message_id: overrides.messageId ?? menu.id },
+        action: { tag: 'button', ...action },
+      });
+    const press = (card: MenuCard, label: string) =>
+      ({ value: card.body.elements.find(({ text }) => text?.content === label)?.behaviors?.[0].value });
+    const page = async (card: MenuCard, label: string) => (await click(press(card, label)))?.card?.data as MenuCard;
+    const menuForm = ({ body }: MenuCard) => body.elements.find(({ tag }) => tag === 'form')!.elements!;
+    assert.equal(await click(press(menu.card, '任务动态'), { chatId: 'oc_other' }), undefined);
+    assert.match((await click(press(menu.card, '新建会话'), { openId: 'ou_member' }))!.toast!.content, /发起者/);
+    assert.match((await click(press(menu.card, '新建会话'), { messageId: 'om_expired' }))!.toast!.content, /过期/);
+    const workspaceCard = await page(menu.card, '工作空间');
+    assert.match(workspaceCard.body.elements[0].content!, /Offline · 离线/);
+    const [workspacesInput, workspacesButton] = menuForm(workspaceCard);
+    assert.deepEqual(workspacesInput.options?.map(({ text }) => text.content).sort(), ['Windows PC', 'rt-pc'].sort());
+    const activity = await page(menu.card, '任务动态');
+    assert.match(activity.body.elements[0].content!, /近 24 小时结束/);
+    assert.match(activity.body.elements[0].content!, /Offline/);
+    const sessions = (await click({
+      name: workspacesButton.name, form_value: { [workspacesInput.name!]: targets[1].workspaceId },
+    }))?.card?.data as MenuCard;
+    const [selectSession, selectButton] = menuForm(sessions);
+    assert.ok(selectSession.options?.length);
+    assert.ok(selectSession.options?.every(({ text }) => text.content.includes('rt-pc')));
+    const idleSession = selectSession.options.find(({ text }) => text.content.includes('分析日志'));
+    assert.ok(idleSession, 'the completed session created from the quoted file is selectable');
+    const session = (await click({
+      name: selectButton.name, form_value: { [selectSession.name!]: idleSession.value },
+    }))?.card?.data as MenuCard;
+    assert.match(session.body.elements[0].content!, /rt-pc/);
+    const [replyInput, replyButton] = menuForm(session);
+    const send = { name: replyButton.name, form_value: { [replyInput.name!]: '来自群菜单的后续消息' } };
+    const clickId = randomUUID();
+    const sendResults = await Promise.all([click(send, { id: clickId }), click(send, { id: clickId })]);
+    assert.ok(sendResults.every((result) => result?.toast?.type === 'success' || result?.toast?.type === 'info'));
+    await until(() => desks[1].sends === 5);
+    assert.equal(desks[0].sends, 2);
+    assert.ok(b.hist.prepare("SELECT 1 FROM thread_items WHERE thread_id=? AND item_json LIKE ?")
+      .get(target.sessionId, '%来自群菜单的后续消息%'));
+    const git = await click(press(session, '提交代码'));
+    assert.ok(git?.toast?.type === 'success' || git?.toast?.type === 'info');
+    await until(() => desks[1].sends === 6);
+
+    const creation = await page(menu.card, '新建会话');
+    const [selectProject, prompt, createButton] = menuForm(creation);
+    assert.equal(selectProject.options?.[0].value, selectProject.initial_option);
+    assert.match(selectProject.options![0].text.content, /Windows PC/);
+    assert.match((await click({ name: createButton.name, form_value: {
+      [selectProject.name!]: 'unknown', [prompt.name!]: '不能创建',
+    } }))!.toast!.content, /项目已变更/);
+    const createAction = { name: createButton.name, form_value: {
+      [selectProject.name!]: selectProject.initial_option, [prompt.name!]: '从操作卡片创建',
+    } };
+    const createId = randomUUID();
+    await Promise.all([click(createAction, { id: createId }), click(createAction, { id: createId })]);
+    const receipt = await waitForCard(menu.id);
+    assert.match(receipt.text, /会话已启动/);
+    assert.match(receipt.text, /Windows PC/);
+    assert.match(receipt.text, /monitor\.example\.com/);
+    assert.deepEqual(desks.map(({ creates }) => creates), [3, 3]);
   } finally {
     await Promise.all(clients.map((client) => client.close()));
     await server.close();

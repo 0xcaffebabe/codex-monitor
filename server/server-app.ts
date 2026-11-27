@@ -34,6 +34,8 @@ export function createMonitorServer(
   notifications.startSession = (input, signal) => gateway.startLarkSession(input, signal);
   notifications.workspaceName = (id) => gateway.store.get(id)?.name;
   notifications.workspacesNamed = (name) => gateway.store.list().filter((workspace) => workspace.name === name);
+  notifications.helpWorkspaces = () => gateway.larkHelpWorkspaces();
+  notifications.readHelpSnapshot = (id, details, signal) => gateway.larkHelpSnapshot(id, details, signal);
   notifications.readReplyStatus = (workspaceId, userId, requestId, signal) =>
     gateway.larkReplyStatus(workspaceId, userId, requestId, signal);
   notifications.startReplies((input, signal) => gateway.submitLarkReply(input, signal));

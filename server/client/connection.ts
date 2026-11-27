@@ -82,6 +82,7 @@ export class MonitorClient {
   private readonly privacyWork: PrivacyWork;
   private delay: number;
   private requests = new Map<string, ActiveRequest>();
+  private helpReads = 0;
   private rpc = new Map<
     string,
     {
@@ -259,6 +260,7 @@ export class MonitorClient {
               notificationReplyStatus: true,
               notificationStarts: true,
               notificationNamedStarts: true,
+              larkHelp: true,
               privacyWork: process.platform === 'win32',
               clientUpdate: this.options.updates ? true : undefined,
             },
@@ -320,6 +322,16 @@ export class MonitorClient {
             clearTimeout(rpc.timer);
             this.rpc.delete(frame.id);
             rpc.resolve(frame.result);
+          }
+        } else if (frame.type === 'lark-help-read') {
+          const respond = (snapshot?: Extract<Frame, { type: 'lark-help-result' }>['snapshot']) =>
+            sendFrame(socket, { type: 'lark-help-result', id: frame.id, snapshot }).catch(() => {});
+          if (this.helpReads >= 2) {
+            void respond();
+          } else {
+            this.helpReads++;
+            void this.runtime.larkHelpSnapshot(frame.details).catch(() => undefined)
+              .then(respond).finally(() => this.helpReads--);
           }
         } else if (frame.type === 'notification-reply-status') {
           const result = this.runtime.larkReplyStatus(frame.userId, frame.requestId);

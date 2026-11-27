@@ -1,5 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite';
-import type { CompletionNotification } from '../../src/types.js';
+import type { CompletionNotification, LarkStartTarget } from '../../src/types.js';
 import { LarkDeliveryError, larkReplyForm, sendLark, type WebhookTransport } from './lark.js';
 import {
   NotificationStore,
@@ -14,6 +14,7 @@ import { CompletionNotifications } from './completions.js';
 import { LarkApp, LarkReplyAttachmentsTooLarge, LarkReplyDocumentError } from './lark-app.js';
 import {
   larkCompletionAction,
+  larkCardAction,
   larkRepliesEnabled,
   larkReply,
   larkReplyHistory,
@@ -38,11 +39,14 @@ import {
   type NotificationAttachmentRef,
   type NotificationAttachmentResult,
 } from './attachments.js';
+import { LarkHelp } from './lark-help.js';
+import type { HelpSnapshot } from './help-snapshot.js';
 
 const LARK_READ_POLL_MS = 10_000;
 const LARK_READ_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 const LARK_REPLY_POLL_MS = 3_000;
 const START_UNKNOWN = '暂时无法确认会话是否已创建。请在 Monitor 检查会话记录，避免重复提交。';
+const helpCommand = /^\/?help$/i;
 const markdownLabel = (value: string) => value.replace(/[\r\n]/g, ' ').replace(/[\\`*_[\]<>~]/g, '\\$&');
 type ReportedCompletion = Extract<NotificationEvent, { kind: 'session.completed' }>;
 type StartTarget = { workspaceId: string; project: LarkStartProject; label: string; prompt: string };
@@ -64,6 +68,7 @@ export class NotificationService {
   private destination = new AbortController();
   private replyAuthorization = new AbortController();
   private app: LarkApp;
+  private help = new LarkHelp();
   private larkReadTimer?: ReturnType<typeof setInterval>;
   private larkReadScan?: Promise<void>;
   private larkReadCards = new Map<number, { deliveryId: string; messageId: string; expiresAt: number }>();
@@ -164,6 +169,8 @@ export class NotificationService {
   startSession?: (input: LarkStartSubmission, signal: AbortSignal) => Promise<LarkStartResult>;
   workspaceName?: (id: string) => string | undefined;
   workspacesNamed?: (name: string) => readonly { id: string }[];
+  helpWorkspaces?: () => { id: string; name: string; online: boolean; readable: boolean }[];
+  readHelpSnapshot?: (workspaceId: string, details: boolean, signal: AbortSignal) => Promise<HelpSnapshot | undefined>;
   readReplyStatus?: (
     workspaceId: string, userId: string, requestId: string, signal: AbortSignal,
   ) => Promise<LarkReplyReceipt | undefined>;
@@ -187,22 +194,44 @@ export class NotificationService {
   private async receiveCompletionAction(destination: string, event: unknown): Promise<LarkActionResponse | undefined> {
     if (this.closed || destination !== this.replyDestination || !this.submitReply) return;
     const config = this.store.config();
-    const action = larkCompletionAction(config, event);
+    const callback = larkCardAction(config, event);
+    if (!callback) return;
+    if (!this.canUseLarkActions(config, callback.openId)) {
+      return { toast: { type: 'error', content: '此账号未获授权操作此卡片。' } };
+    }
+    const signal = this.larkActionSignal();
+    if (this.helpWorkspaces && this.readHelpSnapshot) {
+      const response = await this.help.handle(config, callback, {
+        workspaces: this.helpWorkspaces,
+        read: this.readHelpSnapshot,
+        start: (target, workspace, prompt) =>
+          this.startFromHelp(config, callback.eventId, callback.messageId, target, workspace.name, prompt, signal),
+        send: (target, prompt) => this.submitCardReply(config, callback.eventId, target, prompt, signal),
+      }, signal).catch((): LarkActionResponse => ({ toast: { type: 'error', content: '菜单暂不可用，请重新发送 help。' } }));
+      if (response) return response;
+    }
+    const action = larkCompletionAction(callback);
     if (!action) return;
     const target = this.store.larkTarget(destination, action.messageId, true);
     if (!target) return { toast: { type: 'error', content: '此卡片的操作已不可用。' } };
-    if (!larkRepliesEnabled(config) || !config.replyOpenIds.includes(action.openId) ||
-        !this.db.prepare("SELECT 1 FROM users WHERE id=? AND role='admin'").get(config.replyAdminId)) {
-      return { toast: { type: 'error', content: '此账号未获授权操作此卡片。' } };
-    }
     if (action.prompt === undefined)
       return { toast: { type: 'error', content: `请输入 1 至 ${larkReplyForm.maxLength} 个字符的消息。` } };
-    const signal = AbortSignal.any([this.abort.signal, this.destination.signal, this.replyAuthorization.signal]);
-    const result = await this.submitReply({
+    return this.submitCardReply(config, action.eventId, target, action.prompt, signal);
+  }
+  private canUseLarkActions(config: NotificationConfig, openId: string) {
+    return larkRepliesEnabled(config) && config.replyOpenIds.includes(openId) &&
+      !!this.db.prepare("SELECT 1 FROM users WHERE id=? AND role='admin'").get(config.replyAdminId);
+  }
+  private larkActionSignal() {
+    return AbortSignal.any([this.abort.signal, this.destination.signal, this.replyAuthorization.signal]);
+  }
+  private async submitCardReply(config: NotificationConfig, eventId: string,
+    target: Pick<LarkReplySubmission, 'workspaceId' | 'sessionId'>, prompt: string, signal: AbortSignal): Promise<LarkActionResponse> {
+    const result = await this.submitReply!({
       ...target,
       userId: config.replyAdminId,
-      requestId: larkRequestId(destination, `card:${action.eventId}`),
-      prompt: action.prompt,
+      requestId: larkRequestId(config.larkDestination, `card:${eventId}`),
+      prompt,
       attachments: [],
       nextTurn: true,
       requireNextTurn: true,
@@ -214,6 +243,28 @@ export class NotificationService {
         : result === 'busy' ? '工作空间正在处理其他请求，请稍后再试。'
         : replyReceipts[result].text,
     } };
+  }
+  private startFromHelp(config: NotificationConfig, eventId: string, messageId: string, selected: LarkStartTarget,
+    workspace: string, prompt: string, signal: AbortSignal): LarkActionResponse {
+    if (!this.startSession || signal.aborted)
+      return { toast: { type: 'error', content: '暂时无法新建会话。' } };
+    const destination = config.larkDestination;
+    const receiptId = 'help:' + eventId;
+    const key = destination + ':' + receiptId;
+    if (this.starts.size >= 16)
+      return { toast: { type: 'error', content: '当前正在处理的请求过多，请稍后再试。' } };
+    if (this.store.claimLarkStart(destination, receiptId, START_UNKNOWN, messageId)) {
+      const target = { workspaceId: selected.workspaceId, project: { projectId: selected.projectId }, label: selected.projectName ?? selected.alias, prompt };
+      const job = this.submitLarkStart(config, receiptId, target, workspace, prompt, [], signal).then((result) => {
+        if (!signal.aborted) this.store.finishLarkStart(destination, receiptId, result.text,
+          result.sessionId ? { workspaceId: target.workspaceId, sessionId: result.sessionId } : undefined);
+      }).catch(() => {}).finally(() => {
+        this.starts.delete(key);
+        void this.poll();
+      });
+      this.starts.set(key, job);
+    }
+    return { toast: { type: 'info', content: '已接收创建请求，结果会回复在这张卡片下。' } };
   }
   private async receiveReply(destination: string, event: unknown) {
     if (this.closed || destination !== this.replyDestination || !this.submitReply)
@@ -227,6 +278,23 @@ export class NotificationService {
       if (!this.startSession || this.starts.has(key) || this.starts.size >= 16 ||
           this.store.hasLarkStart(destination, reply.messageId)) return;
       const mentions = larkStartMentions(reply.message);
+      if (this.helpWorkspaces && !reply.parents.length &&
+          helpCommand.test(larkStartContent(reply.message, mentions.map(({ key }) => key).filter(Boolean)).prompt)) {
+        if (!this.canUseLarkActions(config, reply.senderId)) return;
+        const signal = this.larkActionSignal();
+        const task = (async () => {
+          const sender = await this.app.sender(config, signal);
+          if (mentions.length) {
+            const bot = await sender.botOpenId();
+            if (!mentions.some(({ openId }) => openId === bot)) return;
+          }
+          signal.throwIfAborted();
+          await this.help.open(config, reply.messageId, reply.senderId, (card) =>
+            sender.replyCard(reply.messageId, larkRequestId(destination, 'help:' + reply.messageId), card), signal);
+        })().catch(() => {}).finally(() => { this.starts.delete(key); });
+        this.starts.set(key, task);
+        return;
+      }
       if (!mentions.length) return;
       const signal = AbortSignal.any([this.abort.signal, this.destination.signal, this.replyAuthorization.signal]);
       const job = this.receiveStart(config, reply, mentions, signal)
@@ -385,7 +453,7 @@ export class NotificationService {
         });
         if (unique.length > LARK_REPLY_MAX_ATTACHMENTS) return { text: replyReceipts.attachmentsTooLarge.text };
         const attachments = await sender.readReplyAttachments(unique);
-        return await this.submitLarkStart(config, reply, target, workspace, prompt, attachments, signal);
+        return await this.submitLarkStart(config, reply.messageId, target, workspace, prompt, attachments, signal);
       } catch (error) {
         if (error instanceof LarkReplyAttachmentsTooLarge) return { text: replyReceipts.attachmentsTooLarge.text };
         if (error instanceof LarkReplyDocumentError) return { text: replyReceipts.documentFailed.text };
@@ -395,11 +463,11 @@ export class NotificationService {
       }
     }
     if (!prompt) return { text: '请在目标后写任务，或引用要提交的文件。' };
-    return this.submitLarkStart(config, reply, target, workspace, prompt, [], signal);
+    return this.submitLarkStart(config, reply.messageId, target, workspace, prompt, [], signal);
   }
   private async submitLarkStart(
     config: NotificationConfig,
-    reply: NonNullable<ReturnType<typeof larkReply>>,
+    messageId: string,
     target: StartTarget,
     workspace: string,
     prompt: string,
@@ -417,7 +485,7 @@ export class NotificationService {
       created = await this.startSession!({
         workspaceId, ...project, prompt, attachments,
         userId: config.replyAdminId,
-        requestId: larkRequestId(config.larkDestination, reply.messageId),
+        requestId: larkRequestId(config.larkDestination, messageId),
       }, signal).catch((): LarkStartResult => ({ result: 'unknown' }));
       const current = this.store.config();
       if (created.sessionId && created.result === 'sent' && !signal.aborted && this.workspaceName?.(workspaceId) &&
@@ -619,11 +687,11 @@ export class NotificationService {
     const destination = config.larkDestination;
     const signal = AbortSignal.any([this.abort.signal, this.destination.signal]);
     await Promise.allSettled(this.store.pendingLarkStarts(destination, Date.now()).map(async (start) => {
-      const { messageId, workspaceId, sessionId, text, attempts } = start;
+      const { messageId, workspaceId, sessionId, text, attempts, replyTo } = start;
       if (this.starts.has(`${destination}:${messageId}`)) return;
       try {
         const sender = await this.app.sender(config, signal);
-        const cardId = await sender.replyCard(messageId, larkRequestId(destination, messageId), text);
+        const cardId = await sender.replyCard(replyTo ?? messageId, larkRequestId(destination, messageId), text);
         if (signal.aborted) return;
         if (workspaceId && sessionId && this.workspaceName?.(workspaceId))
           this.store.recordLarkMessage(destination, cardId, workspaceId, sessionId);

@@ -70,12 +70,16 @@ const cardReplyValue = z.object({
   [larkReplyForm.inputName]: z.string().max(larkReplyForm.maxLength).trim().min(1),
 });
 
-export function larkCompletionAction(config: NotificationConfig, event: unknown) {
+export function larkCardAction(config: NotificationConfig, event: unknown) {
   const parsed = cardActionSchema.safeParse(event);
   if (!parsed.success) return;
   const { app_id, event_id, operator, context, action } = parsed.data;
   if (app_id !== config.appId || context.open_chat_id !== config.chatId) return;
-  const target = { eventId: event_id, messageId: context.open_message_id, openId: operator.open_id };
+  return { eventId: event_id, messageId: context.open_message_id, openId: operator.open_id, action };
+}
+
+export function larkCompletionAction(event: NonNullable<ReturnType<typeof larkCardAction>>) {
+  const { action, ...target } = event;
   if (action.name === larkReplyForm.submitName) {
     const form = cardReplyValue.safeParse(action.form_value);
     return { ...target, prompt: form.data?.[larkReplyForm.inputName] };
@@ -369,7 +373,10 @@ export function larkReplyReaction(receipt: string) {
   return reactionByReceipt.get(receipt);
 }
 
-export type LarkActionResponse = { toast: { type: 'success' | 'info' | 'error', content: string } };
+export type LarkActionResponse = {
+  toast?: { type: 'success' | 'info' | 'error', content: string };
+  card?: { type: 'raw'; data: object };
+};
 export type LarkReplyListener = (
   config: NotificationConfig,
   receive: (event: unknown) => Promise<void>,
