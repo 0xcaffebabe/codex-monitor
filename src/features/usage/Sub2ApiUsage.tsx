@@ -1,5 +1,5 @@
 import { ArrowLeft, ArrowRight, RefreshCw, Search } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useId, useState } from 'react';
 import { api } from '../../api';
 import type {
   Sub2ApiAccount,
@@ -10,6 +10,7 @@ import type {
   Sub2ApiPage,
   Sub2ApiSettings,
 } from '../../sub2api-types';
+import { Sub2ApiSettings as Sub2ApiSettingsForm } from '../settings/Sub2ApiSettings';
 import { dateKey, integer, money } from './format';
 import {
   defaultCallRecordFilters,
@@ -211,12 +212,16 @@ function KeyRows({ items }: { items: Sub2ApiKeyUsage[] }) {
 }
 
 export function Sub2ApiUsage({
+  id,
   revision = 0,
   openSettings,
 }: {
+  id?: string;
   revision?: number;
-  openSettings: () => void;
+  openSettings?: () => void;
 }) {
+  const titleId = useId();
+  const [configuring, setConfiguring] = useState(false);
   const [view, setView] = useState<View>('accounts');
   const [page, setPage] = useState(1);
   const [draftSearch, setDraftSearch] = useState('');
@@ -272,12 +277,13 @@ export function Sub2ApiUsage({
 
   return (
     <section
+      id={id}
       className="usage-card sub2api-usage"
-      aria-labelledby="sub2api-usage-title"
+      aria-labelledby={titleId}
       aria-busy={busy}
     >
       <div className="usage-section-heading sub2api-heading">
-        <h2 id="sub2api-usage-title">Sub2API 用量</h2>
+        <h2 id={titleId}>Sub2API 用量</h2>
         {(configured || error) && (
           <button
             className="icon-button"
@@ -299,8 +305,19 @@ export function Sub2ApiUsage({
         <div className="sub2api-message">
           {settings.busy ? (
             <span role="status">正在读取 Sub2API 配置…</span>
+          ) : configuring ? (
+            <Sub2ApiSettingsForm
+              onChange={() => {
+                setConfiguring(false);
+                setRefresh((value) => value + 1);
+              }}
+            />
           ) : (
-            <button className="secondary" onClick={openSettings}>
+            <button
+              type="button"
+              className="secondary"
+              onClick={openSettings ?? (() => setConfiguring(true))}
+            >
               配置 Sub2API
             </button>
           )}

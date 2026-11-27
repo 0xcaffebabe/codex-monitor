@@ -217,7 +217,6 @@ function RunningOverview({
   }, [trackedTasks, preferredOrder]);
   const current = new Map(running.map((item) => [taskKey(item), item]));
   const observations = new Map(groups.map((group) => [group.workspace.id, group]));
-  const activeWorkspace = observations.get(workspaceId)?.workspace;
   const maxColumns = Math.max(1, Math.floor((size.width + gap) / (paneMinWidth + gap)));
   const rowsFor = (height: number) =>
     Math.max(1, Math.floor((height + gap) / (paneMinHeight + gap)));
@@ -353,7 +352,7 @@ function RunningOverview({
             type="button"
             className="secondary"
             aria-haspopup="dialog"
-            disabled={!activeWorkspace}
+            disabled={!groups.length}
             onClick={() => setOverlay('usage')}
           >
             <Activity size={16} aria-hidden="true" />
@@ -528,12 +527,13 @@ function RunningOverview({
           {notice}
         </div>
       )}
-      {overlay === 'usage' && activeWorkspace && (
+      {overlay === 'usage' && groups.length > 0 && (
         <UsageDialog
-          key={activeWorkspace.id}
-          workspaceName={activeWorkspace.name}
+          workspaceId={workspaceId}
+          workspaces={groups.map(({ workspace }) => workspace)}
+          showSub2Api={user.role === 'admin'}
           onClose={() => setOverlay(undefined)}
-          onSession={(id) => onOpenSession(activeWorkspace.id, id)}
+          onSession={onOpenSession}
         />
       )}
       {overlay === 'new' && (

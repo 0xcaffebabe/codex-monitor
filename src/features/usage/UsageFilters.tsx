@@ -1,9 +1,12 @@
 import { Clock } from 'lucide-react';
+import type { ReactNode } from 'react';
 import { UsageDashboardModel } from './useUsageDashboard';
 
 export function UsageFilters({
   model: filters,
+  actions,
 }: {
+  actions?: ReactNode;
   model: Pick<
     UsageDashboardModel,
     | 'range'
@@ -99,6 +102,7 @@ export function UsageFilters({
               ? `同步于 ${new Date(data.scan.updatedAt).toLocaleTimeString('zh-CN', { hour12: false })}`
               : '等待同步'}
         </span>
+        {actions}
       </div>
       {range === 'custom' && (
         <div className="usage-custom-range">

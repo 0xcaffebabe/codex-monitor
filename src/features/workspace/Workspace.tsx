@@ -190,7 +190,7 @@ export function Workspace(
               select(id);
             }}
             revision={usageRevision}
-            openSub2ApiSettings={user.role === 'admin' ? () => setSettings(true) : undefined}
+            sub2Api={user.role === 'admin' ? { openSettings: () => setSettings(true) } : undefined}
           />
         ) : (
           <>

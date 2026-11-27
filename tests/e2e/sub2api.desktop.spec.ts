@@ -1,6 +1,44 @@
 import { sub2ApiAdminKey, sub2ApiFixture } from '../sub2api-fixture.js';
 import { expect, test } from './monitor.js';
 
+
+test('the overview usage dialog reuses Sub2API configuration and reports', async ({
+  signedIn: { browserPage: page },
+}) => {
+  const upstream = await sub2ApiFixture();
+  try {
+    await page.goto('/overview?workspace=local&view=all');
+    const overviewUrl = page.url();
+    const overview = page.getByRole('dialog', { name: '任务全览' });
+    await overview.getByRole('button', { name: '用量统计', exact: true }).click();
+    const dialog = page.getByRole('dialog', { name: '用量统计', exact: true });
+    const relay = dialog.getByRole('region', { name: 'Sub2API 用量', exact: true });
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    await dialog.getByRole('button', { name: 'Sub2API', exact: true }).click();
+    await expect(relay.getByRole('heading', { name: 'Sub2API 用量' })).toBeInViewport();
+    await relay.getByRole('button', { name: '配置 Sub2API', exact: true }).click();
+    await relay.getByLabel('Sub2API 站点地址').fill(upstream.baseUrl);
+    await relay.getByLabel('管理员 Key', { exact: true }).fill(sub2ApiAdminKey);
+    await relay.getByRole('button', { name: '保存 Sub2API 配置' }).click();
+
+    const subscription = relay.getByRole('row').filter({ hasText: 'Codex Plus' });
+    await expect(subscription.getByText('1250.50 点')).toBeVisible();
+    await relay.getByRole('button', { name: 'API Key', exact: true }).click();
+    await expect(relay.getByRole('row').filter({ hasText: 'CI runner' })).toContainText('1K');
+    await relay.getByRole('button', { name: '调用记录', exact: true }).click();
+    const filters = relay.getByRole('form', { name: '筛选 Sub2API 调用记录' });
+    await filters.getByLabel('开始日期').fill('2026-11-20');
+    await filters.getByLabel('结束日期').fill('2026-11-20');
+    await filters.getByRole('button', { name: '查询记录', exact: true }).click();
+    await expect(relay.getByRole('table', { name: 'Sub2API 调用记录' })).toContainText('CI runner');
+    await expect(dialog.getByLabel('统计工作空间')).toBeInViewport();
+    await expect(page).toHaveURL(overviewUrl);
+  } finally {
+    await upstream.close();
+  }
+});
+
 test('configure Sub2API and query subscription accounts and API keys', async ({
   signedIn: { usage },
   page,

@@ -62,7 +62,8 @@ test('overview shortcuts open usage and workspace management over an expanded se
   monitor,
 }) => {
   const remoteName = '远程工作空间';
-  await monitor.addWorkspace(remoteName, '远程会话');
+  const remoteTitle = '远程会话';
+  const remote = await monitor.addWorkspace(remoteName, remoteTitle);
   await page.goto('/overview?workspace=local&view=all');
   const overviewUrl = page.url();
   const overview = page.getByRole('dialog', { name: '任务全览' });
@@ -71,12 +72,20 @@ test('overview shortcuts open usage and workspace management over an expanded se
   const usageTrigger = overview.getByRole('button', { name: '用量统计', exact: true });
   const usage = page.getByRole('dialog', { name: '用量统计', exact: true });
   const tokens = usage.locator('.usage-stat').filter({ hasText: '消耗 Tokens' }).locator('strong');
+  const workspaceSelect = usage.getByLabel('统计工作空间');
+  const range = usage.getByLabel('统计时间范围');
 
   await usageTrigger.click();
-  await expect(usage.getByText('本机工作空间', { exact: true })).toBeVisible();
+  await expect(workspaceSelect).toHaveValue('local');
   await expect(tokens).toHaveText(/^\d/);
   await expect(usage.getByRole('button', { name: localTitle, exact: true })).toBeVisible();
-  await usage.getByLabel('统计时间范围').selectOption('7d');
+  await range.selectOption('7d');
+  await usage.getByLabel('筛选用量模型').selectOption('gpt-6.1-sol');
+  await workspaceSelect.selectOption(remote.id);
+  await expect(range).toHaveValue('7d');
+  await expect(usage.getByLabel('筛选用量模型')).toHaveValue('');
+  await expect(usage.getByRole('button', { name: remoteTitle, exact: true })).toBeVisible();
+  await expect(usage.getByRole('button', { name: localTitle, exact: true })).toHaveCount(0);
   await expect(tokens).toHaveText(/^\d/);
   await page.keyboard.press('Escape');
   await expect(usage).toBeHidden();
@@ -104,6 +113,12 @@ test('overview shortcuts open usage and workspace management over an expanded se
   await workspaceTrigger.click();
   await manager.getByRole('button', { name: '关闭工作空间管理' }).click();
   await expect(pane.getByRole('button', { name: '恢复分屏' })).toBeVisible();
+
+  await usageTrigger.click();
+  await workspaceSelect.selectOption(remote.id);
+  await usage.getByRole('button', { name: remoteTitle, exact: true }).click();
+  await expect(page).toHaveURL(new RegExp(`workspace=${remote.id}.*session=${ids.modern}`));
+  await expect(page.getByRole('heading', { name: remoteTitle, exact: true })).toBeVisible();
 });
 
 test('the overview URL survives reload and follows browser navigation', async ({

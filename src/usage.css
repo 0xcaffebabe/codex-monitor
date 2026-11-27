@@ -17,7 +17,8 @@
   font-size: 30px;
   letter-spacing: 0;
 }
-.usage-page-heading .secondary {
+.usage-page-heading .secondary,
+.usage-dialog .usage-filters > .secondary {
   flex-shrink: 0;
   display: flex;
   align-items: center;
@@ -44,39 +45,42 @@
 }
 .usage-dialog[open] {
   display: flex;
+  flex-direction: column;
 }
 .usage-dialog::backdrop {
   background: rgb(0 0 0 / 35%);
 }
 .usage-dialog .usage-dashboard {
-  padding: 0 var(--usage-dialog-gutter) 20px;
+  padding: 16px var(--usage-dialog-gutter) 20px;
   overscroll-behavior: contain;
 }
-.usage-dialog .usage-page-heading {
-  position: sticky;
-  top: 0;
-  z-index: 2;
+.usage-dialog-header {
+  display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
-  margin: 0 calc(-1 * var(--usage-dialog-gutter)) 16px;
   padding: 10px var(--usage-dialog-gutter);
   border-bottom: 1px solid var(--line);
   background: var(--surface);
 }
-.usage-dialog .usage-heading-title {
-  min-width: 0;
-}
-.usage-dialog .usage-heading-title h2 {
-  margin: 0;
+.usage-dialog-header h2 {
+  margin: 0 4px 0 0;
   font-size: 1rem;
 }
-.usage-dialog .usage-heading-title > span {
-  display: block;
-  overflow: hidden;
-  color: var(--muted);
+.usage-dialog-header select {
+  min-width: 0;
+  max-width: min(100%, 280px);
+  min-height: 34px;
+  padding: 4px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--ink);
   font-size: var(--font-meta);
   text-overflow: ellipsis;
-  white-space: nowrap;
+}
+.usage-dialog-header .usage-heading-actions {
+  margin-inline-start: auto;
 }
 .usage-filters {
   display: flex;
@@ -737,6 +741,15 @@
 @media (max-width: 760px) {
   .usage-dialog {
     --usage-dialog-gutter: 12px;
+  }
+  .usage-dialog-header select {
+    order: 1;
+    flex: 1 0 100%;
+    max-width: 100%;
+  }
+  .usage-dialog .usage-filters > .secondary {
+    padding: 8px 10px;
+    font-size: var(--font-meta);
   }
   .usage-dashboard {
     padding: 22px 16px;

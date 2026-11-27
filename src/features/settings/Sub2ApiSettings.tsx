@@ -1,5 +1,5 @@
 import { Plug } from 'lucide-react';
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useId, useState, type FormEvent } from 'react';
 import { api } from '../../api';
 import type { Sub2ApiSettings as Configuration } from '../../sub2api-types';
 
@@ -9,9 +9,10 @@ export function Sub2ApiSettings({
   notify,
   onChange,
 }: {
-  notify: (message: string) => void;
+  notify?: (message: string) => void;
   onChange?: () => void;
 }) {
+  const titleId = useId();
   const [saved, setSaved] = useState<Configuration>();
   const [baseUrl, setBaseUrl] = useState('');
   const [adminKey, setAdminKey] = useState('');
@@ -51,7 +52,7 @@ export function Sub2ApiSettings({
       setBaseUrl(result.baseUrl);
       setAdminKey('');
       onChange?.();
-      notify(action === 'remove' ? 'Sub2API 配置已移除' : 'Sub2API 配置已保存');
+      notify?.(action === 'remove' ? 'Sub2API 配置已移除' : 'Sub2API 配置已保存');
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -65,8 +66,8 @@ export function Sub2ApiSettings({
   };
   const dirty = baseUrl.trim() !== (saved?.baseUrl ?? '') || !!adminKey.trim();
   return (
-    <section aria-labelledby="sub2api-settings-title">
-      <h3 id="sub2api-settings-title">
+    <section aria-labelledby={titleId}>
+      <h3 id={titleId}>
         <Plug size={16} />
         Sub2API <span>{saved?.configured ? '已配置' : '未配置'}</span>
       </h3>

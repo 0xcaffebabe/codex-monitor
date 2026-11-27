@@ -1,14 +1,18 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '../../api';
 import type { UsageData } from '../../types';
+import { workspaceUrl } from '../../workspace-scope';
 
-export function useUsage(params: string, revision?: string | number) {
+export function useUsage(params: string, revision?: string | number, workspaceId?: string) {
+  const url = workspaceId
+    ? workspaceUrl(`/api/usage?${params}`, workspaceId)
+    : `/api/usage?${params}`;
   const [data, setData] = useState<UsageData>(),
     [error, setError] = useState(''),
     [busy, setBusy] = useState(true);
   const running = useRef(false),
     controller = useRef<AbortController | null>(null),
-    current = useRef(params);
+    current = useRef(url);
   const load = useCallback(
     async (force = false) => {
       if (running.current) return;
@@ -16,11 +20,10 @@ export function useUsage(params: string, revision?: string | number) {
       const request = new AbortController();
       controller.current = request;
       try {
-        const result = await api<UsageData>(
-          '/api/usage?' + params + (force ? '&refresh=true' : ''),
-          { signal: request.signal },
-        );
-        if (!request.signal.aborted && current.current === params) {
+        const result = await api<UsageData>(url + (force ? '&refresh=true' : ''), {
+          signal: request.signal,
+        });
+        if (!request.signal.aborted && current.current === url) {
           setData(result);
           setError('');
         }
@@ -33,12 +36,12 @@ export function useUsage(params: string, revision?: string | number) {
         }
       }
     },
-    [params],
+    [url],
   );
   useEffect(() => {
     controller.current?.abort();
     running.current = false;
-    current.current = params;
+    current.current = url;
     setData(undefined);
     setBusy(true);
     void load();
@@ -46,7 +49,7 @@ export function useUsage(params: string, revision?: string | number) {
       controller.current?.abort();
       running.current = false;
     };
-  }, [params, load]);
+  }, [url, load]);
   useEffect(() => {
     if (revision) void load();
   }, [revision, load]);
@@ -60,5 +63,11 @@ export function useUsage(params: string, revision?: string | number) {
     );
     return () => clearInterval(timer);
   }, [load, scanning]);
-  return { data, error, busy, reload: () => void load(true) };
+  const changing = current.current !== url;
+  return {
+    data: changing ? undefined : data,
+    error: changing ? '' : error,
+    busy: changing || busy,
+    reload: () => void load(true),
+  };
 }

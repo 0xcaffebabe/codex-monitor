@@ -1,4 +1,4 @@
-import { BarChart3, RefreshCw, X } from 'lucide-react';
+import { BarChart3, RefreshCw } from 'lucide-react';
 import { compact, integer, localDay, money } from './format';
 import { Heatmap } from './Heatmap';
 import { Trend } from './Trend';
@@ -6,14 +6,16 @@ import { UsageFilters } from './UsageFilters';
 import { UsageMetrics } from './UsageMetrics';
 import { UsageRequests } from './UsageRequests';
 import { Sub2ApiUsage } from './Sub2ApiUsage';
-import { UsageDashboardProps, useUsageDashboard } from './useUsageDashboard';
+import { useUsageDashboard } from './useUsageDashboard';
 
-export function UsageDashboard(
-  props: UsageDashboardProps & {
-    dialogHeading?: { id: string; workspaceName: string; onClose: () => void };
-  },
-) {
-  const { onSession, dialogHeading } = props;
+export function UsageDashboard(props: {
+  onSession: (id: string) => void;
+  revision?: number;
+  workspaceId?: string;
+  inDialog?: boolean;
+  sub2Api?: { id?: string; openSettings?: () => void };
+}) {
+  const { onSession, inDialog, sub2Api } = props;
   const modelState = useUsageDashboard(props);
   const {
     range,
@@ -32,44 +34,31 @@ export function UsageDashboard(
     change,
     s,
   } = modelState;
-  const Heading = dialogHeading ? 'h2' : 'h1';
+  const syncButton = (
+    <button
+      type="button"
+      className="secondary"
+      onClick={() => {
+        setAnchor(Date.now());
+        reload();
+      }}
+      disabled={data?.scan.running || busy}
+    >
+      <RefreshCw size={15} className={data?.scan.running ? 'spin' : ''} />
+      {data?.scan.running ? '正在同步' : '立即同步'}
+    </button>
+  );
   return (
     <section className="usage-dashboard" aria-label="用量统计">
-      <div className="usage-page-heading">
-        <div className="usage-heading-title">
-          <Heading id={dialogHeading?.id}>
-            用量统计{!dialogHeading && <span className="title-dot">.</span>}
-          </Heading>
-          {dialogHeading && (
-            <span title={dialogHeading.workspaceName}>{dialogHeading.workspaceName}</span>
-          )}
+      {!inDialog && (
+        <div className="usage-page-heading">
+          <h1>
+            用量统计<span className="title-dot">.</span>
+          </h1>
+          {syncButton}
         </div>
-        <div className="usage-heading-actions">
-          <button
-            className="secondary"
-            onClick={() => {
-              setAnchor(Date.now());
-              reload();
-            }}
-            disabled={data?.scan.running || busy}
-          >
-            <RefreshCw size={15} className={data?.scan.running ? 'spin' : ''} />
-            {data?.scan.running ? '正在同步' : '立即同步'}
-          </button>
-          {dialogHeading && (
-            <button
-              autoFocus
-              type="button"
-              className="icon-button"
-              aria-label="关闭用量统计"
-              onClick={dialogHeading.onClose}
-            >
-              <X size={18} aria-hidden="true" />
-            </button>
-          )}
-        </div>
-      </div>
-      <UsageFilters model={modelState} />
+      )}
+      <UsageFilters model={modelState} actions={inDialog ? syncButton : undefined} />
       {error && (
         <div className="alert error" role="alert">
           {error}
@@ -139,9 +128,7 @@ export function UsageDashboard(
           </div>
         </section>
       )}
-      {props.openSub2ApiSettings && (
-        <Sub2ApiUsage openSettings={props.openSub2ApiSettings} revision={props.revision} />
-      )}
+      {sub2Api && <Sub2ApiUsage {...sub2Api} revision={props.revision} />}
       <UsageRequests
         data={data}
         busy={busy}
