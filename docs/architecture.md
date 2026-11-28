@@ -2,6 +2,8 @@
 
 项目按功能组织前端，按 HTTP、数据读取和控制能力组织后端。入口负责组合依赖；视图负责显示状态和触发操作；请求、持久化及异步状态转换由 hooks 或服务处理。
 
+持续治理记录：[进度](governance/progress.md)、[架构与状态地图](governance/map.md)、[架构决策](governance/decisions.md)、[优化任务池](governance/backlog.md)。
+
 运行时采用 Server / client 架构，详细部署、固定 AES 密钥和故障语义见 [Server / client 说明](server-client.md)。`server/index.ts` 根据模式装配；`server-app.ts` 组合中心 Web、认证、网关和统一通知投递；`client/connection.ts` 建立主动加密 ws 并装配通知事件上报；`workspace-runtime.ts` 在 client 本机装配读取、控制、附件和用量。原 `app.ts` 保留为本机能力测试入口，并将通知采集器和 Server 投递服务直接连接。
 
 ## 前端
