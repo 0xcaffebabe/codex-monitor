@@ -20,19 +20,7 @@ import {
   type Tokens,
   type UsageRecord,
 } from './usage-parser.js';
-import { aggregateUsage } from './usage-query.js';
-
-export interface UsageQuery {
-  from?: number;
-  to?: number;
-  model?: string;
-  session?: string;
-  project?: string;
-  subagents?: string;
-  timezoneOffset?: number;
-  offset?: number;
-  limit?: number;
-}
+import { aggregateUsage, type UsageQuery } from './usage-query.js';
 interface FileRow {
   file: string;
   size: number;

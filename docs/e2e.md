@@ -1,6 +1,6 @@
 # 浏览器 E2E
 
-GitHub Actions 在 PR、推送 `main` 和手动触发时，用 Ubuntu 24.04、Node 24 和 Playwright Chromium 运行浏览器回归。单 worker，不重试；失败时保留 HTML 报告、trace 和截图 7 天。
+GitHub Actions 在 PR、推送 `main` 和手动触发时，用 Ubuntu 24.04、Node 24 运行架构检查、构建、单元/接口测试和 Playwright Chromium 浏览器回归。浏览器单 worker，不重试；失败时保留 HTML 报告、trace 和截图 7 天。
 
 ```bash
 npm ci

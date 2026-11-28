@@ -37,7 +37,7 @@ flowchart TD
 | 会话列表/详情/时间线 | workspace/session hooks 与纯模型 | hooks 拥有 IO 和状态转换，纯模型拥有合并/分组算法 |
 | 控制表单 | `features/control` | 草稿/请求 ID/回执在 hooks；共享请求/结果类型在顶层 |
 | 设计与布局 | `styles.css` 有序导入、`styles/*`、`shared/ui` | 保留 CSS 覆盖顺序；通用展示不反向依赖业务 feature |
-| Server 身份 | `auth.ts` 与 `http/access.ts` | Server DB 是用户、设备和审计权威；HTTP adapter 只负责身份提取与响应 |
+| Server 身份 | `auth.ts`、`authorization.ts`、`http/access.ts` | Server DB 是用户、设备和审计权威；authorization 拥有设备复核规则，HTTP adapter 负责身份提取与响应 |
 | 工作空间转发与能力校验 | `workspaces/gateway.ts`、`transport/protocol.ts` | 协议 schema、帧大小/容量、签名、分片不可弱化 |
 | 本机能力装配 | `workspace-runtime.ts` | 创建依赖并负责 close；不把业务继续堆进入口 |
 | 控制请求/幂等/队列 | `control.ts`、`message-queue.ts` | 用户请求的持久回执与队列语义不同于原生执行会话 |

@@ -2,7 +2,18 @@ import type { UsageData, UsageRequest, UsageSummary } from '../src/types.js';
 import type { PricingCatalog } from './pricing.js';
 import type { CodexSource } from './source.js';
 import type { UsageRecord } from './usage-parser.js';
-import type { UsageQuery } from './usage.js';
+
+export interface UsageQuery {
+  from?: number;
+  to?: number;
+  model?: string;
+  session?: string;
+  project?: string;
+  subagents?: string;
+  timezoneOffset?: number;
+  offset?: number;
+  limit?: number;
+}
 
 type UsageSession = Awaited<ReturnType<CodexSource['usageSessions']>>[number];
 /** Aggregate a bounded row iterator; storage and caching belong to UsageStore. */

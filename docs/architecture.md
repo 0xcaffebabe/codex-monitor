@@ -111,3 +111,4 @@ HTTP 路由依赖其需要的方法集合，例如用量路由只依赖 `sync` �
 - **DIP**：在组合入口创建具体适配器；视图通过模型和回调消费能力，路由只使用服务公开的方法。
 - 样式统一由 `styles.css` 按顺序导入。移动样式时保留选择器及覆盖顺序；响应式媒体查询可按区域拆开。
 - TypeScript 开启未使用变量和参数检查。提交结构调整前运行 `npm run check`，覆盖构建、单元／接口测试及桌面／手机浏览器回归。
+- `npm run check:architecture`（也包含在 build 中）解析 src/server 的类型与值依赖，禁止依赖环、浏览器依赖 server、后端依赖 UI、shared 反向依赖 feature/app。顶层契约与两个纯模型的依赖闭包禁止平台能力和外部模块；检查范围及共享产品词汇例外见 [ADR-004](governance/decisions.md)。

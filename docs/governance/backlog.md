@@ -6,8 +6,8 @@
 | --- | --- | --- | --- |
 | A01 | 高 / 完成 | 三处活跃管理员 SQL/远程复核已归一；control 远程等待撤权竞争已修复 | 独立复审、13 项授权/安全测试通过，PTY 集成超时单列验证 |
 | A02 | 高 / 完成 | Attachment/上传限制与 Project/SessionGoal/Receipt 已统一顶层契约，所有调用方迁移 | 独立复审、TypeScript、39 项行为测试通过 |
-| A03 | 高 / 实施中 | usage-query 反向依赖 usage 的类型环；移到真实 owner | 无类型/运行时环、usage suite |
-| A04 | 高 / 实施中 | CI 只构建和浏览器测试；无架构守卫 | AST 正负自测、CI 纳入既有 test/边界检查 |
+| A03 | 高 / 完成 | UsageQuery 归入 usage-query，移除唯一类型环 | 无类型/运行时环，14 项 usage 测试通过 |
+| A04 | 高 / 完成 | build 纳入 AST 守卫；CI 增加既有 npm test | 11 项正负自测及 248 个生产模块检查通过 |
 | A05 | 高 / 待实施 | shared/image-preview 复制 API 认证、workspace URL、错误/取消处理 | 统一二进制请求；格式探测和图片错误文案保留 |
 | A06 | 中 / 待实施 | control 与 native-control 同义 per-thread promise lane | 单一 keyed executor；保持两层不同实例和串行范围，覆盖失败后继续及键间并发 |
 | A07 | 中 / 待实施 | OverviewCards 无入边；核实 CSS/配套 hooks 是否仍使用 | 删除真正不可达实现，不误删复用样式/概览统计 |

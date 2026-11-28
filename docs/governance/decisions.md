@@ -28,8 +28,10 @@ Deletion Test：移除权威契约会使服务与 UI 各自维护同一接口；
 
 结果：`attachment-types.ts` 拥有附件与普通上传限制，`control-types.ts` 拥有 Project/SessionGoal/Receipt。删除旧 Attachment、DesktopProject 和 feature 共享类型；Draft 保留 feature。goal 返回类型收紧仅提供编译期保障，未声称替代 RPC 的运行时校验。原有状态 string 保留外部新状态兼容。
 
-## ADR-004：使用已有 TypeScript AST 实施架构约束（实施中）
+## ADR-004：使用已有 TypeScript AST 实施架构约束（采纳）
 
 候选方案：新增 Lint/依赖分析工具链；靠人工约定；使用已有 TypeScript 解析器实现窄范围检查（选择）。检查依赖方向、纯模型边界及类型/运行时环；守卫本身以正反例验证。CI 在原构建与浏览器测试之外运行既有单元/接口套件与架构检查。
 
 约束针对已经确认的职责，不以全局行数上限、随意禁止 feature 协作或统一所有错误类型替代设计。任何例外必须精确到真实模块并说明理由，不允许宽泛忽略目录。
+
+结果：`check:architecture` 纳入 build；CI 增加 npm test。UsageQuery 移入 usage-query，消除唯一类型环。守卫扫描 src/server 的静态可解析依赖，含 import/export/import type/dynamic import/require，检查类型和值依赖环。平台无关性检查覆盖顶层契约、session-model/session-list-model 及其依赖闭包；平台能力名字在这些模块中作为保留名检查，不做任意 JavaScript 副作用的完整证明。`shared/git-commit-shortcuts.ts` 是 Web 与 Lark 共同使用的产品词汇，保留精确例外但同样检查纯依赖闭包。
