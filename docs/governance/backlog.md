@@ -19,6 +19,7 @@
 | A13 | 中 / 待研究 | 配置与 env 分布于 config/cli/启动器/原生发现 | 区分跨平台入口兼容与真正重复默认值，保留优先级 |
 | A14 | 中 / 待研究 | 错误、日志与重试按领域分布 | 识别丢失错误/资源泄漏；不合并语义不同策略 |
 | A15 | 中 / 完成 | git/project-files/file-preview 三处同义 within 已统一 path-boundary | 9 项行为测试通过、1 平台跳过；uploads/rollouts 更严规则保留 |
+| A16 | 中 / 完成 | 两入口重复账号 API 安全装配归入 http/account-api | 两factory安全边界基线+回归8项、TypeScript/独立复审通过 |
 
 ## 待确认
 

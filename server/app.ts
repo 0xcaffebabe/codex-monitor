@@ -2,17 +2,13 @@ import express from 'express';
 import path from 'node:path';
 import { AuthStore } from './auth.js';
 import type { Config } from './config.js';
-import { authenticate, createAuthRateLimiter } from './http/access.js';
-import { installAccountRoutes, installPublicAuthRoutes } from './http/auth-routes.js';
+import { installAccountApi } from './http/account-api.js';
 import { installFrontend } from './http/frontend.js';
-import { installHttpSecurity } from './http/security.js';
-import { installUserRoutes } from './http/user-routes.js';
 import { installWorkspaceRuntime, type WorkspaceServices } from './workspace-runtime.js';
 import { NotificationService } from './notifications/service.js';
 import { NotificationReporter } from './notifications/reporter.js';
 import type { WebhookTransport } from './notifications/lark.js';
 import { installNotificationRoutes } from './http/notification-routes.js';
-import { installSub2ApiRoutes } from './http/sub2api-routes.js';
 
 /** Local HTTP harness for capability tests; production uses server-app and client/connection. */
 export function createApp(
@@ -21,13 +17,7 @@ export function createApp(
 ) {
   const app = express(),
     auth = new AuthStore(config.dataDir, config.sessionDays);
-  installHttpSecurity(app, config);
-  const rate = createAuthRateLimiter();
-  installPublicAuthRoutes(app, auth, rate);
-  app.use('/api', authenticate(auth));
-  installAccountRoutes(app, auth, rate);
-  installUserRoutes(app, auth);
-  installSub2ApiRoutes(app, auth);
+  installAccountApi(app, auth, config);
   const runtime = installWorkspaceRuntime(app, config, auth, services);
   const notifications = new NotificationService(auth.db, config.pollMs, services.webhookTransport);
   notifications.readAttachment = (_workspaceId, ref, signal) =>

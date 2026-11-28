@@ -71,3 +71,9 @@ Uploads 与 RolloutStore 对空 relative 或 '..' 前缀更严格，有真实保
 本机 Node availableParallelism=4，默认测试文件并发3；每文件还启动 esbuild/Git/npm/PowerShell/PTY 子进程。启动器与PTY在同时构建或多套测试时超时，原超时单独复跑通过。选择 npm test 文件并发2，并保持完整 check 阶段顺序；不增加断言超时、不跳过真实平台覆盖。
 
 浏览器套件会清理共享输出，禁止同工作区并行运行。桌面命令用例必须先关闭实际产生的通知再继续点击；仍使用真实点击/可见状态，无force、固定sleep或API拦截。通知布局本身保留为待产品确认。
+
+## ADR-011：安全的账号 API 装配只有一处（采纳）
+
+两入口都需要同一顺序：HTTP security → 单一共享限速器 → public auth → /api authenticate → account/users/Sub2API。选择 installAccountApi 封装完整安全边界；拒绝合并本机 harness 与真实 WS 生产入口，拒绝新增应用基类。两入口继续拥有自身服务和关闭生命周期。
+
+Deletion Test：删除此安装器会重新复制安全顺序、公共/保护路由分界及跨路由共用限速器的不变量。参数化现有两个 factory 的契约测试验证匿名401、viewer403、Host/Origin、JSON错误和同一限流预算。

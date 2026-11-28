@@ -2,17 +2,13 @@ import express from 'express';
 import path from 'node:path';
 import { AuthStore } from './auth.js';
 import type { Config } from './config.js';
-import { authenticate, createAuthRateLimiter } from './http/access.js';
-import { installAccountRoutes, installPublicAuthRoutes } from './http/auth-routes.js';
+import { installAccountApi } from './http/account-api.js';
 import { installFrontend } from './http/frontend.js';
-import { installHttpSecurity } from './http/security.js';
-import { installUserRoutes } from './http/user-routes.js';
 import { WorkspaceGateway } from './workspaces/gateway.js';
 import { NotificationService } from './notifications/service.js';
 import type { WebhookTransport } from './notifications/lark.js';
 import type { LarkReplyListener } from './notifications/lark-replies.js';
 import { installNotificationRoutes } from './http/notification-routes.js';
-import { installSub2ApiRoutes } from './http/sub2api-routes.js';
 import type { ServerMaintenance } from './maintenance/routes.js';
 
 /** Server owns authentication, registration and notification delivery; Codex readers live in clients. */
@@ -22,13 +18,7 @@ export function createMonitorServer(
 ) {
   const app = express(),
     auth = new AuthStore(config.dataDir, config.sessionDays);
-  installHttpSecurity(app, config);
-  const rate = createAuthRateLimiter();
-  installPublicAuthRoutes(app, auth, rate);
-  app.use('/api', authenticate(auth));
-  installAccountRoutes(app, auth, rate);
-  installUserRoutes(app, auth);
-  installSub2ApiRoutes(app, auth);
+  installAccountApi(app, auth, config);
   const notifications = new NotificationService(auth.db, config.pollMs, services.webhookTransport, services.larkReplyListener);
   const gateway = new WorkspaceGateway(auth, notifications);
   notifications.startSession = (input, signal) => gateway.startLarkSession(input, signal);
