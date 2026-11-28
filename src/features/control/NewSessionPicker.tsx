@@ -1,6 +1,6 @@
 import { Check, Folder, Monitor } from 'lucide-react';
 import { useId, useState, type KeyboardEvent } from 'react';
-import type { Project } from './types';
+import type { Project } from '../../control-types';
 import type { NewSessionProps } from './useNewSession';
 
 type NewSessionPickerProps = Pick<

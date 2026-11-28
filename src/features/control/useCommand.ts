@@ -2,7 +2,7 @@ import React, { useRef, useState } from 'react';
 import { api, ApiError, post } from '../../api';
 import type { User } from '../../types';
 import { newRequestId } from './request-id';
-import type { Receipt } from './types';
+import type { Receipt } from '../../control-types';
 import { workspaceStorageKey, workspaceUrl } from '../../workspace-scope';
 
 export type CommandButtonProps = {

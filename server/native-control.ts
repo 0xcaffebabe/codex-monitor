@@ -1,7 +1,8 @@
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
-import { DesktopBridge, type DesktopControl, type DesktopProject } from './desktop.js';
+import { DesktopBridge, type DesktopControl } from './desktop.js';
+import type { Project } from '../src/control-types.js';
 import { ControlError } from './control-error.js';
 import {
   NativeRpc,
@@ -250,8 +251,8 @@ export class NativeDesktopControl implements DesktopControl {
     await this.desktop.markRead?.(threadId);
   }
 
-  async projects(_context: string): Promise<DesktopProject[]> {
-    const projects: DesktopProject[] = [],
+  async projects(_context: string): Promise<Project[]> {
+    const projects: Project[] = [],
       cursors = new Set<string>();
     let cursor: string | undefined;
     do {

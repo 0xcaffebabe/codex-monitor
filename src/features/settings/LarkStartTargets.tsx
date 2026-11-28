@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import { api } from '../../api';
 import type { LarkStartSettings } from '../../types';
 import type { ManagedWorkspace } from '../../workspaces';
-import type { Project } from '../control/types';
+import type { Project } from '../../control-types';
 
 export function LarkStartTargets({ value, onChange }: {
   value: LarkStartSettings;

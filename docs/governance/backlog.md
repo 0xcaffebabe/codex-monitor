@@ -5,7 +5,7 @@
 | ID | 优先级/状态 | 证据与目标 | 验证/约束 |
 | --- | --- | --- | --- |
 | A01 | 高 / 实施中 | control、terminal、git 三处活跃管理员 SQL 与远程复核；统一到独立授权模块 | 撤权/过期/异步复核竞争、原错误契约 |
-| A02 | 高 / 实施中 | uploads 与 feature 重复 Attachment；DesktopProject/Project、目标/回执分散；统一顶层契约 | TypeScript、创建目标、上传、控制回执现有测试 |
+| A02 | 高 / 完成 | Attachment/上传限制与 Project/SessionGoal/Receipt 已统一顶层契约，所有调用方迁移 | 独立复审、TypeScript、39 项行为测试通过 |
 | A03 | 高 / 实施中 | usage-query 反向依赖 usage 的类型环；移到真实 owner | 无类型/运行时环、usage suite |
 | A04 | 高 / 实施中 | CI 只构建和浏览器测试；无架构守卫 | AST 正负自测、CI 纳入既有 test/边界检查 |
 | A05 | 高 / 待实施 | shared/image-preview 复制 API 认证、workspace URL、错误/取消处理 | 统一二进制请求；格式探测和图片错误文案保留 |

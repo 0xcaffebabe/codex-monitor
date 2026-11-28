@@ -16,13 +16,15 @@ Deletion Test：读取门面封装多源合并与缓存，删除会向每条路�
 
 Deletion Test：删除该模块会将安全规则和 await 后撤权竞争重新扩散到三个执行入口，因此该抽象封装了真实复杂性。
 
-## ADR-003：共享契约单一所有权（实施中）
+## ADR-003：共享契约单一所有权（采纳）
 
 问题：前后端重复定义附件、项目、目标/回执，后端通过 feature 目录获取业务类型。
 
 候选方案：后端复用 feature 类型（依赖方向错误）；整体搬至新 shared 树（无必要）；将真正共享的契约归入顶层 attachment/control types（选择）。表单 Draft 等 UI 状态保留 feature 内。迁移所有导入，删除旧同义类型和空转发文件；仅在行为相同的上传边界上共用常量，Lark 专用限制保留独立语义。
 
 Deletion Test：移除权威契约会使服务与 UI 各自维护同一接口；共享类型消除一致性成本，不引入运行时层级。
+
+结果：`attachment-types.ts` 拥有附件与普通上传限制，`control-types.ts` 拥有 Project/SessionGoal/Receipt。删除旧 Attachment、DesktopProject 和 feature 共享类型；Draft 保留 feature。goal 返回类型收紧仅提供编译期保障，未声称替代 RPC 的运行时校验。原有状态 string 保留外部新状态兼容。
 
 ## ADR-004：使用已有 TypeScript AST 实施架构约束（实施中）
 

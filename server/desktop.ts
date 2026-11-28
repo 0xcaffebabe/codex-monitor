@@ -11,12 +11,8 @@ import type {
   SessionStatus,
 } from '../src/types.js';
 import type { ApprovalControl, SessionPermissionMode } from '../src/approval-types.js';
+import type { Project, SessionGoal } from '../src/control-types.js';
 export { ControlError } from './control-error.js';
-export interface DesktopProject {
-  id: string;
-  name: string;
-  path: string;
-}
 type DesktopThreadState = {
   status: string;
   turnId?: string;
@@ -36,7 +32,7 @@ export interface DesktopControl {
   creationPermissions?: boolean;
   messagePermissions?: boolean;
   desktopChannel?: boolean;
-  projects(context: string): Promise<DesktopProject[]>;
+  projects(context: string): Promise<Project[]>;
   models(): Promise<CodexModel[]>;
   markRead?(threadId: string): Promise<void>;
   state(
@@ -60,7 +56,7 @@ export interface DesktopControl {
     threadId: string,
     action: 'get' | 'set' | 'pause' | 'resume' | 'clear',
     objective?: string,
-  ): Promise<any>;
+  ): Promise<SessionGoal | null>;
   compact(threadId: string, options?: { desktopOwned?: boolean }): Promise<void>;
   interrupt(
     threadId: string,

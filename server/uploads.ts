@@ -10,11 +10,9 @@ import { z } from 'zod';
 import { ControlError } from './control-error.js';
 import { ImagePreviews, imagePreviewQuery } from './image-previews.js';
 import { localImage, MediaError } from './media.js';
+import { MAX_UPLOAD_BYTES, type Attachment } from '../src/attachment-types.js';
 
-export const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
-export const MAX_ATTACHMENTS = 10;
 export const MAX_ACTIVE_UPLOADS = 4;
-export type Attachment = { id: string; name: string; size: number; type: string };
 
 function safeName(value: string) {
   const name = path

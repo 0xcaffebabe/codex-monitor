@@ -4,7 +4,7 @@ import type { User } from '../../types';
 import { CommandButton } from './CommandButton';
 import { goalDuration, goalStatuses } from './goal';
 import { PromptForm } from './PromptForm';
-import type { Receipt, SessionGoal } from './types';
+import type { Receipt, SessionGoal } from '../../control-types';
 
 export function GoalDialog({
   user,

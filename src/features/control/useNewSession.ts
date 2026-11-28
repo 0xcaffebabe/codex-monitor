@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '../../api';
 import type { User } from '../../types';
-import type { Project } from './types';
+import type { Project } from '../../control-types';
 import { useModelSettings } from './useModelSettings';
 import { readNewSessionPreference, writeNewSessionPreference } from './new-session-preferences';
 import { sessionPermissionModes, type SessionPermissionMode } from '../../approval-types';

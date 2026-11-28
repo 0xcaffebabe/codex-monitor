@@ -2,7 +2,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import type { DesktopControl } from './desktop.js';
 import { ControlError } from './control-error.js';
 import { validId } from './source/session.js';
-import type { Receipt, SessionGoal } from '../src/features/control/types.js';
+import type { Receipt, SessionGoal } from '../src/control-types.js';
 
 export type CreationReceipt = Omit<Receipt, 'state' | 'requestId'> & {
   mode: 'create';

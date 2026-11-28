@@ -8,7 +8,8 @@ import { setTimeout as delay } from 'node:timers/promises';
 import path from 'node:path';
 import { Readable } from 'node:stream';
 import { createApp } from '../server/app.js';
-import { MAX_UPLOAD_BYTES, UploadStore } from '../server/uploads.js';
+import { UploadStore } from '../server/uploads.js';
+import { MAX_UPLOAD_BYTES } from '../src/attachment-types.js';
 import { FixtureDesktop, projectId } from './control-fixture.js';
 import { fixture, ids } from './fixture.js';
 

@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { api } from '../../api';
 import type { SessionContext, User } from '../../types';
-import type { Receipt, SessionGoal } from './types';
+import type { Receipt, SessionGoal } from '../../control-types';
 import { useModelSettings } from './useModelSettings';
 import type { useSessionControl } from './useSessionControl';
 import { workspaceUrl } from '../../workspace-scope';

@@ -1,10 +1,10 @@
 import { LoaderCircle, MessageSquareQuote, Paperclip, Plus, X } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 import { Popover } from '../../shared/ui/Popover';
-import { maxAttachments, sizeLabel } from './attachment-model';
+import { sizeLabel } from './attachment-model';
 import { ProjectFilePicker, type ProjectFileOptions } from './ProjectFilePicker';
 import { Thumbnail } from './Thumbnail';
-import type { Attachment } from './types';
+import { MAX_ATTACHMENTS, type Attachment } from '../../attachment-types';
 import type { useAttachmentPicker } from './useAttachmentPicker';
 import { SessionPickerDialog } from '../workspace/SessionPickerDialog';
 
@@ -28,7 +28,7 @@ export function AttachmentPicker({
 }) {
   const { input, progress, upload, remove } = picker;
   const [referencing, setReferencing] = useState(false);
-  const attachmentsDisabled = disabled || !!progress || attachments.length >= maxAttachments;
+  const attachmentsDisabled = disabled || !!progress || attachments.length >= MAX_ATTACHMENTS;
   return (
     <div className="attachment-picker">
       <div className={'attachment-toolbar' + (children ? ' has-controls' : '')}>
@@ -133,7 +133,7 @@ export function AttachmentPicker({
         <SessionPickerDialog
           mode="reference"
           portalContainer={input.current?.closest('dialog') ?? undefined}
-          disabled={disabled || attachments.length >= maxAttachments}
+          disabled={disabled || attachments.length >= MAX_ATTACHMENTS}
           progress={progress}
           onReference={(session, action) =>
             picker.reference(session, action === 'takeover' ? takeoverPrompt : undefined)

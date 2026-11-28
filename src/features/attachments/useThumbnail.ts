@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { fetchImagePreview } from '../../shared/image-preview';
 import { workspaceUrl } from '../../workspace-scope';
 import { imageType } from './attachment-model';
-import type { Attachment } from './types';
+import type { Attachment } from '../../attachment-types';
 
 export type ThumbnailProps = { attachment: Attachment; workspaceId?: string };
 export function useThumbnail({ attachment, workspaceId }: ThumbnailProps) {
