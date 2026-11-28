@@ -11,7 +11,7 @@
 | A05 | 高 / 完成 | 图片预览复用 apiBlob；保留格式探测、范围捕获和图片错误文案 | 8 项测试覆盖 late blob/401 取消和跨工作空间独立请求；TypeScript/独立复审通过 |
 | A06 | 中 / 完成 | control/native-control 共用 keyed executor，保留各自实例；删除旧 Map 链及 ControlLane | 52 项并发、失败恢复、队列、停止、安全测试及 TypeScript/独立复审通过 |
 | A07 | 中 / 完成 | 删除无调用方 OverviewCards 和 40 条专属 CSS 规则，保留现用概览统计/usage 样式 | 独立复审、12 项架构守卫自测；新增前端生产可达性检查 |
-| A08 | 高 / 待研究 | ApprovalPanel、Sub2ApiSettings、LarkStartTargets、Sub2ApiUsage、RunningOverview 的 IO/状态进入视图 | 按实际领域 hook 内聚，完成迁移后执行视图边界守卫；不造通用 useQuery |
+| A08 | 高 / 实施中 | 审批已完整迁入 useApprovals；设置与 Sub2API 用量已迁移待分批提交，RunningOverview 正在实施 | 独立复审、TypeScript/架构检查通过；最终浏览器回归与视图守卫待完成 |
 | A09 | 中 / 待研究 | RunningOverview 多职责、持久化与全局状态、文件预览混合 | 先列生命周期/状态图，再决定哪些需要深模块 |
 | A10 | 中 / 待研究 | notifications/service 超过 1000 行，投递/交互编排耦合 | 保留去重、至多重试、不确定发送和 private/group routing 契约 |
 | A11 | 中 / 待研究 | 启动器基线集成测试失败 | 独立复跑并定位环境/确定性问题；不放宽断言掩盖失败 |
