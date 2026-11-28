@@ -40,12 +40,13 @@ flowchart TD
 | Server 身份 | `auth.ts`、`authorization.ts`、`http/access.ts` | Server DB 是用户、设备和审计权威；authorization 拥有设备复核规则，HTTP adapter 负责身份提取与响应 |
 | 工作空间转发与能力校验 | `workspaces/gateway.ts`、`transport/protocol.ts` | 协议 schema、帧大小/容量、签名、分片不可弱化 |
 | 本机能力装配 | `workspace-runtime.ts` | 创建依赖并负责 close；不把业务继续堆进入口 |
-| 控制请求/幂等/队列 | `control.ts`、`message-queue.ts` | 用户请求的持久回执与队列语义不同于原生执行会话 |
+| 控制请求/幂等/队列 | `control.ts`、`message-queue.ts` | 用户请求的持久回执与队列语义不同于原生执行会话；与 native-control 分别持有 keyed executor |
 | 原生运行时与桌面所有权 | `native-control.ts`、`native.ts`、`desktop.ts` | 一个会话不得出现第二 writer；不确定发送不能自动重放 |
 | 会话事实 | `source.ts` + 专用 readers | Codex 原始库只读；SQLite 与 rollout 是不同版本和故障回退来源 |
 | 上传与文件读取 | uploads、project-files、file-preview、media | 上传绑定/范围/路径校验不同，不合并成万能文件服务 |
 | 用量与计价 | usage、usage-parser、usage-query、pricing | parser 版本决定缓存失效；配置 JSON 是价格权威 |
-| 通知 | reporter/report-store、service/store、Lark adapters | Client 采集事实，Server 决定投递；不能合并两端队列 |
+| 通知 | reporter/report-store、service/store、Lark adapters | Client 采集事实，Server 决定投递；已读卡片生命周期由 LarkReadTracker 持有，不能合并两端队列 |
+| 用户操作审计 | `audit.ts` | 唯一参数化写入；调用方拥有事件含义/时机及事务，AuthStore.log保留公开契约 |
 | 运行配置 | config、cli、client/config、平台启动器 | 优先级是 CLI > 进程 env > 启动器 .env > 默认值；Node 入口不自动加载 .env |
 
 ## 状态所有权
@@ -63,10 +64,13 @@ flowchart TD
 | 用量扫描断点/派生缓存 | UsageStore / usage.sqlite | 可重建；parser/价格变化触发对应失效 |
 | 通知事件与待答问题 | Client report-store | Server 确认后清理，重启/重连可重传 |
 | 通知策略/投递/去重 | Server notification store | 持久去重，有限重试，不确定回执不能当成未发送 |
+| Lark卡片已读跟踪 | Server LarkReadTracker / 内存Map | 首卡七天，多收件人聚合；目的地变更/关闭取消在途，等待扫描结束再关闭DB |
 | 认证 token | 浏览器 localStorage 或 sessionStorage / api | remember 决定位置；logout 清理两处并广播 |
 | 草稿、请求 ID、附件引用 | control hooks / sessionStorage | 按账号/工作空间/会话隔离；成功后清理，失败保留 |
 | 主题、布局、新建偏好 | 对应 hook / localStorage | 用户展示偏好，不是服务器业务事实 |
 | 当前列表/详情/查询/展开 | 对应 feature hooks / React | SSE 通知失效，HTTP 重新读取，取消过期请求 |
+| 概览面板与排序 | useRunningOverview / localStorage + React | 面板为本次访问状态，只有显式重排写持久偏好，键包含用户与工作空间/会话身份 |
+| 概览历史与阅读锚点 | useOverviewSession / DetailLoader | 每面板拥有取消/轮询/历史合并，隐藏/离线停请求，放大不重建历史 |
 
 ## 技术方案清单与兼容约束
 
@@ -80,3 +84,5 @@ flowchart TD
 ## 已识别偏离
 
 初始重复/越界包括 Attachment、Project、Goal/Receipt 跨端定义、三处授权 SQL/复核顺序、两套 per-thread promise lane、图片请求绕过统一 API、部分视图直接请求/持久化、无调用方 OverviewCards、用量类型环，以及 CI 遗漏单元/接口检查。逐项状态和优先级见 [任务池](backlog.md)。文件较长本身不是抽象依据；通知服务和任务概览须先按状态与行为确定边界。
+
+治理后上述已迁移或删除，新增机器约束见 ADR-004/007/009。按 feature 目录聚合时仍存在 control 使用 GitBranchSelector、git 使用 PromptForm，以及附件使用 workspace 会话选择器的双向组合关系；它们通过具体组件契约协作，没有文件级类型/运行时环。当前不为目录图形式改造为复杂的 render callback 链；若未来拆为独立包，再按包契约重新选择归属。

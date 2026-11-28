@@ -11,15 +11,17 @@
 | A05 | 高 / 完成 | 图片预览复用 apiBlob；保留格式探测、范围捕获和图片错误文案 | 8 项测试覆盖 late blob/401 取消和跨工作空间独立请求；TypeScript/独立复审通过 |
 | A06 | 中 / 完成 | control/native-control 共用 keyed executor，保留各自实例；删除旧 Map 链及 ControlLane | 52 项并发、失败恢复、队列、停止、安全测试及 TypeScript/独立复审通过 |
 | A07 | 中 / 完成 | 删除无调用方 OverviewCards 和 40 条专属 CSS 规则，保留现用概览统计/usage 样式 | 独立复审、12 项架构守卫自测；新增前端生产可达性检查 |
-| A08 | 高 / 待最终验收 | 审批、设置、Sub2API、概览异步业务均迁入领域hooks；视图API/storage与全局fetch入口有AST守卫 | 独立复审、TypeScript/14项守卫自测通过；最终浏览器回归待完成 |
-| A09 | 中 / 待最终验收 | 概览分离 pane跟踪/排序持久化、历史读取/滚动生命周期；TaskDock改依赖纯任务模型 | 9文件独立复审及TypeScript/架构检查通过，原DOM/拖拽/焦点/历史阈值不变 |
+| A08 | 高 / 完成 | 审批、设置、Sub2API、概览异步业务均迁入领域hooks；视图API/storage与全局fetch入口有AST守卫 | 独立复审、TypeScript/14项守卫自测及最终44项浏览器全部通过 |
+| A09 | 中 / 完成 | 概览分离 pane跟踪/排序持久化、历史读取/滚动生命周期；TaskDock改依赖纯任务模型 | 独立复审、TypeScript/架构及排序/历史/草稿/跨空间浏览器回归通过 |
 | A10 | 中 / 完成 | 已读跟踪完整生命周期归 LarkReadTracker；其余交互协调暂保留服务内 | 11项测试及独立复审通过；全量抽交互controller会引入大量双向回调，未满足Deletion Test |
-| A11 | 中 / 实施中 | 启动器/PTY原timeout独立复跑通过；本机4核默认3个test进程加原生子进程争用，固定文件并发2；E2E补关闭通知用户路径 | 保留原timeouts/断言/平台skip，不并跑共享browser产物；最终全量验证 |
+| A11 | 中 / 完成 | 启动器/PTY原timeout独立复跑通过；固定文件并发2；E2E补关闭通知用户路径 | 保留原timeouts/断言/平台skip，最终check退出0：311测试通过/4skip，44浏览器通过 |
 | A12 | 低 / 待研究 | 主包 Vite 既有大包提示、样式历史覆盖 | 性能/可达性数据支持后才拆分，不做全局格式化 |
 | A13 | 中 / 已审计，待部署确认 | 中央校验/CLI优先级与平台启动器有真实差异，保留；发现硬编码Host白名单公网IP | 先确认159.75.6.20部署用途，再改MONITOR_ORIGINS，不删除已存在入口 |
 | A14 | 中 / 完成 | 六处SQL audit写入归一；领域错误、通知/重连/outbox重试与缓存失效语义经审计明确不同 | 17项审计/控制/目标/审批通过；保留uncertain不重放、通知最多3次、WS只重连及各域缓存策略 |
 | A15 | 中 / 完成 | git/project-files/file-preview 三处同义 within 已统一 path-boundary | 9 项行为测试通过、1 平台跳过；uploads/rollouts 更严规则保留 |
 | A16 | 中 / 完成 | 两入口重复账号 API 安全装配归入 http/account-api | 两factory安全边界基线+回归8项、TypeScript/独立复审通过 |
+| A17 | 低 / 已评估保留 | feature目录聚合存在git/control及attachments/workspace双向组件组合，无文件级环 | 当前各能力公开组件/Hook有真实调用方；为目录图搬迁/层层注入会增加复杂度，独立包拆分时再评估 |
+| A18 | 低 / 后续韧性 | Git远程权限等待期间close可能返回通用500；现有ProjectGit禁止closed后派发，未发现权限绕过 | 若统一关闭错误契约，补真实在途close测试后再做，不混入已验证授权迁移 |
 
 ## 待确认
 
@@ -30,3 +32,4 @@
 ## 完成
 
 - G00：建立进度、架构与状态地图、方案决策及任务池；确认初始工作区与依赖/测试基线。
+- G01–G16全部完成并独立提交，完整检查结果见 [最终验收](progress.md#最终验收2026-11-28)。当前没有已识别、未实施的高价值安全治理项；保留上表已说明的低优先级或待确认事项。

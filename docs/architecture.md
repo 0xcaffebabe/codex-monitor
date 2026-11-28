@@ -43,9 +43,13 @@ src/
 | `useTimeline`      | 阅读位置、自动跟随、历史触发、目录跳转         | 绑定滚动事件，展示时间线模型  |
 | `useDesktopLayout` | PC 面板偏好、响应式抽屉与恢复自动布局        | 绑定布局控件和框架状态类      |
 | `usePromptForm`    | 草稿与请求 ID 持久化、发送、查询回执、队列取消 | 绑定表单，展示发送状态        |
+| `useApprovals`     | 审批轮询、单次答复锁、未知回执查询恢复        | 显示审批与回执，调用答复动作 |
+| `useRunningOverview` | 本次访问面板跟踪、排序与排序偏好持久化    | 展示面板，触发移动/添加/移除 |
+| `useOverviewSession` | 单面板轮询、取消、历史合并、阅读位置      | 绑定历史读取与滚动视图       |
+| `useSub2ApiUsage`  | 用量查询/分页/日期与筛选联动、刷新与详情请求  | 展示指标与分页，提交筛选     |
 | `useUsage`         | 用量请求取消、筛选切换、扫描轮询               | 消费查询结果，触发刷新        |
 
-`session-model.ts` 和 `session-list-model.ts` 是不依赖 React、网络或存储的纯函数。历史合并、活动分组和列表分组通过独立测试约束行为。
+`session-model.ts`、`session-list-model.ts` 和 `running-overview-model.ts` 是不依赖 React、网络或存储的纯模型。历史合并、活动分组和列表分组通过独立测试约束行为，依赖闭包由架构守卫验证。图片格式探测由 image-preview 负责，HTTP/Blob 请求统一通过 api。
 
 ## 后端
 
@@ -59,6 +63,10 @@ server/
   transport/protocol.ts    # 固定 AES-256-GCM、本次握手绑定、上传/响应分片与协议校验
   client/                  # 连接配置校验、主动 ws、重连、本地临时授权与 loopback HTTP 适配器
   workspace-runtime.ts     # Client 本机能力装配与资源关闭
+  authorization.ts         # 身份契约、本地/远程/再次本地的设备权限复核
+  audit.ts                 # 在调用方事务内写用户操作审计
+  keyed-executor.ts        # 按键串行执行；控制层与原生层各自持有实例
+  path-boundary.ts         # 等价词法包含规则；各域仍自行检查符号链接/私有范围
   image-previews.ts        # AVIF/WebP 尺寸分级、并发与像素上限、源版本缓存和原图回退
   terminal.ts              # 登录设备隔离、目录校验、容量与输出上限、授权复核和终端生命周期
   git.ts                   # 会话目录中的只读 Git 查询、字面路径、文件校验与 diff 大小上限
@@ -68,6 +76,7 @@ server/
   desktop-watchdog.ts      # Windows 桌面主进程检查、缺失自动启动、冷却与退出清理
   app.ts                   # 本机能力单元／接口测试入口
   http/
+    account-api.ts         # 两入口统一安装安全头、公共/认证路由和共享限速器
     access.ts              # 身份认证、管理员权限、认证限速
     security.ts            # Host/Origin、响应头、压缩、JSON 限制
     *-routes.ts            # 认证、用户、会话、用量各自的 HTTP 边界
@@ -95,6 +104,7 @@ server/
     report-store.ts        # Client 扫描断点、事件上报日志和待答问题状态
     messages.ts            # Server 统一格式化消息、工作空间及会话链接
     service.ts             # Server 接收去重、统一投递、退避重试和资源关闭
+    lark-read-tracker.ts    # 已读扫描、多卡聚合、期限与取消/关闭生命周期
   usage.ts                 # 增量扫描、SQLite 缓存和查询失效策略
   usage-query.ts           # 流式用量汇总、分页结果与时间分桶
 ```
@@ -111,4 +121,4 @@ HTTP 路由依赖其需要的方法集合，例如用量路由只依赖 `sync` �
 - **DIP**：在组合入口创建具体适配器；视图通过模型和回调消费能力，路由只使用服务公开的方法。
 - 样式统一由 `styles.css` 按顺序导入。移动样式时保留选择器及覆盖顺序；响应式媒体查询可按区域拆开。
 - TypeScript 开启未使用变量和参数检查。提交结构调整前运行 `npm run check`，覆盖构建、单元／接口测试及桌面／手机浏览器回归。
-- `npm run check:architecture`（也包含在 build 中）解析 src/server 的类型与值依赖，禁止依赖环、浏览器依赖 server、后端依赖 UI、shared 反向依赖 feature/app。顶层契约与两个纯模型的依赖闭包禁止平台能力和外部模块；检查范围及共享产品词汇例外见 [ADR-004](governance/decisions.md)。
+- `npm run check:architecture`（也包含在 build 中）解析 src/server 的类型与值依赖，禁止依赖环、浏览器依赖 server、后端依赖 UI、shared 反向依赖 feature/app、无生产调用方的前端实现。顶层契约与三个纯模型的依赖闭包禁止平台能力和外部模块；视图不得直接调用 API/浏览器存储，fetch 统一在 api.ts。检查范围及共享产品词汇例外见 [ADR-004](governance/decisions.md)。
