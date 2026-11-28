@@ -81,3 +81,9 @@ Uploads 与 RolloutStore 对空 relative 或 '..' 前缀更严格，有真实保
 两入口都需要同一顺序：HTTP security → 单一共享限速器 → public auth → /api authenticate → account/users/Sub2API。选择 installAccountApi 封装完整安全边界；拒绝合并本机 harness 与真实 WS 生产入口，拒绝新增应用基类。两入口继续拥有自身服务和关闭生命周期。
 
 Deletion Test：删除此安装器会重新复制安全顺序、公共/保护路由分界及跨路由共用限速器的不变量。参数化现有两个 factory 的契约测试验证匿名401、viewer403、Host/Origin、JSON错误和同一限流预算。
+
+## ADR-012：通知已读跟踪拥有独立生命周期（采纳）
+
+候选方案：仅把扫描函数拆文件（仍共享四项可变状态）；抽整个交互controller（大量双向回调/授权代次泄漏）；抽 LarkReadTracker（选择）。它完整拥有10秒轮询、扫描互斥、多卡集合、首卡七天期限、100条诊断、目的地取消代次与close等待；service只装配并调用track/status/reset/close。
+
+Deletion Test：删除该模块会重新让轮询、过期和晚到结果保护散入投递/配置/关闭流程。保留任一收件人已读即关闭对应网页通知、配置变更与关闭后忽略在途结果。真实Service配置切换测试验证接线，fake timer验证精确七天边界，不调用真实Lark。

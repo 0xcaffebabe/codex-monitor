@@ -494,3 +494,63 @@ test('Lark read scans dismiss only the matching browser notice and stop querying
     db.close();
   }
 });
+
+test('changing notification destination cancels an in-flight read without dismissing notices from either destination', async (t) => {
+  t.mock.timers.enable({ apis: ['setInterval'] });
+  const db = new DatabaseSync(':memory:');
+  let sent = 0;
+  let readSignal: AbortSignal | undefined;
+  let finishRead!: (response: Response) => void;
+  const delayedRead = new Promise<Response>((resolve) => { finishRead = resolve; });
+  const queried: string[] = [];
+  const service = new NotificationService(db, 60000, async (url, init) => {
+    const endpoint = new URL(String(url));
+    if (endpoint.pathname.endsWith('/tenant_access_token/internal'))
+      return Response.json({ code: 0, tenant_access_token: 'token', expire: 7200 });
+    if (endpoint.pathname === '/open-apis/im/v1/messages')
+      return Response.json({ code: 0, data: { message_id: `om_card_${++sent}` } });
+    const messageId = endpoint.pathname.match(/\/messages\/(om_card_\d+)\/read_users$/)?.[1];
+    assert.ok(messageId);
+    queried.push(messageId);
+    if (messageId === 'om_card_1') {
+      readSignal = init?.signal ?? undefined;
+      return delayedRead;
+    }
+    return Response.json({ code: 0, data: { items: [{}] } });
+  });
+  const config = {
+    enabled: true, mode: 'app' as const, appId: 'cli_monitor', appSecret: 'test',
+    chatId: 'oc_before', completionMode: 'all' as const, publicUrl: '',
+  };
+  const complete = async () => {
+    service.receive({ id: 'local', name: 'Local' }, {
+      revision: service.policy().revision, events: [event()], monitorError: '',
+    });
+    await service.poll();
+  };
+  try {
+    await service.configure(config);
+    await complete();
+    const [first] = service.completions.snapshot().notifications;
+    t.mock.timers.tick(10_000);
+    await flush();
+    assert.deepEqual(queried, ['om_card_1']);
+    assert.equal(readSignal?.aborted, false);
+    await service.configure({ ...config, chatId: 'oc_after' });
+    assert.equal(readSignal?.aborted, true);
+    await complete();
+    finishRead(Response.json({ code: 0, data: { items: [{}] } }));
+    await flush();
+    assert.equal(service.completions.snapshot().notifications.length, 2);
+    assert.ok(service.state().deliveries.some(({ larkReadStatus }) =>
+      larkReadStatus === 'Lark 已读查询已停止，通知接收配置已变更或关闭'));
+    t.mock.timers.tick(10_000);
+    await flush();
+    assert.deepEqual(queried, ['om_card_1', 'om_card_2']);
+    assert.deepEqual(service.completions.snapshot().notifications, [first]);
+  } finally {
+    finishRead(Response.json({ code: 0, data: { items: [] } }));
+    await service.close();
+    db.close();
+  }
+});
