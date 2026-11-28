@@ -28,6 +28,8 @@ Deletion Test：移除权威契约会使服务与 UI 各自维护同一接口；
 
 结果：`attachment-types.ts` 拥有附件与普通上传限制，`control-types.ts` 拥有 Project/SessionGoal/Receipt。删除旧 Attachment、DesktopProject 和 feature 共享类型；Draft 保留 feature。goal 返回类型收紧仅提供编译期保障，未声称替代 RPC 的运行时校验。原有状态 string 保留外部新状态兼容。
 
+后续扫描还发现界面提示和限制错误硬编码10/20；已改为由同一数量/字节常量派生，保持原文案。网关 MAX_BODY 是独立传输约束，其提示只引用自己的权威常量，不把目前数值相同当作业务同义。
+
 ## ADR-004：使用已有 TypeScript AST 实施架构约束（采纳）
 
 候选方案：新增 Lint/依赖分析工具链；靠人工约定；使用已有 TypeScript 解析器实现窄范围检查（选择）。检查依赖方向、纯模型边界及类型/运行时环；守卫本身以正反例验证。CI 在原构建与浏览器测试之外运行既有单元/接口套件与架构检查。

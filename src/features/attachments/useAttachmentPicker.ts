@@ -2,7 +2,13 @@ import { useEffect, useRef, useState, type ClipboardEvent, type DragEvent } from
 import { api, apiBlob } from '../../api';
 import { workspaceSignal, workspaceUrl } from '../../workspace-scope';
 import type { WorkspaceSession } from '../workspace/session-list-model';
-import { MAX_ATTACHMENTS, MAX_UPLOAD_BYTES, type Attachment } from '../../attachment-types';
+import {
+  MAX_ATTACHMENTS,
+  MAX_UPLOAD_BYTES,
+  attachmentCountError,
+  attachmentSizeError,
+  type Attachment,
+} from '../../attachment-types';
 
 type AttachmentPickerOptions = {
   workspaceId?: string;
@@ -65,10 +71,10 @@ export function useAttachmentPicker({
     }
     if (!working.current) reservedCount.current = attachments.length;
     if (reservedCount.current + files.length > MAX_ATTACHMENTS) {
-      return fail('每条消息最多添加 10 个附件。');
+      return fail(attachmentCountError);
     }
     if (files.some((file) => 'size' in file && file.size > MAX_UPLOAD_BYTES)) {
-      return fail('单个附件不能超过 20 MB。');
+      return fail(attachmentSizeError);
     }
     // Reserve space for pending files so pasted and dropped files share the same limit.
     reservedCount.current += files.length;
@@ -86,7 +92,7 @@ export function useAttachmentPicker({
         if ('load' in pending) setProgress(`正在导出会话 ${pending.name}`);
         const file = 'load' in pending ? await pending.load(signal) : pending;
         signal.throwIfAborted();
-        if (file.size > MAX_UPLOAD_BYTES) throw new Error('单个附件不能超过 20 MB。');
+        if (file.size > MAX_UPLOAD_BYTES) throw new Error(attachmentSizeError);
         setProgress(`正在上传 ${file.name}（剩余 ${queue.current.length} 个）`);
         const attachment = await api<Attachment>(
           uploadUrl + '?name=' + encodeURIComponent(file.name),

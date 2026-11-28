@@ -769,11 +769,11 @@ export class WorkspaceGateway {
         const chunks: Buffer[] = [];
         let size = 0;
         if (Number(req.headers['content-length']) > MAX_BODY)
-          return fail(res, 413, '单个附件不能超过 20 MB');
+          return fail(res, 413, `单个附件不能超过 ${MAX_BODY / 1024 ** 2} MB`);
         req.setTimeout(120000, () => req.destroy());
         for await (const chunk of req) {
           size += chunk.length;
-          if (size > MAX_BODY) return fail(res, 413, '单个附件不能超过 20 MB');
+          if (size > MAX_BODY) return fail(res, 413, `单个附件不能超过 ${MAX_BODY / 1024 ** 2} MB`);
           chunks.push(chunk);
         }
         body = Buffer.concat(chunks);

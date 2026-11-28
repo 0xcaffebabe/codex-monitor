@@ -4,7 +4,7 @@ import { Popover } from '../../shared/ui/Popover';
 import { sizeLabel } from './attachment-model';
 import { ProjectFilePicker, type ProjectFileOptions } from './ProjectFilePicker';
 import { Thumbnail } from './Thumbnail';
-import { MAX_ATTACHMENTS, type Attachment } from '../../attachment-types';
+import { MAX_ATTACHMENTS, MAX_UPLOAD_BYTES, type Attachment } from '../../attachment-types';
 import type { useAttachmentPicker } from './useAttachmentPicker';
 import { SessionPickerDialog } from '../workspace/SessionPickerDialog';
 
@@ -80,7 +80,9 @@ export function AttachmentPicker({
                   <small>从其他会话添加上下文，支持跨工作空间</small>
                 </span>
               </button>
-              <p className="composer-menu-hint">最多 10 个附件，单个不超过 20 MB</p>
+              <p className="composer-menu-hint">
+                最多 {MAX_ATTACHMENTS} 个附件，单个不超过 {MAX_UPLOAD_BYTES / 1024 ** 2} MB
+              </p>
             </div>
           )}
         </Popover>

@@ -10,7 +10,7 @@ import { z } from 'zod';
 import { ControlError } from './control-error.js';
 import { ImagePreviews, imagePreviewQuery } from './image-previews.js';
 import { localImage, MediaError } from './media.js';
-import { MAX_UPLOAD_BYTES, type Attachment } from '../src/attachment-types.js';
+import { MAX_UPLOAD_BYTES, attachmentSizeError, type Attachment } from '../src/attachment-types.js';
 
 export const MAX_ACTIVE_UPLOADS = 4;
 
@@ -49,7 +49,7 @@ export class UploadStore {
   async receive(req: Request, userId: string, originalName: string): Promise<Attachment> {
     const declaredSize = Number(req.headers['content-length']);
     if (Number.isFinite(declaredSize) && declaredSize > MAX_UPLOAD_BYTES)
-      throw new ControlError('单个附件不能超过 20 MB。', false, 413);
+      throw new ControlError(attachmentSizeError, false, 413);
     const type = String(req.headers['x-upload-type'] || 'application/octet-stream').slice(0, 120);
     const controller = new AbortController();
     const abort = () => controller.abort();
@@ -83,7 +83,7 @@ export class UploadStore {
       transform(chunk: Buffer, _encoding, callback) {
         size += chunk.length;
         callback(
-          size > MAX_UPLOAD_BYTES ? new ControlError('单个附件不能超过 20 MB。', false, 413) : null,
+          size > MAX_UPLOAD_BYTES ? new ControlError(attachmentSizeError, false, 413) : null,
           chunk,
         );
       },
