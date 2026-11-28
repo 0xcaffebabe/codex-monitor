@@ -19,6 +19,20 @@ function inspect(files: Record<string, string>) {
   }
 }
 
+test('architecture rejects unreachable frontend implementations while allowing shared contracts', () => {
+  assert.deepEqual(
+    inspect({
+      'src/main.tsx': 'import "./app/App.js";',
+      'src/app/App.tsx': 'export const load = () => import("../features/view.js");',
+      'src/features/view.ts': 'export type Data = import("./model.js").Data;',
+      'src/features/model.ts': 'export type Data = string;',
+      'src/control-types.ts': 'export type ServerOnly = string;',
+      'src/features/retired.tsx': 'export const Retired = () => null;',
+    }),
+    ['src/features/retired.tsx: frontend module has no production caller'],
+  );
+});
+
 test('architecture accepts shared contracts, pure product vocabulary and lazy feature imports', () => {
   assert.deepEqual(
     inspect({

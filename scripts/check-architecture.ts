@@ -178,6 +178,23 @@ export function checkArchitecture(root = process.cwd()) {
   for (const file of modules.keys())
     if (contract(file) || pureModels.has(file) || file === sharedProductModule) visitPure(file);
 
+  // Frontend implementations need a production caller; shared contracts can be server-only.
+  if (modules.has('src/main.tsx')) {
+    const reachable = new Set<string>();
+    const visitReachable = (file: string) => {
+      if (reachable.has(file)) return;
+      reachable.add(file);
+      for (const { target } of modules.get(file)?.dependencies ?? [])
+        if (target && modules.has(target)) visitReachable(target);
+    };
+    visitReachable('src/main.tsx');
+    for (const file of modules.keys()) if (contract(file)) visitReachable(file);
+    visitReachable(sharedProductModule);
+    for (const file of modules.keys())
+      if (inside(file, 'src') && !reachable.has(file))
+        violations.push(`${file}: frontend module has no production caller`);
+  }
+
   // Tarjan's algorithm reports each strongly connected component once, including type-only cycles.
   let next = 0;
   const indices = new Map<string, number>(),

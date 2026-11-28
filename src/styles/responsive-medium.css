@@ -11,38 +11,11 @@
     width: 29px;
     height: 29px;
   }
-  .overview {
-    padding: 25px 24px 22px;
-  }
   .content {
     margin: 0 24px;
   }
   .topbar {
     padding: 0 24px;
-  }
-  .stat-grid {
-    gap: 10px;
-  }
-  .stat-card {
-    padding: 15px 12px;
-    gap: 9px;
-  }
-  .stat-card strong {
-    display: block;
-    margin-top: 7px;
-    font-size: 26px;
-  }
-  .stat-decoration {
-    display: none;
-  }
-  .stat-icon {
-    height: 29px;
-    width: 29px;
-  }
-  .mini-bars {
-    right: 10px;
-    top: 15px;
-    font-size: 14px;
   }
   .table-head {
     grid-template-columns: minmax(0, 1fr) 90px 90px 80px 14px;

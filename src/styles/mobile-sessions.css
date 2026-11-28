@@ -5,47 +5,6 @@
   .content:not(.split) {
     min-height: 360px;
   }
-  .searching-sessions .overview {
-    display: none;
-  }
-  .overview {
-    padding: 16px 14px;
-  }
-  .overview-heading {
-    margin-bottom: 12px;
-    align-items: flex-start;
-  }
-  .overview-heading h1 {
-    font-size: 1.375rem;
-    letter-spacing: 0;
-    margin: 0;
-  }
-  .today {
-    display: none;
-  }
-  .stat-grid {
-    gap: 0;
-    border-block: 1px solid var(--line);
-  }
-  .stat-card {
-    align-items: center;
-    min-height: 68px;
-    padding: 8px 5px;
-    border: 0;
-    border-radius: 0;
-    justify-content: center;
-    text-align: center;
-  }
-  .stat-card + .stat-card {
-    border-left: 1px solid var(--line);
-  }
-  .stat-card strong {
-    font-size: 1.25rem;
-    margin-top: 4px;
-  }
-  .stat-card .stat-icon {
-    display: none;
-  }
   .content {
     margin: 0 14px;
   }

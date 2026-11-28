@@ -19,12 +19,6 @@
   .session-row {
     grid-template-columns: 26px minmax(0, 1fr) 80px 80px 70px 12px;
   }
-  .overview-heading h1 {
-    font-size: 24px;
-  }
-  .today {
-    font-size: var(--font-meta);
-  }
   .session-preview {
     display: none;
   }

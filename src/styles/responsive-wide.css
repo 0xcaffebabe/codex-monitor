@@ -3,18 +3,8 @@
   .sidebar {
     width: 245px;
   }
-  .overview {
-    padding: 37px 45px 30px;
-  }
   .content {
     margin: 0 45px;
-  }
-  .stat-card {
-    padding: 23px;
-    min-height: 118px;
-  }
-  .stat-card strong {
-    font-size: 32px;
   }
   .split .session-panel {
     width: 335px;

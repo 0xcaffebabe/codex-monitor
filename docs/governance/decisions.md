@@ -47,3 +47,9 @@ Deletion Test：图片模块的专用复杂性是格式能力探测，不是 HTT
 候选方案：保留两套 Promise 链；共享全局锁或基类；工厂返回独立 keyed executor（选择）。HTTP control 的队列/授权与 NativeDesktopControl 的 writer 生命周期是不同层，不共用锁实例。native serial 继续负责开始执行时的 closed 检查。
 
 Deletion Test：删除 executor 会重新复制失败隔离、尾任务身份比较与清理竞态；该工厂封装真实并发规则。公开接口只有 key + operation；失败只拒绝自身任务，不阻止后继，不串行化不同线程。三条专用行为测试和原控制/队列回归约束顺序与恢复。
+
+## ADR-007：删除不可达概览实现并约束生产可达性（采纳）
+
+全库引用和依赖图确认 OverviewCards 无调用方；其 overview/stat-card 等 exact CSS 类也只用于该组件。选择删除组件及 40 条专属规则，不创建占位层或备用入口；保留正在使用的 running-overview、usage-stat-grid 与公共概览数据。PostCSS 解析验证删除对象，未重排剩余选择器。
+
+守卫从 main.tsx、共享契约和 Web/Lark 产品词汇追踪类型/运行时/dynamic import，拒绝无生产调用方的其他 src 模块。后续新增独立 HTML/worker 等真实入口时须显式更新入口规则；当前没有这类未建模入口。Deletion Test：删除无人调用的 UI 后复杂性直接消失。
