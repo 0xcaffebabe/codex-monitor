@@ -1,7 +1,8 @@
 import { RotateCcw, Search } from 'lucide-react';
 import { useState } from 'react';
 import type { Sub2ApiCallRecord } from '../../sub2api-types';
-import { dateKey, integer, money } from './format';
+import { integer, money } from './format';
+import { defaultCallRecordFilters, type CallRecordFilters } from './useSub2ApiUsage';
 
 const requestTypes = new Map([
   ['sync', '同步'],
@@ -25,24 +26,6 @@ const idFields = [
   ['accountId', '账号 ID'],
   ['groupId', '分组 ID'],
 ] as const;
-
-export function defaultCallRecordFilters() {
-  const today = dateKey(new Date());
-  return {
-    startDate: today,
-    endDate: today,
-    apiKey: '',
-    model: '',
-    requestType: '',
-    billingMode: '',
-    billingType: '',
-    userId: '',
-    accountId: '',
-    groupId: '',
-  };
-}
-
-export type CallRecordFilters = ReturnType<typeof defaultCallRecordFilters>;
 
 export function Sub2ApiCallFilters({
   filters,

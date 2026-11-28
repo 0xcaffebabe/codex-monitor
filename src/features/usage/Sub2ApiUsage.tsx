@@ -1,25 +1,12 @@
 import { ArrowLeft, ArrowRight, RefreshCw, Search } from 'lucide-react';
-import { useEffect, useId, useState } from 'react';
-import { api } from '../../api';
-import type {
-  Sub2ApiAccount,
-  Sub2ApiAccountDetails,
-  Sub2ApiCallRecord,
-  Sub2ApiCredits,
-  Sub2ApiKeyUsage,
-  Sub2ApiPage,
-  Sub2ApiSettings,
-} from '../../sub2api-types';
+import { useId, useState } from 'react';
+import type { Sub2ApiAccount, Sub2ApiCredits, Sub2ApiKeyUsage } from '../../sub2api-types';
 import { Sub2ApiSettings as Sub2ApiSettingsForm } from '../settings/Sub2ApiSettings';
-import { dateKey, integer, money } from './format';
-import {
-  defaultCallRecordFilters,
-  Sub2ApiCallFilters,
-  Sub2ApiCallRecords,
-} from './Sub2ApiCallRecords';
+import { integer, money } from './format';
+import { Sub2ApiCallFilters, Sub2ApiCallRecords } from './Sub2ApiCallRecords';
+import { useSub2ApiAccountDetails, useSub2ApiUsage, type Sub2ApiView } from './useSub2ApiUsage';
 
-type View = 'accounts' | 'keys' | 'calls';
-const emptyMessage: Record<View, string> = {
+const emptyMessage: Record<Sub2ApiView, string> = {
   accounts: '未找到订阅账号',
   keys: '所选区间未找到有调用记录的 Key',
   calls: '所选条件下暂无调用记录',
@@ -29,30 +16,6 @@ const tokenCount = new Intl.NumberFormat('en-US', {
   notation: 'compact',
   maximumFractionDigits: 2,
 });
-
-function useQuery<T>(url: string | undefined, revision = 0) {
-  const [result, setResult] = useState<{
-    url: string;
-    revision: number;
-    data?: T;
-    error?: string;
-  }>();
-  useEffect(() => {
-    if (!url) return;
-    const abort = new AbortController();
-    void api<T>(url, { signal: abort.signal })
-      .then((data) => {
-        if (!abort.signal.aborted) setResult({ url, revision, data });
-      })
-      .catch((e: Error) => {
-        if (!abort.signal.aborted) setResult({ url, revision, error: e.message });
-      });
-    return () => abort.abort();
-  }, [url, revision]);
-  const current = result?.url === url ? result : undefined;
-  const busy = !!url && current?.revision !== revision;
-  return { data: current?.data, error: busy ? undefined : current?.error, busy };
-}
 
 function timestamp(value: string | null, includeYear = false) {
   const epoch = value ? Date.parse(value) : NaN;
@@ -84,11 +47,7 @@ function AccountDetails({
   platform: 'openai' | 'anthropic';
   enabled: boolean;
 }) {
-  const { data, error } = useQuery<Sub2ApiAccountDetails>(
-    enabled
-      ? `/api/sub2api/account-details?accountId=${accountId}&platform=${platform}`
-      : undefined,
-  );
+  const { data, error } = useSub2ApiAccountDetails(accountId, platform, enabled);
   if (error)
     return (
       <span className="sub2api-credits" role="alert">
@@ -240,58 +199,33 @@ export function Sub2ApiUsage({
 }) {
   const titleId = useId();
   const [configuring, setConfiguring] = useState(false);
-  const [view, setView] = useState<View>('accounts');
-  const [page, setPage] = useState(1);
-  const [draftSearch, setDraftSearch] = useState('');
-  const [search, setSearch] = useState('');
-  const [accountType, setAccountType] = useState('oauth');
-  const [days, setDays] = useState('7');
-  const [callFilters, setCallFilters] = useState(defaultCallRecordFilters);
-  const [refresh, setRefresh] = useState(0);
-  const generation = revision + refresh;
-  const settings = useQuery<Sub2ApiSettings>('/api/sub2api/settings', generation);
-  const configured = settings.data?.configured;
-  const params = new URLSearchParams({ page: String(page) });
-  if (view === 'calls') {
-    for (const [key, value] of Object.entries(callFilters)) {
-      if (value) params.set(key, value);
-    }
-  } else params.set('search', search);
-
-  if (view === 'accounts') params.set('type', accountType);
-  if (view === 'keys') {
-    const end = new Date();
-    const start = new Date(end);
-    start.setDate(end.getDate() - Number(days) + 1);
-    params.set('startDate', dateKey(start));
-    params.set('endDate', dateKey(end));
-  }
-  if (view !== 'accounts') params.set('timezone', Intl.DateTimeFormat().resolvedOptions().timeZone);
-  const query = configured ? `/api/sub2api/${view}?${params}` : undefined;
-  const accounts = useQuery<Sub2ApiPage<Sub2ApiAccount>>(
-    view === 'accounts' ? query : undefined,
+  const {
+    view,
+    page,
+    draftSearch,
+    setDraftSearch,
+    accountType,
+    days,
+    callFilters,
     generation,
-  );
-  const keys = useQuery<Sub2ApiPage<Sub2ApiKeyUsage>>(
-    view === 'keys' ? query : undefined,
-    generation,
-  );
-  const calls = useQuery<Sub2ApiPage<Sub2ApiCallRecord>>(
-    view === 'calls' ? query : undefined,
-    generation,
-  );
-  const result = { accounts, keys, calls }[view];
-  const busy = settings.busy || result.busy;
-  const error = settings.error || result.error;
-  const nextPage = !!result.data && page * result.data.pageSize < result.data.total;
-
-  function show(next: View) {
-    if (next === view) return;
-    setView(next);
-    setPage(1);
-    setDraftSearch('');
-    setSearch('');
-  }
+    settings,
+    configured,
+    accounts,
+    keys,
+    calls,
+    result,
+    busy,
+    error,
+    nextPage,
+    show,
+    refresh,
+    submitSearch,
+    selectAccountType,
+    selectDays,
+    applyCallFilters,
+    previous,
+    next,
+  } = useSub2ApiUsage(revision);
 
   return (
     <section
@@ -308,7 +242,7 @@ export function Sub2ApiUsage({
             title="刷新 Sub2API 用量"
             aria-label="刷新 Sub2API 用量"
             disabled={busy}
-            onClick={() => setRefresh((value) => value + 1)}
+            onClick={refresh}
           >
             <RefreshCw size={16} className={busy ? 'spin' : ''} />
           </button>
@@ -327,7 +261,7 @@ export function Sub2ApiUsage({
             <Sub2ApiSettingsForm
               onChange={() => {
                 setConfiguring(false);
-                setRefresh((value) => value + 1);
+                refresh();
               }}
             />
           ) : (
@@ -364,23 +298,14 @@ export function Sub2ApiUsage({
                 className="sub2api-filters"
                 onSubmit={(event) => {
                   event.preventDefault();
-                  const nextSearch = draftSearch.trim();
-                  if (page === 1 && search === nextSearch && result.error) {
-                    setRefresh((value) => value + 1);
-                    return;
-                  }
-                  setPage(1);
-                  setSearch(nextSearch);
+                  submitSearch();
                 }}
               >
                 {view === 'accounts' ? (
                   <select
                     aria-label="订阅账号类型"
                     value={accountType}
-                    onChange={(event) => {
-                      setPage(1);
-                      setAccountType(event.target.value);
-                    }}
+                    onChange={(event) => selectAccountType(event.target.value)}
                   >
                     <option value="oauth">OAuth</option>
                     <option value="setup-token">Setup Token</option>
@@ -389,10 +314,7 @@ export function Sub2ApiUsage({
                   <select
                     aria-label="Sub2API Key 统计时间范围"
                     value={days}
-                    onChange={(event) => {
-                      setPage(1);
-                      setDays(event.target.value);
-                    }}
+                    onChange={(event) => selectDays(event.target.value)}
                   >
                     <option value="1">今天</option>
                     <option value="7">近 7 天</option>
@@ -418,14 +340,7 @@ export function Sub2ApiUsage({
             )}
           </div>
           {view === 'calls' && (
-            <Sub2ApiCallFilters
-              filters={callFilters}
-              onApply={(filters) => {
-                setCallFilters(filters);
-                setPage(1);
-                setRefresh((value) => value + 1);
-              }}
-            />
+            <Sub2ApiCallFilters filters={callFilters} onApply={applyCallFilters} />
           )}
           {result.data?.warning && (
             <p className="usage-warning sub2api-message" role="status">
@@ -493,7 +408,7 @@ export function Sub2ApiUsage({
                 title="Sub2API 上一页"
                 aria-label="Sub2API 上一页"
                 disabled={page === 1 || busy}
-                onClick={() => setPage(page - 1)}
+                onClick={previous}
               >
                 <ArrowLeft size={16} />
               </button>
@@ -502,7 +417,7 @@ export function Sub2ApiUsage({
                 title="Sub2API 下一页"
                 aria-label="Sub2API 下一页"
                 disabled={!nextPage || busy}
-                onClick={() => setPage(page + 1)}
+                onClick={next}
               >
                 <ArrowRight size={16} />
               </button>
