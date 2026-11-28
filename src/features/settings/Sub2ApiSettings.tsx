@@ -1,70 +1,15 @@
 import { Plug } from 'lucide-react';
-import { useEffect, useId, useState, type FormEvent } from 'react';
-import { api } from '../../api';
-import type { Sub2ApiSettings as Configuration } from '../../sub2api-types';
+import { useId, type FormEvent } from 'react';
+import { useSub2ApiSettings, type Sub2ApiSettingsOptions } from './useSub2ApiSettings';
 
-const endpoint = '/api/sub2api/settings';
-
-export function Sub2ApiSettings({
-  notify,
-  onChange,
-}: {
-  notify?: (message: string) => void;
-  onChange?: () => void;
-}) {
+export function Sub2ApiSettings(options: Sub2ApiSettingsOptions) {
   const titleId = useId();
-  const [saved, setSaved] = useState<Configuration>();
-  const [baseUrl, setBaseUrl] = useState('');
-  const [adminKey, setAdminKey] = useState('');
-  const [pending, setPending] = useState<'load' | 'save' | 'remove' | null>('load');
-  const [error, setError] = useState('');
-
-  useEffect(() => {
-    const abort = new AbortController();
-    void api<Configuration>(endpoint, { signal: abort.signal })
-      .then((data) => {
-        setSaved(data);
-        setBaseUrl(data.baseUrl);
-      })
-      .catch((e: Error) => {
-        if (!abort.signal.aborted) setError(e.message);
-      })
-      .finally(() => {
-        if (!abort.signal.aborted) setPending(null);
-      });
-    return () => abort.abort();
-  }, []);
-
-  async function update(action: 'save' | 'remove') {
-    setPending(action);
-    setError('');
-    try {
-      const result = await api<Configuration>(
-        endpoint,
-        action === 'remove'
-          ? { method: 'DELETE' }
-          : {
-              method: 'PUT',
-              body: JSON.stringify({ baseUrl, adminKey: adminKey.trim() || undefined }),
-            },
-      );
-      setSaved(result);
-      setBaseUrl(result.baseUrl);
-      setAdminKey('');
-      onChange?.();
-      notify?.(action === 'remove' ? 'Sub2API 配置已移除' : 'Sub2API 配置已保存');
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setPending(null);
-    }
-  }
-
+  const { saved, baseUrl, setBaseUrl, adminKey, setAdminKey, pending, error, update, dirty } =
+    useSub2ApiSettings(options);
   const submit = (event: FormEvent) => {
     event.preventDefault();
     void update('save');
   };
-  const dirty = baseUrl.trim() !== (saved?.baseUrl ?? '') || !!adminKey.trim();
   return (
     <section aria-labelledby={titleId}>
       <h3 id={titleId}>
