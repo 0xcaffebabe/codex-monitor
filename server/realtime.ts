@@ -1,6 +1,6 @@
 import type { Express, Response } from 'express';
 import type { SessionReconnect } from '../src/types.js';
-import type { WorkspaceAuth } from './http/access.js';
+import type { WorkspaceAuth } from './authorization.js';
 import { validId, type CodexSource } from './source.js';
 
 type Client = {

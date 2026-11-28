@@ -14,7 +14,7 @@ import { reasoningEfforts, type SessionModelSettings } from '../src/types.js';
 import { validateModelSettings } from './model-settings.js';
 import { sessionPermissionModes } from '../src/approval-types.js';
 import type { SessionCreationSettings } from '../src/types.js';
-import type { Identity } from './http/access.js';
+import { isAuthorizedDevice, type ControlAuthorization } from './authorization.js';
 import { ProjectFiles } from './project-files.js';
 import { installProjectFileRoutes } from './http/project-file-routes.js';
 import { installAttentionRoute } from './http/attention-route.js';
@@ -30,11 +30,6 @@ type ClientLarkStartResult = LarkStartResult & {
 };
 type ClientLarkReplyResult = LarkReplyResult & {
   result: 'sent' | 'queued' | 'unavailable' | 'failed' | 'unknown' | 'imageFailed' | 'attachmentFailed';
-};
-
-export type ControlAuthorization = {
-  device: (identity: Identity) => Promise<boolean>;
-  user: (userId: string) => Promise<boolean>;
 };
 
 export function installControl(
@@ -65,15 +60,9 @@ export function installControl(
   const authorize = async (req: Request) => {
     if (closed) throw new ControlError('服务正在停止，请稍后查询原请求结果。', true, 503);
     const identity = req.identity!;
-    const allowed = db
-      .prepare(
-        `SELECT 1 FROM sessions s JOIN users u ON u.id=s.user_id
-      WHERE s.id=? AND s.user_id=? AND s.expires_at>? AND u.role='admin'`,
-      )
-      .get(identity.sessionId, identity.user.id, Date.now());
-    if (!allowed || (authorization && !(await authorization.device(identity))))
-      throw new ControlError('登录或操作权限已失效，请重新登录。', false, 403);
+    const allowed = await isAuthorizedDevice(db, identity, authorization, () => !closed);
     if (closed) throw new ControlError('服务正在停止，请稍后查询原请求结果。', true, 503);
+    if (!allowed) throw new ControlError('登录或操作权限已失效，请重新登录。', false, 403);
   };
   const writable = async (req: Request, id: string) => {
     await authorize(req);

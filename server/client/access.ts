@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import type { User } from '../../src/types.js';
 import type { AuthStore } from '../auth.js';
-import type { Identity, WorkspaceAuth } from '../http/access.js';
+import type { Identity, WorkspaceAuth } from '../authorization.js';
 
 /** Client-local leases contain identities only, never passwords or server bearer tokens. */
 export class ClientAccess implements WorkspaceAuth {

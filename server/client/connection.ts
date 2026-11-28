@@ -6,7 +6,7 @@ import type { AuthStore } from '../auth.js';
 import { buildCommitAt } from '../build-info.js';
 import type { Config } from '../config.js';
 import { ControlError } from '../control-error.js';
-import type { Identity } from '../http/access.js';
+import type { Identity } from '../authorization.js';
 import type { WorkspaceServices } from '../workspace-runtime.js';
 import {
   CHUNK_BYTES,

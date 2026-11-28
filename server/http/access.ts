@@ -1,9 +1,7 @@
 import type { NextFunction, Request, RequestHandler, Response } from 'express';
-import type { User } from '../../src/types.js';
+import type { Identity } from '../authorization.js';
 import { AuthStore } from '../auth.js';
 
-export type Identity = { user: User; sessionId: string; expiresAt: number };
-export type WorkspaceAuth = Pick<AuthStore, 'db' | 'authenticate' | 'log'>;
 declare global {
   namespace Express {
     interface Request {

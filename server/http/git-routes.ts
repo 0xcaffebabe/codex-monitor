@@ -2,9 +2,14 @@ import type { Express } from 'express';
 import { z } from 'zod';
 import { ProjectGit, GitError, validGitBranch, validGitPath } from '../git.js';
 import { validId } from '../source/session.js';
-import type { ControlAuthorization } from '../control.js';
+import {
+  isAuthorizedDevice,
+  type ControlAuthorization,
+  type Identity,
+  type WorkspaceAuth,
+} from '../authorization.js';
 import { ControlError } from '../control-error.js';
-import { admin, fail, type Identity, type WorkspaceAuth } from './access.js';
+import { admin, fail } from './access.js';
 
 const scope = z.enum(['all', 'unstaged', 'staged']).default('all');
 const statusQuery = z.object({ scope }).strict();
@@ -18,14 +23,7 @@ export function installGitRoutes(
   authorization?: ControlAuthorization,
 ) {
   const authorize = async (identity: Identity) => {
-    const valid = () =>
-      !!auth.db
-        .prepare(
-          `SELECT 1 FROM sessions s JOIN users u ON u.id=s.user_id
-           WHERE s.id=? AND s.user_id=? AND s.expires_at>? AND u.role='admin'`,
-        )
-        .get(identity.sessionId, identity.user.id, Date.now());
-    if (!valid() || (authorization && !(await authorization.device(identity))) || !valid())
+    if (!(await isAuthorizedDevice(auth.db, identity, authorization)))
       throw new GitError('登录或分支切换权限已失效，请重新登录。', 403);
   };
   for (const type of ['session', 'project'] as const) {

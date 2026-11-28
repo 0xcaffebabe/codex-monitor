@@ -1,8 +1,12 @@
 import { realpath, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { createTerminalProcess } from './terminal-process.js';
-import type { ControlAuthorization } from './control.js';
-import type { Identity, WorkspaceAuth } from './http/access.js';
+import {
+  isAuthorizedDevice,
+  type ControlAuthorization,
+  type Identity,
+  type WorkspaceAuth,
+} from './authorization.js';
 import type { CodexSource } from './source.js';
 import type { ProjectTerminal, TerminalOutput } from '../src/terminal-types.js';
 
@@ -61,19 +65,7 @@ export class ProjectTerminals {
     this.timer.unref();
   }
   async authorize(identity: Identity) {
-    const valid = () =>
-      !this.closed &&
-      !!this.auth.db
-        .prepare(
-          `SELECT 1 FROM sessions s JOIN users u ON u.id=s.user_id
-       WHERE s.id=? AND s.user_id=? AND s.expires_at>? AND u.role='admin'`,
-        )
-        .get(identity.sessionId, identity.user.id, Date.now());
-    if (
-      !valid() ||
-      (this.authorization && !(await this.authorization.device(identity))) ||
-      !valid()
-    )
+    if (!(await isAuthorizedDevice(this.auth.db, identity, this.authorization, () => !this.closed)))
       throw new TerminalError('登录或终端操作权限已失效，请重新登录。', 403);
   }
   async open(identity: Identity, sessionId: string, id: string, cols: number, rows: number) {

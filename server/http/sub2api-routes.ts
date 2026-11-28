@@ -2,7 +2,8 @@ import type { Express, RequestHandler } from 'express';
 import { z } from 'zod';
 import type { Sub2ApiSettings } from '../../src/sub2api-types.js';
 import { Sub2ApiClient, Sub2ApiError, sub2ApiBaseUrl, type Sub2ApiConnection } from '../sub2api.js';
-import { admin, fail, type WorkspaceAuth } from './access.js';
+import { admin, fail } from './access.js';
+import type { WorkspaceAuth } from '../authorization.js';
 
 const settings = z
   .object({

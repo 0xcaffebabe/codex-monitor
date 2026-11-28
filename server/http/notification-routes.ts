@@ -4,7 +4,8 @@ import type { CompletionNotification } from '../../src/types.js';
 import type { NotificationService } from '../notifications/service.js';
 import { validLarkWebhook } from '../notifications/lark.js';
 import { notificationConfigured } from '../notifications/store.js';
-import { admin, fail, type WorkspaceAuth } from './access.js';
+import { admin, fail } from './access.js';
+import type { WorkspaceAuth } from '../authorization.js';
 
 const publicUrl = z
   .string()

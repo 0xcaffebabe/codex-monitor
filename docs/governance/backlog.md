@@ -4,7 +4,7 @@
 
 | ID | 优先级/状态 | 证据与目标 | 验证/约束 |
 | --- | --- | --- | --- |
-| A01 | 高 / 实施中 | control、terminal、git 三处活跃管理员 SQL 与远程复核；统一到独立授权模块 | 撤权/过期/异步复核竞争、原错误契约 |
+| A01 | 高 / 完成 | 三处活跃管理员 SQL/远程复核已归一；control 远程等待撤权竞争已修复 | 独立复审、13 项授权/安全测试通过，PTY 集成超时单列验证 |
 | A02 | 高 / 完成 | Attachment/上传限制与 Project/SessionGoal/Receipt 已统一顶层契约，所有调用方迁移 | 独立复审、TypeScript、39 项行为测试通过 |
 | A03 | 高 / 实施中 | usage-query 反向依赖 usage 的类型环；移到真实 owner | 无类型/运行时环、usage suite |
 | A04 | 高 / 实施中 | CI 只构建和浏览器测试；无架构守卫 | AST 正负自测、CI 纳入既有 test/边界检查 |

@@ -1,11 +1,11 @@
 import path from 'node:path';
 import type { Express } from 'express';
 import type { Config } from './config.js';
-import { installControl, type ControlAuthorization } from './control.js';
+import { installControl } from './control.js';
+import type { ControlAuthorization, WorkspaceAuth } from './authorization.js';
 import type { DesktopControl } from './desktop.js';
 import { createDesktopControl } from './desktop-control.js';
 import { DesktopWatchdog } from './desktop-watchdog.js';
-import type { WorkspaceAuth } from './http/access.js';
 import { installSessionRoutes } from './http/session-routes.js';
 import { installUsageRoutes } from './http/usage-routes.js';
 import { installRealtime } from './realtime.js';
