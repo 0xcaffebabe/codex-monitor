@@ -443,6 +443,10 @@ test('authorized Lark quotes target the card workspace and reuse the Monitor mes
     raw: { width: 256, height: 256, channels: 3 },
   }).png().toBuffer();
   assert.ok(image.length > CHUNK_BYTES);
+  const project = path.join(b.root, 'project');
+  mkdirSync(project);
+  b.state.prepare('UPDATE threads SET cwd=? WHERE id=?').run(project, ids.modern);
+  writeFileSync(path.join(project, 'reply.png'), image);
   const uploadedPaths = new Set<string>();
   const historyPages = new Map<string, unknown>();
   const file = Buffer.from('内容来自此前的文件消息');
@@ -567,6 +571,13 @@ test('authorized Lark quotes target the card workspace and reuse the Monitor mes
       updatedCards.set('om_legacy', JSON.stringify(card));
       return Response.json({ code: 0 });
     }
+    if (pathname === '/open-apis/im/v1/images' && init?.method === 'POST') {
+      assert.ok(init.body instanceof FormData);
+      const file = init.body.get('image');
+      assert.ok(file instanceof File);
+      assert.deepEqual(Buffer.from(await file.arrayBuffer()), image);
+      return Response.json({ code: 0, data: { image_key: 'img_reply' } });
+    }
     assert.equal(pathname, '/open-apis/im/v1/messages');
     const cardId = 'om_card_' + ++cardCount;
     completionCards.set(cardId, JSON.parse(String(init?.body)).content);
@@ -611,7 +622,9 @@ test('authorized Lark quotes target the card workspace and reuse the Monitor mes
     const { settings: config } = await response.json();
     assert.equal(config.replyConnection, 'connected');
     for (const [index, item] of [a, b].entries()) {
-      complete(item, `lark-turn-${index}`, 'original response');
+      complete(item, `lark-turn-${index}`, index === 0
+        ? 'original response'
+        : 'original response\n\n![截图](reply.png)\n\n结论');
       await until(async () => {
         await server.service.notifications.poll();
         return server.service.notifications.store.history().some(
@@ -931,6 +944,7 @@ test('authorized Lark quotes target the card workspace and reuse the Monitor mes
     assert.equal(updatedCard.config.update_multi, true);
     const [original, sentReply, clearedForm, preservedShortcuts] = updatedCard.body.elements;
     assert.deepEqual(original, card.body.elements[0]);
+    assert.match(original.content, /original response\n\n!\[截图\]\(img_reply\)\n\n结论/);
     assert.equal(sentReply.background_style, 'blue-50');
     const [label, message] = sentReply.columns[0].elements;
     assert.equal(label.text.content, '追加消息 · 已发送');
@@ -1008,7 +1022,7 @@ test('authorized Lark quotes target the card workspace and reuse the Monitor mes
   }
 });
 
-test('Lark app settings send cards, native images and files from a remote workspace', async () => {
+test('Lark cards embed remote workspace images at their inline references and send other files separately', async () => {
   const f = fixture();
   const project = path.join(f.root, 'project');
   mkdirSync(project);
@@ -1019,6 +1033,7 @@ test('Lark app settings send cards, native images and files from a remote worksp
   );
   const report = Buffer.alloc(120000, 'a');
   writeFileSync(path.join(project, 'shot.png'), png);
+  writeFileSync(path.join(project, 'result.png'), png);
   writeFileSync(path.join(project, '测试报告.txt'), report);
   writeFileSync(path.join(project, '.env'), 'PRIVATE_VALUE');
   f.config.pollMs = 40;
@@ -1050,7 +1065,7 @@ test('Lark app settings send cards, native images and files from a remote worksp
     uploads.push({ name: file.name, data: Buffer.from(await file.arrayBuffer()) });
     return Response.json({
       code: 0,
-      data: image ? { image_key: 'img_test' } : { file_key: 'file_test' },
+      data: image ? { image_key: file.name === 'shot.png' ? 'img_shot' : 'img_result' } : { file_key: 'file_test' },
     });
   });
   let client: MonitorClient | undefined;
@@ -1105,9 +1120,11 @@ test('Lark app settings send cards, native images and files from a remote worksp
       f,
       'app-turn',
       [
-        '![截图](shot.png) [配置](.env) [截图副本](shot.png)',
+        '截图前 ![截图](shot.png) 截图后 [配置](.env) [截图副本](shot.png)',
         '正文'.repeat(600),
-        '[测试报告](测试报告.txt) [代码](secret.txt#L3) [网页](https://example.com/artifact)',
+        '第二张图 ![结果][result] 后续文字',
+        '[result]: result.png',
+        '[测试报告](测试报告.txt) [代码](secret.txt#L3) ![网络图片](https://example.com/artifact.png)',
       ].join('\n\n'),
     );
     await until(async () => {
@@ -1122,17 +1139,21 @@ test('Lark app settings send cards, native images and files from a remote worksp
     assert.ok(messages.every((item) => item.receive_id === 'ou_test' && item.uuid.length <= 50));
     assert.deepEqual(
       messages.slice(2).map((item) => item.msg_type),
-      ['interactive', 'image', 'file'],
+      ['interactive', 'file'],
     );
     assert.match(messages[2].content, /截图/);
     const completionCard = JSON.parse(messages[2].content);
     assert.equal(completionCard.header.template, 'green');
     assert.deepEqual(completionCard.body.elements.map(({ tag }: { tag: string }) => tag), ['markdown', 'form', 'column_set']);
-    assert.doesNotMatch(messages[2].content, /shot\.png|\.env/);
-    assert.deepEqual(JSON.parse(messages[3].content), { image_key: 'img_test' });
-    assert.deepEqual(JSON.parse(messages[4].content), { file_key: 'file_test' });
+    const markdown = completionCard.body.elements[0].content;
+    assert.match(markdown, /截图前 !\[截图\]\(img_shot\) 截图后 配置 !\[截图副本\]\(img_shot\)/);
+    assert.match(markdown, /第二张图 !\[结果\]\(img_result\) 后续文字/);
+    assert.match(markdown, /\[网络图片\]\(<https:\/\/example\.com\/artifact\.png>\)/);
+    assert.doesNotMatch(markdown, /shot\.png|result\.png|\.env/);
+    assert.deepEqual(JSON.parse(messages[3].content), { file_key: 'file_test' });
     assert.deepEqual(uploads.slice(1), [
       { name: 'shot.png', data: png },
+      { name: 'result.png', data: png },
       { name: '测试报告.txt', data: report },
     ]);
     assert.match(server.service.notifications.store.history()[0].error, /部分附件无法读取/);

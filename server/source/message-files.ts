@@ -52,6 +52,23 @@ function fileTarget(destination: string): Omit<SessionFileLink, 'id' | 'offset'>
   return { path: local, line, endLine };
 }
 
+function attachmentTarget(destination: string) {
+  const local = destination.startsWith('sandbox:/mnt/data/')
+    ? destination.slice('sandbox:'.length)
+    : destination;
+  const target = fileTarget(local);
+  if (target?.line === undefined) return target;
+}
+
+export function completionAttachmentId(file: string) {
+  return createHash('sha256').update(file).digest('hex');
+}
+
+export function completionAttachmentLinkId(destination: string | undefined) {
+  const file = destination && attachmentTarget(destination);
+  return file ? completionAttachmentId(file.path) : undefined;
+}
+
 function markdownFiles(
   event: Pick<TimelineEvent, 'kind' | 'text'>,
   attachment = false,
@@ -91,12 +108,8 @@ function markdownFiles(
           : undefined;
     const offset = node.position?.start.offset;
     if (!destination || offset === undefined) continue;
-    const local =
-      attachment && destination.startsWith('sandbox:/mnt/data/')
-        ? destination.slice('sandbox:'.length)
-        : destination;
-    const target = fileTarget(local);
-    if (!target || (attachment && target.line !== undefined)) continue;
+    const target = attachment ? attachmentTarget(destination) : fileTarget(destination);
+    if (!target) continue;
     // A changing realtime message must never open a new target at an old offset.
     const id = createHash('sha256')
       .update(JSON.stringify([offset, destination]))

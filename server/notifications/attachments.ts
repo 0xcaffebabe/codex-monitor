@@ -3,9 +3,10 @@ import path from 'node:path';
 import type { Config } from '../config.js';
 import type { SessionFilePreviews } from '../file-preview.js';
 import type { CodexSource } from '../source.js';
+import { completionAttachmentId } from '../source/message-files.js';
 
 export const NOTIFICATION_ATTACHMENT_LIMIT = 5;
-export type NotificationAttachment = { name: string; mime: string; data: Buffer };
+export type NotificationAttachment = { name: string; mime: string; data: Buffer; sourceId?: string };
 export type NotificationAttachmentRef = {
   sessionId: string;
   turnId: string;
@@ -39,7 +40,11 @@ export class NotificationAttachments {
       signal.throwIfAborted();
       const files = await this.source.completionFiles(ref.sessionId, ref.turnId, ref.occurredAt);
       const file = files?.paths[ref.index];
-      return file ? await this.files.attachment(file, files.cwd, this.outputRoots, signal) : null;
+      if (!file || !files) return null;
+      return {
+        ...await this.files.attachment(file, files.cwd, this.outputRoots, signal),
+        sourceId: completionAttachmentId(file),
+      };
     } catch {
       signal.throwIfAborted();
       return 'unavailable';

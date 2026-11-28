@@ -1,5 +1,6 @@
 import { fromMarkdown } from 'mdast-util-from-markdown';
 import type { Nodes } from 'mdast';
+import { completionAttachmentLinkId } from '../source/message-files.js';
 
 function webUrl(source: string | undefined) {
   try {
@@ -19,7 +20,7 @@ function linkLabel(node: Nodes): string {
 }
 
 /** Card images require provider-issued image keys, never URLs or local paths. */
-export function larkMarkdown(text: string) {
+export function larkMarkdown(text: string, images?: ReadonlyMap<string, string>) {
   if (/[!\[<]/.test(text)) {
     const nodes: { node: Nodes; inLink: boolean }[] = [],
       pending = [{ node: fromMarkdown(text) as Nodes, inLink: false }];
@@ -32,6 +33,12 @@ export function larkMarkdown(text: string) {
         pending.push(...entry.node.children.toReversed().map((node) => ({ node, inLink })));
       }
     }
+    const image = (source: string | undefined, label: string) => {
+      if (!images?.size) return;
+      const id = completionAttachmentLinkId(source);
+      const key = id && images.get(id);
+      if (key) return `![${label}](${key})`;
+    };
     const definitions = new Map<string, string>();
     for (const { node } of nodes) {
       if (node.type === 'definition') {
@@ -45,20 +52,25 @@ export function larkMarkdown(text: string) {
         end = node.position?.end.offset;
       if (start === undefined || end === undefined) continue;
       if (node.type === 'image' || node.type === 'imageReference') {
-        const url = webUrl(
-          node.type === 'image' ? node.url : definitions.get(node.identifier.toUpperCase()),
-        );
+        const source = node.type === 'image' ? node.url : definitions.get(node.identifier.toUpperCase());
+        const url = webUrl(source);
         const label = escapedLabel(node.alt, '图片');
         const value = inLink
           ? label
-          : url
+          : image(source, label) ?? (url
             ? `[${label}](<${url}>)`
-            : label;
+            : label);
         edits.push({ start, end, value });
       } else if (node.type === 'link' || node.type === 'linkReference') {
         const url =
           node.type === 'link' ? node.url : definitions.get(node.identifier.toUpperCase());
-        if (!webUrl(url)) edits.push({ start, end, value: escapedLabel(linkLabel(node), '附件') });
+        const label = escapedLabel(linkLabel(node), '附件');
+        const child = node.children.length === 1 ? node.children[0] : undefined;
+        const nestedImage = child?.type === 'image' ? child.url
+          : child?.type === 'imageReference' ? definitions.get(child.identifier.toUpperCase())
+            : undefined;
+        const value = image(nestedImage, label) ?? image(url, label);
+        if (value || !webUrl(url)) edits.push({ start, end, value: value ?? label });
       } else if (node.type === 'definition' && !webUrl(node.url)) {
         edits.push({ start, end, value: '' });
       }

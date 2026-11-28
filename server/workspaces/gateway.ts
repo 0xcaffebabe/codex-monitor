@@ -574,6 +574,7 @@ export class WorkspaceGateway {
       let status: number | undefined;
       let name = '';
       let mime = '';
+      let sourceId: string | undefined;
       const finish = () => {
         if (!peer.attachments.delete(id)) return false;
         clearTimeout(timer);
@@ -603,6 +604,8 @@ export class WorkspaceGateway {
               return cancel();
             mime = frame.headers['content-type'] || 'application/octet-stream';
             if (!/^(image\/[a-z]+|application\/octet-stream)$/.test(mime)) return cancel();
+            const source = frame.headers['x-attachment-source-id'];
+            if (/^[a-f0-9]{64}$/.test(source ?? '')) sourceId = source;
           } catch {
             cancel();
           }
@@ -616,7 +619,7 @@ export class WorkspaceGateway {
           if (finish()) {
             if (status === 404) resolve(null);
             else if (status === 422) resolve('unavailable');
-            else if (status === 200 && size > 0) resolve({ name, mime, data: Buffer.concat(chunks, size) });
+            else if (status === 200 && size > 0) resolve({ name, mime, data: Buffer.concat(chunks, size), sourceId });
             else reject(disconnected());
           }
         } else cancel();

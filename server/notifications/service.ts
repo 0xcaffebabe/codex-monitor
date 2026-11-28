@@ -1,17 +1,18 @@
 import type { DatabaseSync } from 'node:sqlite';
 import type { CompletionNotification, LarkStartTarget } from '../../src/types.js';
-import { LarkDeliveryError, larkReplyForm, type LarkTransport } from './lark.js';
+import { LarkDeliveryError, larkCardImageKeys, larkCardMarkdown, larkReplyForm, type LarkTransport } from './lark.js';
 import {
   NotificationStore,
   notificationConfigured,
   type NotificationConfig,
   type NotificationInput,
   type PendingDelivery,
+  type StoredLarkCard,
 } from './store.js';
 import { notificationKey, type NotificationEvent, type NotificationPolicy, type NotificationReport } from './events.js';
 import { notificationMessage } from './messages.js';
 import { CompletionNotifications } from './completions.js';
-import { LarkApp, LarkReplyAttachmentsTooLarge, LarkReplyDocumentError } from './lark-app.js';
+import { LarkApp, LarkReplyAttachmentsTooLarge, LarkReplyDocumentError, type LarkUploadedAttachment } from './lark-app.js';
 import {
   larkCompletionAction,
   larkCardAction,
@@ -57,6 +58,13 @@ function cardReplyNotice(result: LarkReplyReceipt, error?: string) {
 }
 type ReportedCompletion = Extract<NotificationEvent, { kind: 'session.completed' }>;
 type StartTarget = { workspaceId: string; project: LarkStartProject; label: string; prompt: string };
+type LarkSender = Awaited<ReturnType<LarkApp['sender']>>;
+type PreparedLarkDelivery = {
+  markdown: string;
+  attachments: { index: number; file: LarkUploadedAttachment }[];
+  warnings: Set<string>;
+  retry?: LarkDeliveryError;
+};
 
 const namedTarget = /^("(?:[^"\\]|\\["\\])+"|[^\s/"\\:：]+)\/("(?:[^"\\]|\\["\\])+"|[^\s/"\\]+)(?=\s|$)/u;
 const unquoteTargetName = (name: string) =>
@@ -258,7 +266,7 @@ export class NotificationService {
         userId: config.replyAdminId,
         cardMessageId: messageId,
         cardUpdateToken: accepted && completionCard?.updateToken &&
-          this.store.larkCardText(destination, messageId) === undefined ? completionCard.updateToken : undefined,
+          this.store.larkCardMarkdown(destination, messageId) === undefined ? completionCard.updateToken : undefined,
         cardReplyText: accepted && completionCard ? completionCard.replyText ?? prompt : undefined,
       });
       void this.poll();
@@ -775,7 +783,7 @@ export class NotificationService {
             const chatId = this.store.larkTarget(destination, cardMessageId, true)?.chatId;
             if (chatId)
               await sender.completeCardReply(cardMessageId, chatId, { status: receipt, text: cardReplyText },
-                this.store.larkCardText(destination, cardMessageId), cardUpdateToken ?? undefined);
+                this.store.larkCardMarkdown(destination, cardMessageId), cardUpdateToken ?? undefined);
           }
         } catch (error) {
           if (!(error instanceof LarkDeliveryError) || error.retryable) throw error;
@@ -827,12 +835,13 @@ export class NotificationService {
   ) {
     const sender = await this.app.sender(config, signal);
     const sentTo = JSON.parse(delivery.larkSentTo) as Record<string, string>;
+    const prepared = await this.prepareLarkDelivery(delivery, sender, Object.keys(sentTo).length > 0, signal);
     const failures: LarkDeliveryError[] = [];
     for (const openId of config.replyOpenIds) {
       signal.throwIfAborted();
       if (Object.hasOwn(sentTo, openId)) continue;
       try {
-        sentTo[openId] = await this.deliverAppTo(config, delivery, sender, openId,
+        sentTo[openId] = await this.deliverAppTo(config, delivery, prepared, sender, openId,
           larkRequestId(delivery.id, openId), signal);
         signal.throwIfAborted();
         this.store.larkDeliveryProgress(delivery.id, sentTo);
@@ -848,10 +857,67 @@ export class NotificationService {
     }
     return [...new Set(Object.values(sentTo).filter(Boolean))].join('；');
   }
+  private async prepareLarkDelivery(
+    delivery: PendingDelivery,
+    sender: LarkSender,
+    previouslySent: boolean,
+    signal: AbortSignal,
+  ): Promise<PreparedLarkDelivery> {
+    const snapshot = delivery.larkCard ? JSON.parse(delivery.larkCard) as StoredLarkCard : undefined;
+    const { workspaceId, sessionId, turnId, occurredAt } = delivery;
+    const prepared: PreparedLarkDelivery = {
+      markdown: snapshot?.markdown ?? larkCardMarkdown(delivery.message),
+      attachments: [],
+      warnings: new Set(),
+    };
+    if (!this.readAttachment || !workspaceId || !sessionId || !turnId || occurredAt === null)
+      return prepared;
+    const images = new Map<string, string>();
+    const candidates = new Set<number>();
+    const canEmbed = !snapshot && !previouslySent;
+    for (let index = 0; index < NOTIFICATION_ATTACHMENT_LIMIT; index++) {
+      signal.throwIfAborted();
+      if (snapshot?.embedded.includes(index)) continue;
+      try {
+        const file = await this.readAttachment(workspaceId, { sessionId, turnId, occurredAt, index }, signal);
+        if (file === null) break;
+        if (file === 'unavailable') {
+          prepared.warnings.add('部分附件无法读取、格式不可用或超过大小限制');
+          continue;
+        }
+        const uploaded = await sender.uploadAttachment(file);
+        prepared.attachments.push({ index, file: uploaded });
+        if (canEmbed && uploaded.type === 'image' && file.sourceId) {
+          images.set(file.sourceId, uploaded.key);
+          candidates.add(index);
+        }
+      } catch (error) {
+        if (signal.aborted || !(error instanceof LarkDeliveryError)) throw error;
+        if (error.retryable && delivery.attempts < 2) prepared.retry ??= error;
+        else prepared.warnings.add(error.message);
+      }
+    }
+    if (canEmbed) {
+      const embedded: number[] = [];
+      if (images.size) {
+        prepared.markdown = larkCardMarkdown(delivery.message, images);
+        const keys = larkCardImageKeys(prepared.markdown);
+        prepared.attachments = prepared.attachments.filter(({ index, file }) => {
+          if (!candidates.has(index) || !keys.has(file.key)) return true;
+          embedded.push(index);
+          return false;
+        });
+      }
+      // Preserve the exact card body across recipient retries and reply updates.
+      this.store.saveLarkCard(delivery.id, { markdown: prepared.markdown, embedded });
+    }
+    return prepared;
+  }
   private async deliverAppTo(
     config: NotificationConfig,
     delivery: PendingDelivery,
-    sender: Awaited<ReturnType<LarkApp['sender']>>,
+    prepared: PreparedLarkDelivery,
+    sender: LarkSender,
     openId: string,
     uuid: string,
     signal: AbortSignal,
@@ -859,7 +925,7 @@ export class NotificationService {
     const completed = delivery.kind === 'session.completed';
     const completionActions = completed && larkRepliesEnabled(config);
     const completion = completionActions ? 'interactive' : completed ? 'read-only' : undefined;
-    const sendCard = () => sender.card(openId, uuid, delivery.message, completion);
+    const sendCard = () => sender.card(openId, uuid, prepared.markdown, completion);
     const { messageId, chatId } = completed && delivery.eventKey
       ? await this.larkReads.track(delivery.id, delivery.eventKey, openId, sendCard)
       : await sendCard();
@@ -872,8 +938,8 @@ export class NotificationService {
       });
       return '';
     }
-    const { workspaceId, sessionId, turnId, occurredAt } = delivery;
-    const warnings = new Set<string>();
+    const { workspaceId, sessionId } = delivery;
+    const warnings = new Set(prepared.warnings);
     if (workspaceId && sessionId) {
       if (messageId && chatId) {
         this.store.recordLarkMessage(config.larkDestination, messageId, workspaceId, sessionId, completionActions,
@@ -882,28 +948,17 @@ export class NotificationService {
         warnings.add('Lark 未返回私聊卡片的消息 ID 或聊天 ID，无法关联卡片操作');
       }
     }
-    if (!this.readAttachment || !workspaceId || !sessionId || !turnId || occurredAt === null)
-      return [...warnings].join('；');
-    for (let index = 0; index < NOTIFICATION_ATTACHMENT_LIMIT; index++) {
+    for (const { index, file } of prepared.attachments) {
       signal.throwIfAborted();
       try {
-        const file = await this.readAttachment(
-          workspaceId,
-          { sessionId, turnId, occurredAt, index },
-          signal,
-        );
-        if (file === null) break;
-        if (file === 'unavailable') {
-          warnings.add('部分附件无法读取、格式不可用或超过大小限制');
-          continue;
-        }
-        await sender.attachment(openId, `${uuid}-${index}`, file);
+        await sender.sendAttachment(openId, `${uuid}-${index}`, file);
       } catch (error) {
         if (signal.aborted || !(error instanceof LarkDeliveryError)) throw error;
         if (error.retryable && delivery.attempts < 2) throw error;
         warnings.add(error.message);
       }
     }
+    if (prepared.retry) throw prepared.retry;
     return [...warnings].join('；');
   }
   test() {

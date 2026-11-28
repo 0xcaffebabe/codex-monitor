@@ -550,7 +550,11 @@ export class MonitorClient {
         const file = await this.runtime.notificationAttachments.read(frame, signal);
         response = file && file !== 'unavailable'
           ? new Response(new Uint8Array(file.data), {
-              headers: { 'content-type': file.mime, 'x-attachment-name': encodeURIComponent(file.name) },
+              headers: {
+                'content-type': file.mime,
+                'x-attachment-name': encodeURIComponent(file.name),
+                ...(file.sourceId && { 'x-attachment-source-id': file.sourceId }),
+              },
             })
           : new Response(null, { status: file === 'unavailable' ? 422 : 404 });
       } else {
@@ -581,8 +585,9 @@ export class MonitorClient {
       const responseHeaders: Record<string, string> = {};
       for (const name of ['content-type', 'content-disposition', 'retry-after'])
         if (response.headers.has(name)) responseHeaders[name] = response.headers.get(name)!;
-      if (frame.type === 'notification-attachment' && response.headers.has('x-attachment-name'))
-        responseHeaders['x-attachment-name'] = response.headers.get('x-attachment-name')!;
+      if (frame.type === 'notification-attachment')
+        for (const name of ['x-attachment-name', 'x-attachment-source-id'])
+          if (response.headers.has(name)) responseHeaders[name] = response.headers.get(name)!;
       await sendFrame(socket, {
         type: 'response',
         id: frame.id,

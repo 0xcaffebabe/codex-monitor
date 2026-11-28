@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
 import type { LarkStartSettings, NotificationDelivery, NotificationSettings } from '../../src/types.js';
+import { larkCardMarkdown } from './lark.js';
 
 export type NotificationConfig = {
   completionMode: NotificationSettings['completionMode'];
@@ -32,7 +33,9 @@ export type PendingDelivery = NotificationDelivery & {
   turnId: string | null;
   occurredAt: number | null;
   larkSentTo: string;
+  larkCard: string | null;
 };
+export type StoredLarkCard = { markdown: string; embedded: number[] };
 
 export function notificationConfigured(config: NotificationConfig) {
   return !!(config.appId && config.appSecret && config.replyOpenIds.length);
@@ -54,7 +57,7 @@ export class NotificationStore {
         status TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0,
         error TEXT NOT NULL DEFAULT '', created_at INTEGER NOT NULL,
         sent_at INTEGER, next_attempt_at INTEGER NOT NULL DEFAULT 0,
-        revision INTEGER NOT NULL
+        revision INTEGER NOT NULL, lark_card TEXT
       );
       CREATE INDEX IF NOT EXISTS notification_queue ON notification_deliveries(status,next_attempt_at);
       CREATE TABLE IF NOT EXISTS notification_watches (
@@ -118,6 +121,8 @@ export class NotificationStore {
       db.exec('ALTER TABLE notification_deliveries ADD COLUMN occurred_at INTEGER');
     if (!deliveryColumns.some((column) => column.name === 'lark_sent_to'))
       db.exec("ALTER TABLE notification_deliveries ADD COLUMN lark_sent_to TEXT NOT NULL DEFAULT '{}'");
+    if (!deliveryColumns.some((column) => column.name === 'lark_card'))
+      db.exec('ALTER TABLE notification_deliveries ADD COLUMN lark_card TEXT');
     if (!deliveryColumns.some((column) => column.name === 'workspace_id')) {
       db.exec(`ALTER TABLE notification_deliveries ADD COLUMN workspace_id TEXT;
         UPDATE notification_deliveries SET workspace_id='local',event_key='local:' || event_key
@@ -265,11 +270,14 @@ export class NotificationStore {
         workspaceId: string; sessionId: string; chatId: string | null;
       } | undefined;
   }
-  larkCardText(destination: string, messageId: string) {
-    return this.db.prepare(`SELECT delivery.message FROM notification_lark_messages AS card
+  larkCardMarkdown(destination: string, messageId: string) {
+    const row = this.db.prepare(`SELECT delivery.message, delivery.lark_card AS larkCard FROM notification_lark_messages AS card
       JOIN notification_deliveries AS delivery ON delivery.id=card.delivery_id
       WHERE card.destination=? AND card.message_id=? AND card.completion_actions=1`)
-      .get(destination, messageId)?.message as string | undefined;
+      .get(destination, messageId) as { message: string; larkCard: string | null } | undefined;
+    if (row) return row.larkCard
+      ? (JSON.parse(row.larkCard) as StoredLarkCard).markdown
+      : larkCardMarkdown(row.message);
   }
   claimLarkStart(destination: string, messageId: string, text: string, chatId: string, replyTo?: string) {
     return !!this.db.prepare(`INSERT OR IGNORE INTO notification_lark_starts
@@ -423,7 +431,8 @@ export class NotificationStore {
   }
   private select = `SELECT id,kind,event_key AS eventKey,session_id AS sessionId,title,status,attempts,error,
     created_at AS createdAt,sent_at AS sentAt,message,revision,workspace_id AS workspaceId,
-    workspace_name AS workspaceName,turn_id AS turnId,occurred_at AS occurredAt,lark_sent_to AS larkSentTo FROM notification_deliveries`;
+    workspace_name AS workspaceName,turn_id AS turnId,occurred_at AS occurredAt,lark_sent_to AS larkSentTo,
+    lark_card AS larkCard FROM notification_deliveries`;
   delivery(id: string) {
     return this.db.prepare(`${this.select} WHERE id=?`).get(id) as PendingDelivery | undefined;
   }
@@ -475,6 +484,9 @@ export class NotificationStore {
   }
   larkDeliveryProgress(id: string, sentTo: Record<string, string>) {
     this.db.prepare('UPDATE notification_deliveries SET lark_sent_to=? WHERE id=?').run(JSON.stringify(sentTo), id);
+  }
+  saveLarkCard(id: string, card: StoredLarkCard) {
+    this.db.prepare('UPDATE notification_deliveries SET lark_card=? WHERE id=?').run(JSON.stringify(card), id);
   }
   failed(id: string, error: string, retryAt?: number) {
     this.db

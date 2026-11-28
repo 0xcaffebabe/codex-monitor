@@ -1,4 +1,6 @@
 import { gitCommitShortcuts } from '../../src/shared/git-commit-shortcuts.js';
+import { fromMarkdown } from 'mdast-util-from-markdown';
+import type { Nodes } from 'mdast';
 import { larkMarkdown } from './lark-markdown.js';
 import { limitMarkdown } from './markdown-limit.js';
 
@@ -32,10 +34,25 @@ export function larkCard(
   text: string,
   { completion, reply }: { completion?: LarkCompletionStyle; reply?: LarkCardReply } = {},
 ) {
-  return larkCardFromMarkdown(limitMarkdown(
-    larkMarkdown(text),
+  return larkCardFromMarkdown(larkCardMarkdown(text), completion, reply);
+}
+
+export function larkCardMarkdown(text: string, images?: ReadonlyMap<string, string>) {
+  return limitMarkdown(
+    larkMarkdown(text, images),
     (markdown) => Buffer.byteLength(JSON.stringify(markdown)) <= LARK_MARKDOWN_BYTES,
-  ), completion, reply);
+  );
+}
+
+export function larkCardImageKeys(markdown: string) {
+  const keys = new Set<string>();
+  const pending: Nodes[] = [fromMarkdown(markdown)];
+  while (pending.length) {
+    const node = pending.pop()!;
+    if (node.type === 'image') keys.add(node.url);
+    if ('children' in node) pending.push(...node.children);
+  }
+  return keys;
 }
 
 export function larkCardFromMarkdown(content: string, completion?: LarkCompletionStyle, reply?: LarkCardReply) {
