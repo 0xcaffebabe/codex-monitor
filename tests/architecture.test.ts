@@ -47,6 +47,51 @@ test('architecture accepts shared contracts, pure product vocabulary and lazy fe
   );
 });
 
+test('architecture separates view state, domain hooks and the canonical HTTP transport', () => {
+  assert.deepEqual(
+    inspect({
+      'src/features/View.tsx': 'import { useData } from "./useData.js";',
+      'src/features/useData.ts':
+        'import { api } from "../api.js"; export const useData = () => localStorage.getItem("key");',
+      'src/api.ts': 'export const api = () => fetch("/api");',
+    }),
+    [],
+  );
+  const errors = inspect({
+    'src/features/View.tsx': 'import { api } from "../api.js"; const storage = sessionStorage;',
+    'src/features/useData.ts': 'const request = globalThis.fetch; request("/api");',
+    'src/api.ts': 'export const api = () => fetch("/api");',
+  });
+  assert.ok(errors.some((error) => error.includes('views must use domain hooks')));
+  assert.ok(errors.some((error) => error.includes('views cannot own browser persistence')));
+  assert.ok(errors.some((error) => error.includes('browser HTTP requests must use src/api.ts')));
+});
+
+test('architecture catches global-object HTTP and storage access without confusing data properties', () => {
+  for (const source of [
+    'window.fetch("/api"); window.localStorage.setItem("key", "value");',
+    'globalThis["fetch"]("/api"); globalThis["sessionStorage"].getItem("key");',
+    'const {fetch: request, localStorage: storage} = self; request("/api"); storage.getItem("key");',
+  ]) {
+    const errors = inspect({ 'src/features/View.tsx': source });
+    assert.ok(
+      errors.some((error) => error.includes('browser HTTP requests must use src/api.ts')),
+      source,
+    );
+    assert.ok(
+      errors.some((error) => error.includes('views cannot own browser persistence')),
+      source,
+    );
+  }
+  assert.deepEqual(
+    inspect({
+      'src/features/View.tsx':
+        'const data = {fetch: "cached", localStorage: "label"}; export const label = data.fetch + data.localStorage;',
+    }),
+    [],
+  );
+});
+
 test('architecture resolves .js imports and detects cycles through type imports and re-exports', () => {
   const errors = inspect({
     'server/store.ts': 'export type { Query } from "./query.js";',

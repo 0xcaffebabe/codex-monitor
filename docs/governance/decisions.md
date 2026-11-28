@@ -66,6 +66,10 @@ Uploads 与 RolloutStore 对空 relative 或 '..' 前缀更严格，有真实保
 
 展示展开、焦点和布局保留视图。迁移保留原 DOM、端点、错误/取消/刷新语义并删除原内嵌实现。Deletion Test：删除领域 hook 会重新把联动业务状态散入视图；不为一次简单展示转换建立 hook，不做跨域通用控制器。使用现有真实 Server/client 浏览器测试覆盖行为，不新增实现镜像测试。
 
+任务概览分别由 useRunningOverview 拥有本次访问 pane跟踪与显式排序持久化，useOverviewSession 拥有单pane轮询/历史合并/阅读位置。running-overview-model 是纯筛选/标识模型，TaskDock 不再依赖视图；观察契约归 attention-types。尺寸、拖拽命中、焦点和浮层布局留视图。
+
+守卫现在禁止 .tsx 直连 api 或浏览器存储，src 的 fetch 仅允许 api.ts；覆盖 window/self/globalThis 的点号、字符串下标和解构写法。纯模型闭包加入 running-overview-model。该规则针对明确能力调用，不替代任意 JavaScript 效果分析。
+
 ## ADR-010：验证资源有界、浏览器产物单写者（采纳）
 
 本机 Node availableParallelism=4，默认测试文件并发3；每文件还启动 esbuild/Git/npm/PowerShell/PTY 子进程。启动器与PTY在同时构建或多套测试时超时，原超时单独复跑通过。选择 npm test 文件并发2，并保持完整 check 阶段顺序；不增加断言超时、不跳过真实平台覆盖。

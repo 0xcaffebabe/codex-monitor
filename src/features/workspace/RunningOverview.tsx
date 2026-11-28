@@ -20,53 +20,32 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
-  useMemo,
   useRef,
   useState,
   type KeyboardEvent,
   type PointerEvent,
 } from 'react';
-import type { AttentionSession } from '../../attention-types';
-import { DetailLoader } from '../../detail-loader';
 import type { SessionFileLink } from '../../file-preview-types';
 import { relative, time } from '../../shared/format';
 import { Status } from '../../shared/ui/Status';
-import type { SessionPage, TimelineEvent, User } from '../../types';
+import type { TimelineEvent, User } from '../../types';
 import type { ManagedWorkspace } from '../../workspaces';
 import { closeOverview, navigateWorkspace } from '../../workspace-scope';
-import type { AttentionWorkspace } from '../attention/useAttention';
+import type { AttentionWorkspace } from '../../attention-types';
 import { MessageComposer } from '../control/MessageComposer';
 import { useSessionControl } from '../control/useSessionControl';
 import { ActivityGroup } from '../session/ActivityGroup';
 import { FilePreviewDialog } from '../session/FilePreviewDialog';
 import { SessionMessageMarkdown } from '../session/SessionMessageMarkdown';
-import { groupTimelineEvents, mergeSessionPage } from '../session/session-model';
+import { groupTimelineEvents } from '../session/session-model';
 import { useSessionActions } from '../session/useSessionActions';
 import { UsageDialog } from '../usage/UsageDialog';
 import { OverviewNewSession } from './OverviewNewSession';
 import { SessionPickerDialog } from './SessionPickerDialog';
 import type { WorkspaceSession } from './session-list-model';
-
-type RunningTask = {
-  workspace: ManagedWorkspace;
-  session: Pick<AttentionSession, 'id' | 'updatedAt'> &
-    Partial<Pick<AttentionSession, 'title' | 'project' | 'status'>>;
-};
-
-export function runningTasks(groups: AttentionWorkspace[]): RunningTask[] {
-  return groups
-    .flatMap(({ workspace, snapshot, fresh }) => {
-      if (!fresh || !snapshot) return [];
-      const pending = new Set([
-        ...snapshot.approvals.requests.map((request) => request.threadId),
-        ...(snapshot.questions ?? []).map((request) => request.session.id),
-      ]);
-      return snapshot.running
-        .filter((session) => !pending.has(session.id))
-        .map((session) => ({ workspace, session }));
-    })
-    .sort((left, right) => right.session.updatedAt - left.session.updatedAt);
-}
+import { runningTasks, taskKey, type RunningTask } from './running-overview-model';
+import { useRunningOverview } from './useRunningOverview';
+import { useOverviewSession } from './useOverviewSession';
 
 export function RunningOverviewDialog({
   user,
@@ -122,21 +101,11 @@ export function RunningOverviewDialog({
   );
 }
 
-const taskKey = ({ workspace, session }: RunningTask) => JSON.stringify([workspace.id, session.id]);
 const gap = 12;
 const paneMinWidth = 340;
 const paneMinHeight = 280;
 const pagerHeight = 40;
 const dragThreshold = 6;
-
-function readTaskOrder(storageKey: string): string[] {
-  try {
-    const order: unknown = JSON.parse(localStorage.getItem(storageKey) ?? '[]');
-    return Array.isArray(order) ? order.filter((key) => typeof key === 'string') : [];
-  } catch {
-    return [];
-  }
-}
 
 function taskAtPointer(event: PointerEvent<HTMLDivElement>) {
   const pane = document
@@ -171,15 +140,19 @@ function RunningOverview({
   onRefresh: () => void;
   onManageWorkspaces?: () => void;
 }) {
-  const storageKey = `codex-monitor.overview-order.v1.${user.id}`;
-  const [trackedTasks, setTrackedTasks] = useState(running);
-  const [preferredOrder, setPreferredOrder] = useState(() => readTaskOrder(storageKey));
+  const {
+    tasks,
+    current,
+    sortStatus,
+    showTask: trackTask,
+    dismissTask,
+    moveTask: reorderTask,
+  } = useRunningOverview(user.id, running);
   const [page, setPage] = useState(0);
   const [expanded, setExpanded] = useState<string>();
   const [overlay, setOverlay] = useState<'new' | 'history' | 'usage'>();
   const [size, setSize] = useState({ width: 0, height: 0 });
   const [notice, setNotice] = useState('');
-  const [sortStatus, setSortStatus] = useState('');
   const [dragging, setDragging] = useState<{ source: string; target?: string }>();
   const { copied } = useSessionActions(setNotice);
   const area = useRef<HTMLDivElement>(null);
@@ -187,13 +160,6 @@ function RunningOverview({
   const press = useRef<{ key: string; pointerId: number; x: number; y: number }>(null);
   const restoreFocus = useRef<HTMLButtonElement>(null);
 
-  useEffect(() => {
-    setTrackedTasks((previous) => {
-      const known = new Set(previous.map(taskKey));
-      const added = running.filter((task) => !known.has(taskKey(task)));
-      return added.length ? [...previous, ...added] : previous;
-    });
-  }, [running]);
   useLayoutEffect(() => {
     const element = area.current!;
     const measure = () => {
@@ -211,14 +177,7 @@ function RunningOverview({
   useLayoutEffect(() => {
     restoreFocus.current?.focus({ preventScroll: true });
     restoreFocus.current = null;
-  }, [preferredOrder]);
-
-  const tasks = useMemo(() => {
-    const rank = new Map(preferredOrder.map((key, index) => [key, index]));
-    const position = (task: RunningTask) => rank.get(taskKey(task)) ?? preferredOrder.length;
-    return [...trackedTasks].sort((left, right) => position(left) - position(right));
-  }, [trackedTasks, preferredOrder]);
-  const current = new Map(running.map((item) => [taskKey(item), item]));
+  }, [tasks]);
   const observations = new Map(groups.map((group) => [group.workspace.id, group]));
   const maxColumns = Math.max(1, Math.floor((size.width + gap) / (paneMinWidth + gap)));
   const rowsFor = (height: number) =>
@@ -247,32 +206,13 @@ function RunningOverview({
   }, [notice]);
 
   function showTask(task: RunningTask) {
-    const key = taskKey(task);
-    setTrackedTasks((previous) =>
-      previous.some((item) => taskKey(item) === key) ? previous : [...previous, task],
-    );
-    setPreferredOrder((previous) => [key, ...previous.filter((item) => item !== key)]);
+    trackTask(task);
     setExpanded(undefined);
     setPage(0);
   }
 
   function moveTask(source: string, target: string, focusedHandle?: HTMLButtonElement) {
-    const order = tasks.map(taskKey);
-    const from = order.indexOf(source);
-    const to = order.indexOf(target);
-    if (from < 0 || to < 0 || from === to) return;
-
-    order.splice(from, 1);
-    order.splice(to, 0, source);
-    restoreFocus.current = focusedHandle ?? null;
-    setPreferredOrder(order);
-    const title = (current.get(source) ?? tasks[from]).session.title;
-    setSortStatus(`${title || '会话'}已移动到第 ${to + 1} 位`);
-    try {
-      localStorage.setItem(storageKey, JSON.stringify(order));
-    } catch {
-      // Reordering still works during this visit when browser storage is unavailable.
-    }
+    if (reorderTask(source, target)) restoreFocus.current = focusedHandle ?? null;
   }
 
   function cancelDrag() {
@@ -492,7 +432,7 @@ function RunningOverview({
                   onExpand={() => setExpanded(expanded === key ? undefined : key)}
                   onOpen={() => onOpenSession(task.workspace.id, session.id)}
                   onDismiss={() => {
-                    setTrackedTasks((previous) => previous.filter((item) => taskKey(item) !== key));
+                    dismissTask(key);
                     if (expanded === key) setExpanded(undefined);
                   }}
                 />
@@ -567,7 +507,6 @@ function RunningOverview({
   );
 }
 
-const pageLimit = 40;
 const Message = memo(
   function OverviewMessage({
     event,
@@ -600,7 +539,9 @@ const Message = memo(
     previous.event.phase === next.event.phase &&
     previous.event.timestamp === next.event.timestamp &&
     previous.event.files?.length === next.event.files?.length &&
-    (previous.event.files ?? []).every((file, index) => file.id === next.event.files?.[index]?.id) &&
+    (previous.event.files ?? []).every(
+      (file, index) => file.id === next.event.files?.[index]?.id,
+    ) &&
     previous.onOpenFile === next.onOpenFile,
 );
 
@@ -633,47 +574,14 @@ function OverviewPane({
   onOpen: () => void;
   onDismiss: () => void;
 }) {
-  const [page, setPage] = useState<SessionPage>();
-  const [error, setError] = useState('');
-  const [follow, setFollow] = useState(true);
-  const [olderBusy, setOlderBusy] = useState(false);
-  const [olderFailed, setOlderFailed] = useState(false);
+  const sessionId = session.id;
+  const { page, error, follow, setFollow, olderBusy, olderFailed, scroll, loadOlder, onScroll } =
+    useOverviewSession(workspace.id, sessionId, { hidden, online, expanded });
   const [filePreview, setFilePreview] = useState<{ itemId: string; link: SessionFileLink }>();
   const openFile = useCallback((itemId: string, link: SessionFileLink) => {
     setFilePreview({ itemId, link });
   }, []);
   const pane = useRef<HTMLElement>(null);
-  const scroll = useRef<HTMLDivElement>(null);
-  const previousTop = useRef(0);
-  const hasHistory = useRef(false);
-  const olderPosition = useRef<{
-    before: number;
-    anchor?: HTMLElement;
-    offset: number;
-    height: number;
-    top: number;
-  } | null>(null);
-  const loader = useMemo(
-    () =>
-      new DetailLoader(
-        {
-          onPage: (data, older) => {
-            if (older) hasHistory.current = true;
-            const preserveHistory = hasHistory.current || olderPosition.current !== null;
-            setPage((current) => (preserveHistory ? mergeSessionPage(current, data, older) : data));
-            setError('');
-          },
-          onError: (_, failure, older) => {
-            if (older) setOlderFailed(true);
-            setError(failure.message);
-          },
-          onSettled: () => {},
-        },
-        workspace.id,
-      ),
-    [workspace.id],
-  );
-  const sessionId = session.id;
   const status = page?.session.status || session.status;
   const canWrite = user.role === 'admin';
   const control = useSessionControl(
@@ -682,91 +590,14 @@ function OverviewPane({
     workspace.id,
   );
 
-  useEffect(() => {
-    if (hidden || !online) return;
-    let timer: ReturnType<typeof setTimeout>;
-    let stopped = false;
-    const refresh = async () => {
-      if (!document.hidden) await loader.load(sessionId, false, undefined, pageLimit);
-      if (!stopped) timer = setTimeout(() => void refresh(), 1500);
-    };
-    void refresh();
-    return () => {
-      stopped = true;
-      clearTimeout(timer);
-      loader.cancel();
-    };
-  }, [hidden, loader, online, sessionId]);
-
-  function rememberPosition(element: HTMLDivElement, before: number) {
-    const edge = element.getBoundingClientRect().top;
-    const anchor = Array.from(
-      element.querySelectorAll<HTMLElement>(':scope > .overview-message, :scope > .activity-group'),
-    ).find((block) => block.getBoundingClientRect().bottom > edge);
-    olderPosition.current = {
-      before,
-      anchor,
-      offset: anchor ? anchor.getBoundingClientRect().top - edge : 0,
-      height: element.scrollHeight,
-      top: element.scrollTop,
-    };
-  }
-
-  async function loadOlder() {
-    const element = scroll.current;
-    if (!element || hidden || !online || page?.before == null || olderBusy || olderPosition.current)
-      return;
-    rememberPosition(element, page.before);
-    setFollow(false);
-    setOlderFailed(false);
-    setOlderBusy(true);
-    await loader.load(sessionId, true, page.before, pageLimit);
-    setOlderBusy(false);
-  }
-
-  useLayoutEffect(() => {
-    const element = scroll.current;
-    if (!element) return;
-    const position = olderPosition.current;
-    if (position && page?.before !== position.before) {
-      if (!follow && !hidden) {
-        element.scrollTop = position.anchor?.isConnected
-          ? element.scrollTop +
-            position.anchor.getBoundingClientRect().top -
-            element.getBoundingClientRect().top -
-            position.offset
-          : position.top + element.scrollHeight - position.height;
-        previousTop.current = element.scrollTop;
-      }
-      olderPosition.current = null;
-    } else if (position && !olderBusy) {
-      olderPosition.current = null;
-    }
-    if (follow && !hidden) {
-      element.scrollTop = element.scrollHeight;
-      previousTop.current = element.scrollTop;
-    }
-  }, [page, expanded, follow, hidden, olderBusy]);
-
-  useEffect(() => {
-    const element = scroll.current;
-    if (
-      element?.clientHeight &&
-      !olderFailed &&
-      (element.scrollHeight <= element.clientHeight || (!follow && element.scrollTop <= 80))
-    )
-      void loadOlder();
-  }, [page, expanded, follow, hidden, online, olderBusy, olderFailed]);
-
   const title =
     session.title || page?.session.title || (page || session.status ? '未命名会话' : '新会话');
   const project = session.project || page?.session.project;
   const location = project ? `${workspaceName} · ${project}` : workspaceName;
   const updatedAt = Math.max(session.updatedAt, page?.session.updatedAt ?? 0);
-  const lastActiveAt = page?.events.reduce(
-    (latest, event) => Math.max(latest, event.timestamp),
-    updatedAt,
-  ) ?? updatedAt;
+  const lastActiveAt =
+    page?.events.reduce((latest, event) => Math.max(latest, event.timestamp), updatedAt) ??
+    updatedAt;
   const lastActive = new Date(lastActiveAt);
   const blocks = groupTimelineEvents(
     (page?.events ?? []).filter(
@@ -847,20 +678,7 @@ function OverviewPane({
           role="region"
           aria-label="会话输出"
           tabIndex={0}
-          onScroll={(event) => {
-            const element = event.currentTarget;
-            const top = element.scrollTop;
-            if (!element.clientHeight || top === previousTop.current) return;
-            const upward = top < previousTop.current;
-            previousTop.current = top;
-            if (olderPosition.current) rememberPosition(element, olderPosition.current.before);
-            if (upward && top <= 80 && page?.before != null) {
-              setFollow(false);
-              if (!olderFailed) void loadOlder();
-            } else {
-              setFollow(element.scrollHeight - top - element.clientHeight < 24);
-            }
-          }}
+          onScroll={onScroll}
           onToggle={(event) => {
             if (event.target instanceof HTMLDetailsElement && event.target.open) setFollow(false);
           }}

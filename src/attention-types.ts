@@ -1,5 +1,6 @@
 import type { ApprovalRequest } from './approval-types';
 import type { Session } from './types';
+import type { ManagedWorkspace } from './workspaces';
 
 export type AttentionApproval = Pick<
   ApprovalRequest,
@@ -38,4 +39,11 @@ export type AttentionSnapshot = {
   ended: AttentionSession[];
   stale: AttentionSession[];
   counts: { running: number; waiting: number; ended: number; stale: number };
+};
+
+/** A workspace observation can retain an old snapshot while its current connection is unavailable. */
+export type AttentionObservation = { snapshot?: AttentionSnapshot; error?: boolean };
+export type AttentionWorkspace = AttentionObservation & {
+  workspace: ManagedWorkspace;
+  fresh: boolean;
 };

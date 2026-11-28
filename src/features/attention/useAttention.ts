@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '../../api';
-import type { AttentionSnapshot } from '../../attention-types';
+import type {
+  AttentionObservation,
+  AttentionSnapshot,
+  AttentionWorkspace,
+} from '../../attention-types';
 import type { ManagedWorkspace } from '../../workspaces';
 
-type Observation = { snapshot?: AttentionSnapshot; error?: boolean };
-export type AttentionWorkspace = Observation & { workspace: ManagedWorkspace; fresh: boolean };
-
-function readCache(key: string): Record<string, Observation> {
+function readCache(key: string): Record<string, AttentionObservation> {
   try {
     return JSON.parse(sessionStorage.getItem(key) || '{}');
   } catch {
@@ -26,7 +27,7 @@ export function useAttention(workspaces: ManagedWorkspace[], userId: string) {
     if (!workspaces.length) return;
     const controllers = new Map<string, AbortController>();
     const online = workspaces.filter(([, connected]) => connected);
-    const commit = (next: Record<string, Observation>) => {
+    const commit = (next: Record<string, AttentionObservation>) => {
       current.current = next;
       setObservations(next);
     };

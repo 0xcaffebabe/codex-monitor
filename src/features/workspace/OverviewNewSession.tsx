@@ -2,7 +2,7 @@ import { SquarePen, X } from 'lucide-react';
 import { useLayoutEffect, useRef, useState } from 'react';
 import type { User } from '../../types';
 import type { ManagedWorkspace } from '../../workspaces';
-import type { AttentionWorkspace } from '../attention/useAttention';
+import type { AttentionWorkspace } from '../../attention-types';
 import { NewSessionComposer } from '../control/NewSessionComposer';
 import { preferredNewSessionWorkspace } from '../control/new-session-preferences';
 

@@ -23,7 +23,7 @@ import {
   useApprovalReceipts,
   type ApprovalReceipt,
 } from '../control/approval-receipts';
-import type { AttentionWorkspace } from './useAttention';
+import type { AttentionWorkspace } from '../../attention-types';
 
 type Task = { workspaceId: string; workspaceName: string; session: AttentionSession };
 type Item = Task & {

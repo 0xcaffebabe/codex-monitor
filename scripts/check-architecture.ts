@@ -13,6 +13,7 @@ const sharedProductModule = 'src/shared/git-commit-shortcuts.ts';
 const pureModels = new Set([
   'src/features/session/session-model.ts',
   'src/features/workspace/session-list-model.ts',
+  'src/features/workspace/running-overview-model.ts',
 ]);
 const platformGlobals = new Set([
   'window',
@@ -28,7 +29,10 @@ const platformGlobals = new Set([
   'process',
   'Buffer',
   'globalThis',
+  'self',
 ]);
+const globalObject = (node: ts.Node) =>
+  ts.isIdentifier(node) && ['globalThis', 'window', 'self'].includes(node.text);
 const contract = (file: string) =>
   /^src\/(?:types|[^/]+-types)\.ts$/.test(file) || file === 'src/workspaces.ts';
 
@@ -111,6 +115,31 @@ export function checkArchitecture(root = process.cwd()) {
               violations.push(`${file}:${line}: unresolved local dependency ${specifier.text}`);
           }
         }
+        // Recognize common global-object spellings without treating data.fetch as network I/O.
+        if (ts.isPropertyAccessExpression(node) && globalObject(node.expression)) {
+          if (platformGlobals.has(node.name.text)) module.globals.add(node.name.text);
+        } else if (
+          ts.isElementAccessExpression(node) &&
+          globalObject(node.expression) &&
+          ts.isStringLiteralLike(node.argumentExpression) &&
+          platformGlobals.has(node.argumentExpression.text)
+        ) {
+          module.globals.add(node.argumentExpression.text);
+        } else if (
+          ts.isVariableDeclaration(node) &&
+          node.initializer &&
+          globalObject(node.initializer) &&
+          ts.isObjectBindingPattern(node.name)
+        ) {
+          for (const element of node.name.elements) {
+            const name = element.propertyName ?? element.name;
+            if (
+              (ts.isIdentifier(name) || ts.isStringLiteralLike(name)) &&
+              platformGlobals.has(name.text)
+            )
+              module.globals.add(name.text);
+          }
+        }
         if (ts.isIdentifier(node) && platformGlobals.has(node.text)) {
           const parent = node.parent;
           // Ignore declarations and property names, but include globalThis.fetch and window.fetch.
@@ -135,11 +164,20 @@ export function checkArchitecture(root = process.cwd()) {
     }
   }
 
-  for (const module of modules.values())
+  for (const module of modules.values()) {
+    if (inside(module.file, 'src') && module.file !== 'src/api.ts' && module.globals.has('fetch'))
+      violations.push(`${module.file}: browser HTTP requests must use src/api.ts`);
+    if (inside(module.file, 'src') && module.file.endsWith('.tsx')) {
+      for (const storage of ['localStorage', 'sessionStorage', 'indexedDB'])
+        if (module.globals.has(storage))
+          violations.push(`${module.file}: views cannot own browser persistence (${storage})`);
+    }
     for (const dependency of module.dependencies) {
       const target = dependency.target;
       if (!target) continue;
       const location = `${module.file}:${dependency.line}`;
+      if (inside(module.file, 'src') && module.file.endsWith('.tsx') && target === 'src/api.ts')
+        violations.push(`${location}: views must use domain hooks instead of the HTTP API`);
       if (inside(module.file, 'src') && inside(target, 'server'))
         violations.push(`${location}: browser source cannot depend on server: ${target}`);
       if (
@@ -157,6 +195,7 @@ export function checkArchitecture(root = process.cwd()) {
       )
         violations.push(`${location}: shared code cannot depend on features or app: ${target}`);
     }
+  }
 
   // Check the complete dependency closure so a pure model cannot hide I/O behind a helper.
   const pure = new Set<string>();

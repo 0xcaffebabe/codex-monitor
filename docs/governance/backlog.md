@@ -11,8 +11,8 @@
 | A05 | 高 / 完成 | 图片预览复用 apiBlob；保留格式探测、范围捕获和图片错误文案 | 8 项测试覆盖 late blob/401 取消和跨工作空间独立请求；TypeScript/独立复审通过 |
 | A06 | 中 / 完成 | control/native-control 共用 keyed executor，保留各自实例；删除旧 Map 链及 ControlLane | 52 项并发、失败恢复、队列、停止、安全测试及 TypeScript/独立复审通过 |
 | A07 | 中 / 完成 | 删除无调用方 OverviewCards 和 40 条专属 CSS 规则，保留现用概览统计/usage 样式 | 独立复审、12 项架构守卫自测；新增前端生产可达性检查 |
-| A08 | 高 / 实施中 | 审批已完整迁入 useApprovals；设置与 Sub2API 用量已迁移待分批提交，RunningOverview 正在实施 | 独立复审、TypeScript/架构检查通过；最终浏览器回归与视图守卫待完成 |
-| A09 | 中 / 待研究 | RunningOverview 多职责、持久化与全局状态、文件预览混合 | 先列生命周期/状态图，再决定哪些需要深模块 |
+| A08 | 高 / 待最终验收 | 审批、设置、Sub2API、概览异步业务均迁入领域hooks；视图API/storage与全局fetch入口有AST守卫 | 独立复审、TypeScript/14项守卫自测通过；最终浏览器回归待完成 |
+| A09 | 中 / 待最终验收 | 概览分离 pane跟踪/排序持久化、历史读取/滚动生命周期；TaskDock改依赖纯任务模型 | 9文件独立复审及TypeScript/架构检查通过，原DOM/拖拽/焦点/历史阈值不变 |
 | A10 | 中 / 待研究 | notifications/service 超过 1000 行，投递/交互编排耦合 | 保留去重、至多重试、不确定发送和 private/group routing 契约 |
 | A11 | 中 / 实施中 | 启动器/PTY原timeout独立复跑通过；本机4核默认3个test进程加原生子进程争用，固定文件并发2；E2E补关闭通知用户路径 | 保留原timeouts/断言/平台skip，不并跑共享browser产物；最终全量验证 |
 | A12 | 低 / 待研究 | 主包 Vite 既有大包提示、样式历史覆盖 | 性能/可达性数据支持后才拆分，不做全局格式化 |

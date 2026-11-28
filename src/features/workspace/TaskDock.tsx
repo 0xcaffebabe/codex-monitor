@@ -2,8 +2,8 @@ import { ChevronRight, LayoutGrid, Layers3, ListTodo, Radio, X } from 'lucide-re
 import { useLayoutEffect, useRef, useState } from 'react';
 import { cx, relative } from '../../shared/format';
 import { navigateWorkspace, openOverview } from '../../workspace-scope';
-import type { AttentionWorkspace } from '../attention/useAttention';
-import { runningTasks } from './RunningOverview';
+import type { AttentionWorkspace } from '../../attention-types';
+import { runningTasks } from './running-overview-model';
 
 export function TaskDock({
   mobile,
