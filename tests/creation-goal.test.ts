@@ -232,6 +232,11 @@ test('a failed goal write preserves the created thread and retries only the goal
     assert.equal((await retry.json()).goalState, 'saved');
   }
   assert.equal(writes, 2);
+  assert.deepEqual(
+    h.application.auth.db.prepare("SELECT action,username,ip FROM audit WHERE action='creation_goal_retried'")
+      .all().map((entry) => ({ ...entry })),
+    [{ action: 'creation_goal_retried', username: 'owner', ip: '127.0.0.1' }],
+  );
   assert.equal(h.desktop.creates, 1);
   assert.equal(h.desktop.sends, 1);
 });

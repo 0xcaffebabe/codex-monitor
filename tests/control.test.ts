@@ -90,6 +90,11 @@ test('control API enforces roles, uses live state, deduplicates concurrent/resta
       assert.equal((await response.json()).mode, 'append');
     }
     assert.equal(control.sends, 1);
+    assert.deepEqual(
+      application.auth.db.prepare("SELECT action,username,ip FROM audit WHERE action='message_sent'")
+        .all().map((entry) => ({ ...entry })),
+      [{ action: 'message_sent', username: 'owner', ip: '127.0.0.1' }],
+    );
     assert.equal((await send(route, { ...payload, prompt: 'different' })).status, 409);
     const idle = await (
       await send(route, { requestId: randomUUID(), prompt: 'idle instruction' })
@@ -134,6 +139,11 @@ test('control API enforces roles, uses live state, deduplicates concurrent/resta
     ).json();
     assert.equal(receipt.mode, 'create');
     assert.equal(control.creates, 1);
+    assert.deepEqual(
+      application.auth.db.prepare("SELECT action,username,ip FROM audit WHERE action='session_created'")
+        .all().map((entry) => ({ ...entry })),
+      [{ action: 'session_created', username: 'owner', ip: '127.0.0.1' }],
+    );
     assert.deepEqual(control.lastCreation, {});
     const detail = await (await send(`/api/sessions/${receipt.threadId}`)).json();
     assert.ok(
@@ -243,6 +253,11 @@ test('control API enforces roles, uses live state, deduplicates concurrent/resta
       200,
     );
     assert.equal(control.compactions, 1);
+    assert.deepEqual(
+      application.auth.db.prepare("SELECT action,username,ip FROM audit WHERE action='session_command'")
+        .all().map((entry) => ({ ...entry })),
+      [{ action: 'session_command', username: 'owner', ip: '127.0.0.1' }],
+    );
     assert.equal((await send(route, { requestId: randomUUID(), prompt: '/compact' })).status, 200);
     assert.deepEqual(compactCalls, [
       [ids.modern, { desktopOwned: true }],

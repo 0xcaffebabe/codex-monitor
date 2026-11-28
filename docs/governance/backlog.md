@@ -17,7 +17,7 @@
 | A11 | 中 / 实施中 | 启动器/PTY原timeout独立复跑通过；本机4核默认3个test进程加原生子进程争用，固定文件并发2；E2E补关闭通知用户路径 | 保留原timeouts/断言/平台skip，不并跑共享browser产物；最终全量验证 |
 | A12 | 低 / 待研究 | 主包 Vite 既有大包提示、样式历史覆盖 | 性能/可达性数据支持后才拆分，不做全局格式化 |
 | A13 | 中 / 已审计，待部署确认 | 中央校验/CLI优先级与平台启动器有真实差异，保留；发现硬编码Host白名单公网IP | 先确认159.75.6.20部署用途，再改MONITOR_ORIGINS，不删除已存在入口 |
-| A14 | 中 / 实施中 | SQL audit唯一写入正在归一；领域错误、通知/重连/outbox重试与缓存失效语义经审计明确不同 | 保留uncertain不重放、通知最多3次、WS只重连、source/usage/image各自版本/体积策略 |
+| A14 | 中 / 完成 | 六处SQL audit写入归一；领域错误、通知/重连/outbox重试与缓存失效语义经审计明确不同 | 17项审计/控制/目标/审批通过；保留uncertain不重放、通知最多3次、WS只重连及各域缓存策略 |
 | A15 | 中 / 完成 | git/project-files/file-preview 三处同义 within 已统一 path-boundary | 9 项行为测试通过、1 平台跳过；uploads/rollouts 更严规则保留 |
 | A16 | 中 / 完成 | 两入口重复账号 API 安全装配归入 http/account-api | 两factory安全边界基线+回归8项、TypeScript/独立复审通过 |
 

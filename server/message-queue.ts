@@ -6,6 +6,7 @@ import type { ReasoningEffort, SessionMessageSettings } from '../src/types.js';
 import { validateModelSettings } from './model-settings.js';
 import { sessionPermissionModes } from '../src/approval-types.js';
 import type { KeyedExecutor } from './keyed-executor.js';
+import { appendAudit } from './audit.js';
 
 const waitingMessage = '消息已排队，等待上下文压缩结束后自动发送。';
 const desktopWaitingMessage = '桌面通道消息已排队，等待当前执行结束后交接桌面。';
@@ -397,9 +398,7 @@ export class MessageQueue {
       previousTurnId: state.turnId,
       acceptedAt: Date.now(),
     });
-    this.db
-      .prepare('INSERT INTO audit(at,action,username,ip) VALUES(?,?,?,?)')
-      .run(Date.now(), 'message_sent', row.username!, row.ip!);
+    appendAudit(this.db, 'message_sent', row.username as string, row.ip as string);
     await this.source.refresh(true);
   }
   close() {

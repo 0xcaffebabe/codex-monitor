@@ -7,6 +7,7 @@ import { DesktopBridge, ControlError, hasUnconfirmedWriter, type DesktopControl 
 import { validId, type CodexSource } from './source.js';
 import { MessageQueue } from './message-queue.js';
 import { createKeyedExecutor } from './keyed-executor.js';
+import { appendAudit } from './audit.js';
 import type { UploadStore } from './uploads.js';
 import { MAX_ATTACHMENTS } from '../src/attachment-types.js';
 import { imageMime } from './media.js';
@@ -275,8 +276,7 @@ export function installControl(
         const receipt = await createSession(caller, project.id, objective, {}, requestId, undefined, project.name.slice(0, 500));
         if (!closed) {
           finishRequest.run('succeeded', JSON.stringify(receipt), requestId);
-          db.prepare('INSERT INTO audit(at,action,username,ip) VALUES(?,?,?,?)')
-            .run(Date.now(), 'session_created', user.username, 'Lark');
+          appendAudit(db, 'session_created', user.username, 'Lark');
         }
         return { result: 'sent', sessionId: receipt.threadId, projectName: receipt.projectName };
       });
@@ -378,8 +378,8 @@ export function installControl(
       const before = bridge.approvals.get(id, String(req.params.approval));
       const result = bridge.approvals.answer(id, before.id, parsed.data.decision);
       if (before.state === 'pending')
-        db.prepare('INSERT INTO audit(at,action,username,ip) VALUES(?,?,?,?)').run(
-          Date.now(),
+        appendAudit(
+          db,
           `approval_${parsed.data.decision}:${before.id}`,
           req.identity!.user.username,
           req.ip ?? '',
@@ -488,8 +488,8 @@ export function installControl(
             JSON.stringify(result),
             id,
           );
-          db.prepare('INSERT INTO audit(at,action,username,ip) VALUES(?,?,?,?)').run(
-            Date.now(),
+          appendAudit(
+            db,
             'creation_goal_retried',
             req.identity!.user.username,
             req.ip ?? '',
@@ -725,8 +725,8 @@ export function installControl(
           JSON.stringify(result),
           input.requestId,
         );
-        db.prepare('INSERT INTO audit(at,action,username,ip) VALUES(?,?,?,?)').run(
-          Date.now(),
+        appendAudit(
+          db,
           target.startsWith('project:')
             ? 'session_created'
             : target.startsWith('command:')

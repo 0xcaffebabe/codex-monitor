@@ -4,6 +4,7 @@ import { mkdirSync, existsSync, readFileSync, writeFileSync, unlinkSync, chmodSy
 import path from 'node:path';
 import { promisify } from 'node:util';
 import type { User } from '../src/types.js';
+import { appendAudit } from './audit.js';
 const derive = promisify(scrypt);
 export const hashToken = (token: string) => createHash('sha256').update(token).digest('hex');
 export async function passwordHash(password: string) {
@@ -126,9 +127,7 @@ export class AuthStore {
     this.db.prepare('DELETE FROM sessions WHERE id=? AND user_id=?').run(id, userId);
   }
   log(action: string, username: string, ip: string) {
-    this.db
-      .prepare('INSERT INTO audit(at,action,username,ip) VALUES(?,?,?,?)')
-      .run(Date.now(), action, username, ip);
+    appendAudit(this.db, action, username, ip);
   }
   async changePassword(userId: string, password: string, currentSession: string) {
     const hash = await passwordHash(password);
