@@ -159,9 +159,11 @@ export async function superviseClient(root: string, entry: string) {
       lock = await open(lockPath, 'wx');
       stage = await mkdtemp(path.join(root, '.monitor-update-'));
       const stagedDist = path.join(stage, 'dist');
-      failure = '拉取失败，请检查客户端的 Git 上游、凭据和工作区。';
+      failure = '拉取失败，请检查客户端的 Git 上游、网络和凭据。';
       publish({ id, phase: 'pulling' });
-      await run('git', ['pull', '--ff-only'], root, abort.signal);
+      await run('git', ['fetch', '--prune'], root, abort.signal);
+      failure = '重置失败，请检查客户端的 Git 上游和工作区。';
+      await run('git', ['reset', '--hard', '@{upstream}'], root, abort.signal);
       const nextDependencies = dependencyHash(root);
       if (installed !== nextDependencies || !existsSync(modules)) {
         failure = '安装依赖失败，请查看客户端日志。';

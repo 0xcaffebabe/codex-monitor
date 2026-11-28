@@ -17,7 +17,7 @@ import type { ManagedWorkspace } from '../src/workspaces.js';
 import { fixture } from './fixture.js';
 
 test(
-  'online update pulls from Git, keeps the old build on failure and reports the replacement after reconnect',
+  'online update resets the checkout to Git upstream, keeps the old build on failure and reports success after reconnect',
   { timeout: 90_000 },
   async () => {
     const f = fixture();
@@ -69,7 +69,7 @@ test(
       await git(upstream, 'config', 'user.email', 'update@example.test');
       writeFileSync(
         path.join(upstream, '.gitignore'),
-        'dist/\nnode_modules/\n.monitor-update-*\nreplacement.mjs\n',
+        'dist/\nnode_modules/\n.monitor-update-*\nreplacement.mjs\n.env\n',
       );
       writeFileSync(
         path.join(upstream, 'package.json'),
@@ -181,6 +181,32 @@ syncBuiltinESMExports();
 
       await git(upstream, 'rm', 'fail-build');
       await git(upstream, 'commit', '-m', 'Fix build');
+
+      await git(root, 'config', 'user.name', 'Update Test');
+      await git(root, 'config', 'user.email', 'update@example.test');
+      const marker = path.join(root, 'fail-build');
+      writeFileSync(marker, 'local commit');
+      await git(root, 'commit', '-am', 'Local deployment edit');
+      const localHead = (await git(root, 'rev-parse', 'HEAD')).stdout;
+      const script = path.join(root, 'build.mjs');
+      writeFileSync(script, 'bad staged edit');
+      await git(root, 'add', 'build.mjs');
+      writeFileSync(script, 'bad unstaged edit');
+      const localConfig = path.join(root, '.env');
+      writeFileSync(localConfig, 'LOCAL_CONFIG=keep\n');
+
+      await git(root, 'remote', 'set-url', 'origin', path.join(f.root, 'missing upstream'));
+      assert.equal((await start(owner.token)).status, 202);
+      await until(
+        (item) =>
+          item.clientUpdate?.phase === 'failed' && item.clientUpdate.message?.includes('拉取失败'),
+      );
+      assert.equal((await git(root, 'rev-parse', 'HEAD')).stdout, localHead);
+      assert.equal((await git(root, 'status', '--short')).stdout.trim(), 'MM build.mjs');
+      assert.equal(readFileSync(script, 'utf8'), 'bad unstaged edit');
+      assert.equal(readFileSync(entry, 'utf8'), outputSource);
+
+      await git(root, 'remote', 'set-url', 'origin', upstream);
       assert.equal((await start(owner.token)).status, 202);
       const updated = await until((item) => item.clientUpdate?.phase === 'succeeded');
       assert.equal(existsSync(lockPath), false, 'Successful update must release its checkout lock');
@@ -190,6 +216,9 @@ syncBuiltinESMExports();
         (await git(root, 'rev-parse', 'HEAD')).stdout,
         (await git(upstream, 'rev-parse', 'HEAD')).stdout,
       );
+      assert.equal((await git(root, 'status', '--short')).stdout, '');
+      assert.equal(existsSync(marker), false);
+      assert.equal(readFileSync(localConfig, 'utf8'), 'LOCAL_CONFIG=keep\n');
       assert.equal(child.exitCode, null);
     } finally {
       if (child?.pid && child.exitCode === null && child.signalCode === null) {

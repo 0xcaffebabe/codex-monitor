@@ -239,7 +239,7 @@ function ClientRow({ workspace, model }: { workspace: ManagedWorkspace; model: W
       {confirming === 'update' ? (
         <UpdateConfirmation
           title="更新客户端"
-          message={`客户端「${workspace.name}」更新后将短暂离线。`}
+          message={`客户端「${workspace.name}」的部署代码将重置到 Git 上游。本地已跟踪文件的改动和仅在本地的提交会被丢弃，客户端重启时将短暂离线。`}
           confirmLabel="确认更新"
           disabled={!!model.pending || !canUpdate}
           onConfirm={() => {

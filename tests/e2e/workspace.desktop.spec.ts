@@ -914,7 +914,9 @@ test('workspace management triggers client updates next to the privacy switch', 
   expect(updateBox.y).toBe(privacyBox.y);
   const confirmation = page.getByRole('dialog', { name: '更新客户端' });
   await update.click();
-  await expect(confirmation).toHaveAccessibleDescription(`客户端「${name}」更新后将短暂离线。`);
+  await expect(confirmation).toHaveAccessibleDescription(
+    `客户端「${name}」的部署代码将重置到 Git 上游。本地已跟踪文件的改动和仅在本地的提交会被丢弃，客户端重启时将短暂离线。`,
+  );
   await expect(confirmation.getByRole('button', { name: '取消' })).toBeFocused();
   await page.keyboard.press('Escape');
   await expect(confirmation).toBeHidden();
