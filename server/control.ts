@@ -5,7 +5,8 @@ import type { Express, Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import { DesktopBridge, ControlError, hasUnconfirmedWriter, type DesktopControl } from './desktop.js';
 import { validId, type CodexSource } from './source.js';
-import { MessageQueue, type ControlLane } from './message-queue.js';
+import { MessageQueue } from './message-queue.js';
+import { createKeyedExecutor } from './keyed-executor.js';
 import type { UploadStore } from './uploads.js';
 import { MAX_ATTACHMENTS } from '../src/attachment-types.js';
 import { imageMime } from './media.js';
@@ -53,7 +54,7 @@ export function installControl(
     CASE WHEN state IN ('unknown','pending','queued') THEN 0 ELSE 1 END, created_at DESC LIMIT 30`);
   const active = new Map<string, Promise<void>>();
   const goalRetries = new Map<string, Promise<CreationReceipt>>();
-  const lanes = new Map<string, Promise<void>>();
+  const inLane = createKeyedExecutor();
   let closed = false;
   // An authenticated request can wait behind another operation or a desktop RPC.
   // Recheck the device and role immediately before dispatching a side effect.
@@ -72,19 +73,6 @@ export function installControl(
     if (!session || session.archived || session.subagent)
       throw new ControlError('此会话已不可操作，请刷新会话列表。', false, 409);
     return session;
-  };
-  const inLane: ControlLane = (threadId, operation) => {
-    const previous = lanes.get(threadId) ?? Promise.resolve();
-    const job = previous.then(operation);
-    const lane = job.then(
-      () => {},
-      () => {},
-    );
-    lanes.set(threadId, lane);
-    void lane.then(() => {
-      if (lanes.get(threadId) === lane) lanes.delete(threadId);
-    });
-    return job;
   };
   const admin = (req: Request, res: Response, next: NextFunction) =>
     req.identity?.user.role === 'admin'

@@ -9,7 +9,7 @@
 | A03 | 高 / 完成 | UsageQuery 归入 usage-query，移除唯一类型环 | 无类型/运行时环，14 项 usage 测试通过 |
 | A04 | 高 / 完成 | build 纳入 AST 守卫；CI 增加既有 npm test | 11 项正负自测及 248 个生产模块检查通过 |
 | A05 | 高 / 完成 | 图片预览复用 apiBlob；保留格式探测、范围捕获和图片错误文案 | 8 项测试覆盖 late blob/401 取消和跨工作空间独立请求；TypeScript/独立复审通过 |
-| A06 | 中 / 待实施 | control 与 native-control 同义 per-thread promise lane | 单一 keyed executor；保持两层不同实例和串行范围，覆盖失败后继续及键间并发 |
+| A06 | 中 / 完成 | control/native-control 共用 keyed executor，保留各自实例；删除旧 Map 链及 ControlLane | 52 项并发、失败恢复、队列、停止、安全测试及 TypeScript/独立复审通过 |
 | A07 | 中 / 待实施 | OverviewCards 无入边；核实 CSS/配套 hooks 是否仍使用 | 删除真正不可达实现，不误删复用样式/概览统计 |
 | A08 | 高 / 待研究 | ApprovalPanel、Sub2ApiSettings、LarkStartTargets、Sub2ApiUsage、RunningOverview 的 IO/状态进入视图 | 按实际领域 hook 内聚，完成迁移后执行视图边界守卫；不造通用 useQuery |
 | A09 | 中 / 待研究 | RunningOverview 多职责、持久化与全局状态、文件预览混合 | 先列生命周期/状态图，再决定哪些需要深模块 |

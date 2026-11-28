@@ -5,8 +5,8 @@ import type { CodexSource } from './source.js';
 import type { ReasoningEffort, SessionMessageSettings } from '../src/types.js';
 import { validateModelSettings } from './model-settings.js';
 import { sessionPermissionModes } from '../src/approval-types.js';
+import type { KeyedExecutor } from './keyed-executor.js';
 
-export type ControlLane = <T>(threadId: string, operation: () => Promise<T>) => Promise<T>;
 const waitingMessage = '消息已排队，等待上下文压缩结束后自动发送。';
 const desktopWaitingMessage = '桌面通道消息已排队，等待当前执行结束后交接桌面。';
 const nextTurnWaitingMessage = 'Lark 回复已排队，等待当前轮次结束后开始新一轮。';
@@ -21,7 +21,7 @@ export class MessageQueue {
     private source: CodexSource,
     private bridge: DesktopControl,
     private context: (target?: string) => Promise<string>,
-    private inLane: ControlLane,
+    private inLane: KeyedExecutor,
     private authorizeUser?: (userId: string) => Promise<boolean>,
   ) {
     db.exec(`CREATE TABLE IF NOT EXISTS control_message_queue (

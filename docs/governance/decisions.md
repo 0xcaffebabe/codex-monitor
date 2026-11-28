@@ -41,3 +41,9 @@ Deletion Test：移除权威契约会使服务与 UI 各自维护同一接口；
 候选方案：继续复制认证/HTTP 错误；新增 transport facade；复用 apiBlob 并接受可选默认错误文案（选择）。格式探测属于图片模块，须在等待探测前捕获工作空间 URL 与取消信号；实际 HTTP、401、body 读取取消检查由 api 统一负责。
 
 Deletion Test：图片模块的专用复杂性是格式能力探测，不是 HTTP；删除重复传输分支减少复杂性。保留“图片加载失败”默认文案和服务端错误优先级，并防止旧空间的晚到图片或401污染新页面。
+
+## ADR-006：按键串行执行器统一实现、实例按层隔离（采纳）
+
+候选方案：保留两套 Promise 链；共享全局锁或基类；工厂返回独立 keyed executor（选择）。HTTP control 的队列/授权与 NativeDesktopControl 的 writer 生命周期是不同层，不共用锁实例。native serial 继续负责开始执行时的 closed 检查。
+
+Deletion Test：删除 executor 会重新复制失败隔离、尾任务身份比较与清理竞态；该工厂封装真实并发规则。公开接口只有 key + operation；失败只拒绝自身任务，不阻止后继，不串行化不同线程。三条专用行为测试和原控制/队列回归约束顺序与恢复。

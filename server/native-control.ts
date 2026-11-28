@@ -4,6 +4,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import { DesktopBridge, type DesktopControl } from './desktop.js';
 import type { Project } from '../src/control-types.js';
 import { ControlError } from './control-error.js';
+import { createKeyedExecutor } from './keyed-executor.js';
 import {
   NativeRpc,
   requestOwnedThread,
@@ -70,7 +71,7 @@ export class NativeDesktopControl implements DesktopControl {
   private turns = new Map<string, { turnId: string; running: boolean; compacting: boolean }>();
   private compacting = new Set<string>();
   private closed = false;
-  private lanes = new Map<string, Promise<void>>();
+  private inLane = createKeyedExecutor();
   private titleJobs = new Map<string, AbortController>();
 
   constructor(
@@ -289,19 +290,10 @@ export class NativeDesktopControl implements DesktopControl {
   }
 
   private serial<T>(id: string, action: () => Promise<T>): Promise<T> {
-    const job = (this.lanes.get(id) ?? Promise.resolve()).then(() => {
+    return this.inLane(id, () => {
       if (this.closed) throw new ControlError('客户端正在停止。', false, 503);
       return action();
     });
-    const lane = job.then(
-      () => {},
-      () => {},
-    );
-    this.lanes.set(id, lane);
-    void lane.then(() => {
-      if (this.lanes.get(id) === lane) this.lanes.delete(id);
-    });
-    return job;
   }
 
   private releaseIdle(id: string, turnId: string) {
