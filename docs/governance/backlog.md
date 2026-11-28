@@ -8,7 +8,7 @@
 | A02 | 高 / 完成 | Attachment/上传限制与 Project/SessionGoal/Receipt 已统一顶层契约，所有调用方迁移 | 独立复审、TypeScript、39 项行为测试通过 |
 | A03 | 高 / 完成 | UsageQuery 归入 usage-query，移除唯一类型环 | 无类型/运行时环，14 项 usage 测试通过 |
 | A04 | 高 / 完成 | build 纳入 AST 守卫；CI 增加既有 npm test | 11 项正负自测及 248 个生产模块检查通过 |
-| A05 | 高 / 待实施 | shared/image-preview 复制 API 认证、workspace URL、错误/取消处理 | 统一二进制请求；格式探测和图片错误文案保留 |
+| A05 | 高 / 完成 | 图片预览复用 apiBlob；保留格式探测、范围捕获和图片错误文案 | 8 项测试覆盖 late blob/401 取消和跨工作空间独立请求；TypeScript/独立复审通过 |
 | A06 | 中 / 待实施 | control 与 native-control 同义 per-thread promise lane | 单一 keyed executor；保持两层不同实例和串行范围，覆盖失败后继续及键间并发 |
 | A07 | 中 / 待实施 | OverviewCards 无入边；核实 CSS/配套 hooks 是否仍使用 | 删除真正不可达实现，不误删复用样式/概览统计 |
 | A08 | 高 / 待研究 | ApprovalPanel、Sub2ApiSettings、LarkStartTargets、Sub2ApiUsage、RunningOverview 的 IO/状态进入视图 | 按实际领域 hook 内聚，完成迁移后执行视图边界守卫；不造通用 useQuery |

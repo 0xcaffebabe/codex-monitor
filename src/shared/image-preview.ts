@@ -1,4 +1,4 @@
-import { clearToken, getToken } from '../api';
+import { apiBlob } from '../api';
 import { workspaceSignal, workspaceUrl } from '../workspace-scope';
 
 // Decode once per document; fetch() does not advertise browser image codec support.
@@ -36,18 +36,5 @@ export async function fetchImagePreview(
   const format = variant === 'original' ? 'original' : await preferredFormat();
   signal.throwIfAborted();
   const query = new URLSearchParams({ variant, format });
-  const response = await fetch(`${url}${url.includes('?') ? '&' : '?'}${query}`, {
-    headers: { Authorization: `Bearer ${getToken()}` },
-    signal,
-    cache: 'no-store',
-  });
-  if (response.status === 401) clearToken();
-  if (!response.ok) {
-    let message = '图片加载失败';
-    try {
-      message = (await response.json()).error || message;
-    } catch {}
-    throw new Error(message);
-  }
-  return response.blob();
+  return apiBlob(`${url}${url.includes('?') ? '&' : '?'}${query}`, { signal }, '图片加载失败');
 }

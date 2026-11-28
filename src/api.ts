@@ -23,7 +23,7 @@ export class ApiError extends Error {
     super(message);
   }
 }
-async function request(url: string, options: RequestInit) {
+async function request(url: string, options: RequestInit, fallbackError = '请求失败，请稍后重试') {
   const signal = workspaceSignal(url, options.signal);
   const response = await fetch(workspaceUrl(url), {
     ...options,
@@ -37,7 +37,7 @@ async function request(url: string, options: RequestInit) {
   });
   signal?.throwIfAborted();
   if (!response.ok) {
-    let error = '请求失败，请稍后重试';
+    let error = fallbackError;
     let state: string | undefined;
     try {
       const result = await response.json();
@@ -57,8 +57,12 @@ export async function api<T = any>(url: string, options: RequestInit = {}): Prom
   signal?.throwIfAborted();
   return result;
 }
-export async function apiBlob(url: string, options: RequestInit = {}): Promise<Blob> {
-  const { response, signal } = await request(url, options);
+export async function apiBlob(
+  url: string,
+  options: RequestInit = {},
+  fallbackError?: string,
+): Promise<Blob> {
+  const { response, signal } = await request(url, options, fallbackError);
   const result = await response.blob();
   signal?.throwIfAborted();
   return result;

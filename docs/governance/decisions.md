@@ -35,3 +35,9 @@ Deletion Test：移除权威契约会使服务与 UI 各自维护同一接口；
 约束针对已经确认的职责，不以全局行数上限、随意禁止 feature 协作或统一所有错误类型替代设计。任何例外必须精确到真实模块并说明理由，不允许宽泛忽略目录。
 
 结果：`check:architecture` 纳入 build；CI 增加 npm test。UsageQuery 移入 usage-query，消除唯一类型环。守卫扫描 src/server 的静态可解析依赖，含 import/export/import type/dynamic import/require，检查类型和值依赖环。平台无关性检查覆盖顶层契约、session-model/session-list-model 及其依赖闭包；平台能力名字在这些模块中作为保留名检查，不做任意 JavaScript 副作用的完整证明。`shared/git-commit-shortcuts.ts` 是 Web 与 Lark 共同使用的产品词汇，保留精确例外但同样检查纯依赖闭包。
+
+## ADR-005：图片预览复用 API 二进制传输（采纳）
+
+候选方案：继续复制认证/HTTP 错误；新增 transport facade；复用 apiBlob 并接受可选默认错误文案（选择）。格式探测属于图片模块，须在等待探测前捕获工作空间 URL 与取消信号；实际 HTTP、401、body 读取取消检查由 api 统一负责。
+
+Deletion Test：图片模块的专用复杂性是格式能力探测，不是 HTTP；删除重复传输分支减少复杂性。保留“图片加载失败”默认文案和服务端错误优先级，并防止旧空间的晚到图片或401污染新页面。
