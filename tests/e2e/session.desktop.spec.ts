@@ -101,19 +101,28 @@ test('the session header and composer follow desktop ownership after a turn comp
 });
 
 test('desktop-owned sessions send prompts through the desktop and still run slash commands', async ({
-  signedIn: { session },
+  signedIn: { browserPage, session },
   local,
 }) => {
+  const notices = browserPage.getByRole('region', { name: '任务完成通知' });
+  const closeCompletion = async () => {
+    await notices.getByRole('button', { name: `关闭通知：${localTitle}` }).click();
+    await expect(notices).toHaveCount(0);
+  };
   await session.open(local.id, ids.modern);
   await session.sendMessage('自动通过桌面通道发送');
   await expect.poll(() => local.control.lastSend.channel).toBe('desktop');
   await expect(session.draft).toHaveValue('');
+
+  await closeCompletion();
 
   await session.detail.getByRole('button', { name: '快捷操作', exact: true }).click();
   await session.detail.getByRole('button', { name: '提交代码', exact: true }).click();
   await expect.poll(() => local.control.sends).toBe(2);
   expect(local.control.lastSend.channel).toBe('desktop');
   await expect(session.draft).toHaveValue('');
+
+  await closeCompletion();
 
   await session.sendMessage('  /help');
   await expect(session.detail.getByText('可用指令：/compact 压缩上下文', { exact: false })).toBeVisible();

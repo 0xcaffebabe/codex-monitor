@@ -17,7 +17,7 @@
     "start": "node --disable-warning=ExperimentalWarning dist/server.mjs",
     "client": "node --disable-warning=ExperimentalWarning dist/server.mjs --mode client",
     "server": "node --disable-warning=ExperimentalWarning dist/server.mjs --mode server",
-    "test": "tsx --test tests/*.test.ts",
+    "test": "tsx --test --test-concurrency=2 tests/*.test.ts",
     "test:e2e": "playwright test",
     "check": "npm run build && npm test && npm run test:e2e",
     "account": "tsx scripts/account.ts"
