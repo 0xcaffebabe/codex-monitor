@@ -1,6 +1,7 @@
 import { opendir, realpath, stat } from 'node:fs/promises';
 import path from 'node:path';
 import type { ProjectFileEntry, ProjectFileListing } from '../src/project-file-types.js';
+import { isPathWithin } from './path-boundary.js';
 
 const LIST_LIMIT = 1000;
 const SEARCH_LIMIT = 200;
@@ -30,10 +31,6 @@ export const validProjectFilePath = (value: string) =>
         (part) => !!part && part !== '.' && part !== '..' && !excluded.has(part.toLowerCase()),
       ));
 
-const within = (root: string, candidate: string) => {
-  const relative = path.relative(root, candidate);
-  return !path.isAbsolute(relative) && relative !== '..' && !relative.startsWith('..' + path.sep);
-};
 const displayPath = (value: string) => value.split(path.sep).join('/');
 const sortEntries = (entries: ProjectFileEntry[]) =>
   entries.sort((a, b) =>
@@ -72,7 +69,10 @@ export class ProjectFiles {
         throw new ProjectFileError('项目目录不可用', 404);
       const root = await realpath(configured);
       const folder = await realpath(path.join(root, directory));
-      if (!within(root, folder) || !validProjectFilePath(displayPath(path.relative(root, folder))))
+      if (
+        !isPathWithin(root, folder) ||
+        !validProjectFilePath(displayPath(path.relative(root, folder)))
+      )
         throw new ProjectFileError('只能选择当前项目内的文件', 403);
       if (!(await stat(folder)).isDirectory()) throw new ProjectFileError('此路径不是目录');
       const result: ProjectFileListing = {
@@ -97,7 +97,7 @@ export class ProjectFiles {
         try {
           const current = await realpath(path.join(root, queue[index]));
           if (
-            !within(root, current) ||
+            !isPathWithin(root, current) ||
             !validProjectFilePath(displayPath(path.relative(root, current)))
           ) {
             result.incomplete = true;

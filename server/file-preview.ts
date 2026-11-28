@@ -6,6 +6,7 @@ import type { SessionFileLink, SessionFilePreview } from '../src/file-preview-ty
 import type { Config } from './config.js';
 import { imageMime, MediaError } from './media.js';
 import type { CodexSource } from './source.js';
+import { isPathWithin } from './path-boundary.js';
 
 const MAX_BYTES = 20 * 1024 * 1024;
 const MAX_CHARS = 256 * 1024;
@@ -40,11 +41,6 @@ function resolveFile(file: string, cwd: string) {
   const resolved = path.resolve(cwd, file);
   if (!localAbsolute(resolved)) throw new MediaError(403, '此文件路径不可预览');
   return resolved;
-}
-
-function within(root: string, file: string) {
-  const relative = path.relative(root, file);
-  return !path.isAbsolute(relative) && relative !== '..' && !relative.startsWith(`..${path.sep}`);
 }
 
 async function readBytes(handle: FileHandle, size: number, signal: AbortSignal) {
@@ -145,12 +141,12 @@ export class SessionFilePreviews {
   }
 
   private async resolve(file: string, privatePaths = this.privatePaths) {
-    if (privatePaths.some((root) => within(root, file)))
+    if (privatePaths.some((root) => isPathWithin(root, file)))
       throw new MediaError(403, '此文件位于受保护的私有目录');
     const resolved = await realpath(file);
     if (!localAbsolute(resolved)) throw new MediaError(403, '此文件路径不可预览');
     const roots = await Promise.all(privatePaths.map((root) => realpath(root).catch(() => root)));
-    if (roots.some((root) => within(root, resolved)))
+    if (roots.some((root) => isPathWithin(root, resolved)))
       throw new MediaError(403, '此文件位于受保护的私有目录');
     return resolved;
   }
@@ -212,7 +208,7 @@ export class SessionFilePreviews {
       })),
     );
     const allowed = (root: string, target: string) =>
-      within(root, target) &&
+      isPathWithin(root, target) &&
       path
         .relative(root, target)
         .split(path.sep)

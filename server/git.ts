@@ -4,6 +4,7 @@ import { lstat, open, readlink, realpath, stat } from 'node:fs/promises';
 import path from 'node:path';
 import type { GitBranches, GitFile, GitFileDiff, GitScope, GitStatus } from '../src/git-types.js';
 import type { CodexSource } from './source.js';
+import { isPathWithin } from './path-boundary.js';
 
 const LIST_LIMIT = 2 * 1024 * 1024;
 const PATCH_LIMIT = 512 * 1024;
@@ -34,10 +35,6 @@ const emptyFile = (file: string, status: GitFile['status']): GitFile => ({
   deletions: null,
   binary: false,
 });
-const within = (root: string, file: string) => {
-  const relative = path.relative(root, file);
-  return !path.isAbsolute(relative) && relative !== '..' && !relative.startsWith('..' + path.sep);
-};
 export const validGitPath = (file: string) =>
   !!file &&
   file.length <= 4096 &&
@@ -368,7 +365,7 @@ export class ProjectGit {
   private async newFile(root: string, filePath: string) {
     const full = path.join(root, filePath);
     try {
-      if (!within(root, await realpath(path.dirname(full))))
+      if (!isPathWithin(root, await realpath(path.dirname(full))))
         throw new GitError('文件目录超出当前仓库范围。', 403);
       const info = await lstat(full);
       let content: Buffer;
@@ -377,7 +374,7 @@ export class ProjectGit {
       else {
         if (!info.isFile())
           return { text: '此变更是目录或嵌套仓库，请在对应项目中查看。\n', truncated: false };
-        if (!within(root, await realpath(full))) throw new GitError('文件超出当前仓库范围。', 403);
+        if (!isPathWithin(root, await realpath(full))) throw new GitError('文件超出当前仓库范围。', 403);
         const handle = await open(full, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
         try {
           if (!(await handle.stat()).isFile()) throw new GitError('此变更不是普通文本文件。');

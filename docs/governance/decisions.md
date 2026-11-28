@@ -53,3 +53,9 @@ Deletion Test：删除 executor 会重新复制失败隔离、尾任务身份比
 全库引用和依赖图确认 OverviewCards 无调用方；其 overview/stat-card 等 exact CSS 类也只用于该组件。选择删除组件及 40 条专属规则，不创建占位层或备用入口；保留正在使用的 running-overview、usage-stat-grid 与公共概览数据。PostCSS 解析验证删除对象，未重排剩余选择器。
 
 守卫从 main.tsx、共享契约和 Web/Lark 产品词汇追踪类型/运行时/dynamic import，拒绝无生产调用方的其他 src 模块。后续新增独立 HTML/worker 等真实入口时须显式更新入口规则；当前没有这类未建模入口。Deletion Test：删除无人调用的 UI 后复杂性直接消失。
+
+## ADR-008：只统一同义词法路径边界（采纳）
+
+候选方案：统一全部文件策略；只共享三处等价 within；保留重复。选择第二种：`path-boundary.ts` 表达允许 root 自身/子路径、拒绝父路径/同前缀兄弟/跨盘；调用者继续拥有 realpath、NOFOLLOW、隐藏文件、私有目录和领域错误。
+
+Uploads 与 RolloutStore 对空 relative 或 '..' 前缀更严格，有真实保护语义，不迁移。图片路径与文件预览对设备名/控制字符的策略也不合并。Deletion Test：删除此谓词会让三处复制包含边界规则；新增层只统一该安全概念，没有吞并各域 IO。
