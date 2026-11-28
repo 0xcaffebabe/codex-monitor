@@ -6,7 +6,7 @@ import { installAccountApi } from './http/account-api.js';
 import { installFrontend } from './http/frontend.js';
 import { WorkspaceGateway } from './workspaces/gateway.js';
 import { NotificationService } from './notifications/service.js';
-import type { WebhookTransport } from './notifications/lark.js';
+import type { LarkTransport } from './notifications/lark.js';
 import type { LarkReplyListener } from './notifications/lark-replies.js';
 import { installNotificationRoutes } from './http/notification-routes.js';
 import type { ServerMaintenance } from './maintenance/routes.js';
@@ -14,12 +14,12 @@ import type { ServerMaintenance } from './maintenance/routes.js';
 /** Server owns authentication, registration and notification delivery; Codex readers live in clients. */
 export function createMonitorServer(
   config: Config,
-  services: { publicDir?: string; webhookTransport?: WebhookTransport; larkReplyListener?: LarkReplyListener; maintenance?: ServerMaintenance } = {},
+  services: { publicDir?: string; larkTransport?: LarkTransport; larkReplyListener?: LarkReplyListener; maintenance?: ServerMaintenance } = {},
 ) {
   const app = express(),
     auth = new AuthStore(config.dataDir, config.sessionDays);
   installAccountApi(app, auth, config);
-  const notifications = new NotificationService(auth.db, config.pollMs, services.webhookTransport, services.larkReplyListener);
+  const notifications = new NotificationService(auth.db, config.pollMs, services.larkTransport, services.larkReplyListener);
   const gateway = new WorkspaceGateway(auth, notifications);
   notifications.startSession = (input, signal) => gateway.startLarkSession(input, signal);
   notifications.workspaceName = (id) => gateway.store.get(id)?.name;

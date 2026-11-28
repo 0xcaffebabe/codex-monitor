@@ -3,7 +3,7 @@ import { api, post } from '../../api';
 import type { LarkStartSettings, NotificationDelivery, NotificationSettings } from '../../types';
 
 type NotificationState = { settings: NotificationSettings; deliveries: NotificationDelivery[] };
-const defaultApp = { appRegion: 'lark', appId: '', appSecret: '', appRecipientType: 'group', chatId: '', replyOpenIds: '' } as const;
+const defaultApp = { appRegion: 'lark', appId: '', appSecret: '', replyOpenIds: '' } as const;
 const emptyLarkStart: LarkStartSettings = { defaultAlias: '', targets: [] };
 
 export function useNotifications(notify: (message: string) => void) {
@@ -12,16 +12,10 @@ export function useNotifications(notify: (message: string) => void) {
   const [enabled, setEnabled] = useState(false);
   const [completionMode, setCompletionMode] =
     useState<NotificationSettings['completionMode']>('watched');
-  const [webhookUrl, setWebhookUrl] = useState('');
-  const [signingSecret, setSigningSecret] = useState('');
-  const [clearSecret, setClearSecret] = useState(false);
-  const [mode, setMode] = useState<NotificationSettings['mode']>('webhook');
   const [app, setApp] = useState<{
     appRegion: NotificationSettings['appRegion'];
     appId: string;
     appSecret: string;
-    appRecipientType: NotificationSettings['appRecipientType'];
-    chatId: string;
     replyOpenIds: string;
   }>(defaultApp);
   const [clearAppSecret, setClearAppSecret] = useState(false);
@@ -36,16 +30,10 @@ export function useNotifications(notify: (message: string) => void) {
       setEnabled(state.settings.enabled);
       setCompletionMode(state.settings.completionMode ?? 'watched');
       setPublicUrl(state.settings.publicUrl);
-      setWebhookUrl('');
-      setSigningSecret('');
-      setClearSecret(false);
-      setMode(state.settings.mode ?? 'webhook');
       setApp({
         appRegion: state.settings.appRegion ?? 'lark',
         appId: state.settings.appId ?? '',
         appSecret: '',
-        appRecipientType: state.settings.appRecipientType ?? 'group',
-        chatId: state.settings.chatId ?? '',
         replyOpenIds: state.settings.replyOpenIds?.join(', ') ?? '',
       });
       setClearAppSecret(false);
@@ -77,17 +65,12 @@ export function useNotifications(notify: (message: string) => void) {
     (enabled !== saved.enabled ||
       completionMode !== (saved.completionMode ?? 'watched') ||
       publicUrl !== saved.publicUrl ||
-      mode !== (saved.mode ?? 'webhook') ||
-      (mode === 'webhook'
-        ? !!webhookUrl.trim() || !!signingSecret.trim() || clearSecret
-        : app.appRegion !== saved.appRegion ||
-          app.appId !== saved.appId ||
-          app.appRecipientType !== (saved.appRecipientType ?? 'group') ||
-          app.chatId !== saved.chatId ||
-          app.replyOpenIds !== (saved.replyOpenIds?.join(', ') ?? '') ||
-          JSON.stringify(larkStart) !== JSON.stringify(saved.larkStart ?? emptyLarkStart) ||
-          !!app.appSecret.trim() ||
-          clearAppSecret));
+      app.appRegion !== saved.appRegion ||
+      app.appId !== saved.appId ||
+      app.replyOpenIds !== saved.replyOpenIds.join(', ') ||
+      JSON.stringify(larkStart) !== JSON.stringify(saved.larkStart) ||
+      !!app.appSecret.trim() ||
+      clearAppSecret);
   async function save() {
     setPending('save');
     setError('');
@@ -97,27 +80,15 @@ export function useNotifications(notify: (message: string) => void) {
         body: JSON.stringify({
           enabled,
           provider: 'lark',
-          mode,
           completionMode,
           publicUrl: publicUrl.trim(),
-          ...(mode === 'app'
-            ? {
-                appRegion: app.appRegion,
-                appId: app.appId.trim(),
-                appRecipientType: app.appRecipientType,
-                chatId: app.chatId.trim(),
-                replyOpenIds: app.replyOpenIds.split(/[\s,，]+/).filter(Boolean),
-                larkStart,
-                ...(clearAppSecret || app.appSecret.trim()
-                  ? { appSecret: clearAppSecret ? '' : app.appSecret.trim() }
-                  : {}),
-              }
-            : {
-                ...(webhookUrl.trim() ? { webhookUrl: webhookUrl.trim() } : {}),
-                ...(clearSecret || signingSecret.trim()
-                  ? { signingSecret: clearSecret ? '' : signingSecret.trim() }
-                  : {}),
-              }),
+          appRegion: app.appRegion,
+          appId: app.appId.trim(),
+          replyOpenIds: app.replyOpenIds.split(/[\s,，]+/).filter(Boolean),
+          larkStart,
+          ...(clearAppSecret || app.appSecret.trim()
+            ? { appSecret: clearAppSecret ? '' : app.appSecret.trim() }
+            : {}),
         }),
       });
       apply(state, true);
@@ -148,25 +119,13 @@ export function useNotifications(notify: (message: string) => void) {
     setEnabled,
     completionMode,
     setCompletionMode,
-    webhookUrl,
-    setWebhookUrl,
-    signingSecret,
-    setSigningSecret,
-    clearSecret,
-    setClearSecret,
-    mode,
-    setMode,
     app,
     setApp,
     larkStart,
     setLarkStart,
     clearAppSecret,
     setClearAppSecret,
-    testConfigured:
-      mode === 'app'
-        ? !!(saved?.appId && saved.appSecretConfigured &&
-          (saved.appRecipientType === 'private' ? saved.replyOpenIds.length : saved.chatId))
-        : !!saved?.webhookConfigured,
+    testConfigured: !!(saved?.appId && saved.appSecretConfigured && saved.replyOpenIds.length),
     publicUrl,
     setPublicUrl,
     pending,

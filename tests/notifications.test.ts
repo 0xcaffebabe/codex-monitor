@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import { createServer } from 'node:http';
-import { createHmac, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import { appendFileSync, rmSync } from 'node:fs';
 import path from 'node:path';
 import { fromMarkdown } from 'mdast-util-from-markdown';
@@ -11,22 +11,20 @@ import { notificationMessage } from '../server/notifications/messages.js';
 import {
   LarkDeliveryError,
   larkCard,
-  sendLark,
-  validLarkWebhook,
-  type WebhookTransport,
+  larkRequest,
+  type LarkTransport,
 } from '../server/notifications/lark.js';
 import { fixture, ids } from './fixture.js';
 
-const webhook =
-  'https://open.larksuite.com/open-apis/bot/v2/hook/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
 const input = {
   completionMode: 'all',
   enabled: true,
   provider: 'lark',
-  webhookUrl: webhook,
-  signingSecret: 'test-signing-secret',
+  appId: 'cli_monitor',
+  appSecret: 'test-app-secret',
+  replyOpenIds: ['ou_test'],
   publicUrl: 'https://monitor.example.com/',
-} as const;
+} satisfies import('../server/notifications/store.js').NotificationInput & { provider: 'lark' };
 
 function complete(
   f: ReturnType<typeof fixture>,
@@ -59,10 +57,24 @@ function complete(
   return turnId;
 }
 
-async function harness(transport: WebhookTransport) {
+function appTransport(transport: LarkTransport): LarkTransport {
+  return async (url, init) => {
+    const endpoint = new URL(String(url));
+    if (endpoint.pathname.endsWith('/tenant_access_token/internal'))
+      return Response.json({ code: 0, tenant_access_token: 'test-token', expire: 7200 });
+    if (endpoint.pathname.endsWith('/files'))
+      return Response.json({ code: 0, data: { file_key: 'file_test' } });
+    if (JSON.parse(String(init?.body)).msg_type === 'file')
+      return Response.json({ code: 0 });
+    assert.equal(endpoint.searchParams.get('receive_id_type'), 'open_id');
+    return transport(url, init);
+  };
+}
+
+async function harness(transport: LarkTransport) {
   const f = fixture();
   f.config.pollMs = 60000;
-  const service = createApp(f.config, { webhookTransport: transport });
+  const service = createApp(f.config, { larkTransport: appTransport(transport) });
   const user = await service.auth.setup('owner', 'notification-test-password');
   const token = service.auth.issue(user, 'notification test').token;
   const server = service.app.listen(0, '127.0.0.1');
@@ -87,61 +99,27 @@ async function harness(transport: WebhookTransport) {
   };
 }
 
-test('Lark transport validates endpoints, signs requests, neutralizes mentions and checks business responses', async () => {
-  for (const value of [
-    'http://open.larksuite.com/open-apis/bot/v2/hook/aaaaaaaaaaaaaaaa',
-    'https://open.larksuite.com.attacker.test/open-apis/bot/v2/hook/aaaaaaaaaaaaaaaa',
-    webhook + '?token=secret',
-    webhook + '#secret',
-    webhook.replace('open.larksuite.com', 'user:password@open.larksuite.com'),
-    'https://127.0.0.1/open-apis/bot/v2/hook/aaaaaaaaaaaaaaaa',
-  ])
-    assert.equal(validLarkWebhook(value), false, value);
-  assert.equal(validLarkWebhook(webhook), true);
-  assert.equal(validLarkWebhook(webhook.replace('open.larksuite.com', 'open.feishu.cn')), true);
-  let sent: any;
-  await sendLark(
-    input,
-    '<at user_id="all">all</at>',
-    new AbortController().signal,
-    async (url, init) => {
-      assert.equal(url, webhook);
-      assert.equal(init!.redirect, 'error');
-      sent = JSON.parse(String(init!.body));
-      return Response.json({ code: 0, msg: 'success' });
-    },
-  );
-  assert.equal(
-    sent.sign,
-    createHmac('sha256', `${sent.timestamp}\n${input.signingSecret}`).update('').digest('base64'),
-  );
-  assert.equal(sent.msg_type, 'interactive');
-  assert.equal(sent.card.schema, '2.0');
-  assert.equal(sent.card.body.elements[0].tag, 'markdown');
-  assert.doesNotMatch(sent.card.body.elements[0].content, /<at/);
-  for (const response of [
-    Response.json({ code: 19024 }),
-    Response.json({}),
-    new Response('invalid'),
-    Response.json({ code: 1, StatusCode: 0 }),
-  ])
-    await assert.rejects(
-      sendLark(input, 'test', new AbortController().signal, async () => response),
-      LarkDeliveryError,
-    );
+test('Lark transport rejects redirects and masks failed requests', async () => {
+  const endpoint = 'https://open.larksuite.com/open-apis/im/v1/messages';
+  const signal = new AbortController().signal;
   await assert.rejects(
-    sendLark(input, 'test', new AbortController().signal, async () => {
-      throw new Error(webhook + input.signingSecret);
+    larkRequest(endpoint, {}, signal, async (_url, init) => {
+      assert.equal(init?.redirect, 'error');
+      throw new Error('private request details');
     }),
     (error) => {
       assert.ok(error instanceof LarkDeliveryError && error.retryable);
-      assert.doesNotMatch(error.message, /aaaaaaaa|test-signing-secret/);
+      assert.doesNotMatch(error.message, /private request details/);
       return true;
     },
   );
+  await assert.rejects(
+    larkRequest(endpoint, {}, signal, async () => new Response('invalid')),
+    LarkDeliveryError,
+  );
 });
 
-test('Lark Markdown cards preserve formatting and code while neutralizing mention tags', async () => {
+test('Lark Markdown cards preserve formatting and code while neutralizing mention tags', () => {
   const markdown = [
     '# 完成结果',
     '',
@@ -163,56 +141,16 @@ test('Lark Markdown cards preserve formatting and code while neutralizing mentio
     '| --- | --- |',
     '| 检查 | 完成 |',
   ].join('\n');
-  let sent: any;
-  await sendLark(
-    { ...input, signingSecret: '' },
+  const card = larkCard(
     markdown + '\n<at id=all></at> <at user_id="someone">用户</at> <AT id=all></AT>',
-    new AbortController().signal,
-    async (_url, init) => {
-      sent = JSON.parse(String(init!.body));
-      return Response.json({ code: 0 });
-    },
   );
-  assert.equal(sent.msg_type, 'interactive');
-  assert.equal(sent.card.schema, '2.0');
-  assert.equal(sent.card.body.elements.length, 1);
-  assert.equal(sent.card.body.elements[0].tag, 'markdown');
+  assert.equal(card.schema, '2.0');
+  assert.equal(card.body.elements.length, 1);
+  assert.equal(card.body.elements[0].tag, 'markdown');
   assert.equal(
-    sent.card.body.elements[0].content,
+    card.body.elements[0].content,
     markdown + '\n＜at id=all＞＜/at＞ ＜at user_id="someone"＞用户＜/at＞ ＜AT id=all＞＜/AT＞',
   );
-  assert.equal(sent.timestamp, undefined);
-  assert.equal(sent.sign, undefined);
-});
-
-test('Lark transport converts image URLs before delivery and identifies content errors', async () => {
-  await sendLark(
-    input,
-    '已完成\n![截图](https://example.com/screenshot.png)\n![本地截图](sandbox:/mnt/data/shot.png)',
-    new AbortController().signal,
-    async (_url, init) => {
-      const content = JSON.parse(String(init!.body)).card.body.elements[0].content;
-      assert.equal(
-        content,
-        '已完成\n[截图](<https://example.com/screenshot.png>)\n本地截图（请在会话中查看图片）',
-      );
-      return Response.json({ code: 0 });
-    },
-  );
-  for (const response of [
-    { code: 11246, msg: `invalid image: ${webhook}` },
-    { StatusCode: 11246, StatusMessage: 'create message content fail' },
-  ])
-    await assert.rejects(
-      sendLark(input, 'test', new AbortController().signal, async () => Response.json(response)),
-      (error) => {
-        assert.ok(error instanceof LarkDeliveryError);
-        assert.equal(error.retryable, false);
-        assert.match(error.message, /消息内容创建失败.*11246.*图片资源/);
-        assert.doesNotMatch(error.message, /安全设置|aaaaaaaa/);
-        return true;
-      },
-    );
 });
 
 test('session links remain clickable when the reply summary ends in a truncated code block', () => {
@@ -243,13 +181,13 @@ test('session links remain clickable when the reply summary ends in a truncated 
   assert.equal(code?.value, 'echo "内容未完');
 });
 
-test('card capacity accounts for placeholders added when converting Markdown images', () => {
+test('card capacity accounts for captions after converting Markdown images', () => {
   const link = '[查看本轮结果](https://monitor.example.com/)';
-  const text = `${link}\n\n${'![](/a)\n\n'.repeat(650)}`;
+  const text = `${link}\n\n${'![要点摘要](/a)\n\n'.repeat(1500)}`;
   const card = larkCard(text);
   const content = card.body.elements[0].content;
   assert.ok(Buffer.byteLength(JSON.stringify(card)) < 20 * 1024);
-  assert.ok(content.startsWith(`${link}\n\n图片（请在会话中查看图片）`));
+  assert.ok(content.startsWith(`${link}\n\n要点摘要`));
   assert.ok(content.endsWith('…（回复过长，部分内容已省略）'));
 });
 
@@ -295,9 +233,8 @@ test('notification APIs enforce admin access, validation, secret masking, test r
     const saved = await h.request('/api/notifications', 'PUT', input);
     assert.equal(saved.status, 200);
     const state = await saved.json();
-    assert.equal(state.settings.webhookConfigured, true);
-    assert.equal(state.settings.signingSecretConfigured, true);
-    assert.doesNotMatch(JSON.stringify(state), /aaaaaaaa-bbbb|test-signing-secret/);
+    assert.equal(state.settings.appSecretConfigured, true);
+    assert.doesNotMatch(JSON.stringify(state), /test-app-secret/);
     assert.equal((await h.request('/api/notifications/test', 'POST', {})).status, 200);
     assert.equal((await h.request('/api/notifications/test', 'POST', {})).status, 429);
     assert.equal(requests, 1);
@@ -312,7 +249,7 @@ test('notification APIs enforce admin access, validation, secret masking, test r
       ).status,
       200,
     );
-    assert.equal(h.service.notifications.store.config().signingSecret, input.signingSecret);
+    assert.equal(h.service.notifications.store.config().appSecret, input.appSecret);
   } finally {
     await h.close();
   }
@@ -323,11 +260,12 @@ test('background completion outbox delivers fast turns over real HTTP without SS
   const receiver = createServer(async (request, response) => {
     let body = '';
     for await (const chunk of request) body += chunk.toString();
-    received.push(JSON.parse(body));
+    const message = JSON.parse(body);
+    received.push({ ...message, card: JSON.parse(message.content) });
     response.writeHead(200, { 'Content-Type': 'application/json' }).end('{"code":0}');
   }).listen(0, '127.0.0.1');
   await once(receiver, 'listening');
-  const transport: WebhookTransport = (_url, init) =>
+  const transport: LarkTransport = (_url, init) =>
     fetch(`http://127.0.0.1:${(receiver.address() as { port: number }).port}`, init);
   const h = await harness(transport);
   let restarted: ReturnType<typeof createApp> | undefined;
@@ -360,7 +298,7 @@ test('background completion outbox delivers fast turns over real HTTP without SS
       template: 'green',
     });
     const [{ content }] = received[0].card.body.elements;
-    assert.equal(received[0].card.body.elements.length, 1);
+    assert.deepEqual(received[0].card.body.elements.map(({ tag }: { tag: string }) => tag), ['markdown', 'form', 'column_set']);
     assert.match(content, /^\*\*工作空间\*\* .+\n\*\*会话\*\* .+\n\*\*项目\*\* .+\n\*\*完成时间\*\* .+/);
     assert.match(content, new RegExp(`result=${first}`));
     assert.ok(content.endsWith(`\n\n**回复内容**\n\n${summary}`));
@@ -373,7 +311,7 @@ test('background completion outbox delivers fast turns over real HTTP without SS
     assert.equal(h.service.notifications.state().deliveries.length, 2);
     await h.service.close();
     complete(h.f, ids.modern, 'completed', '服务停止期间完成');
-    restarted = createApp(h.f.config, { webhookTransport: transport });
+    restarted = createApp(h.f.config, { larkTransport: appTransport(transport) });
     await restarted.pollNotifications();
     await restarted.pollNotifications();
     assert.equal(received.length, 3);
@@ -436,7 +374,7 @@ test('delivery retry is persisted, provider rejection fails visibly, disabling c
 test('legacy JSONL completion events work without opening a detail page', async () => {
   const messages: string[] = [];
   const h = await harness(async (_url, init) => {
-    messages.push(JSON.parse(String(init!.body)).card.body.elements[0].content);
+    messages.push(JSON.parse(JSON.parse(String(init!.body)).content).body.elements[0].content);
     return Response.json({ code: 0 });
   });
   try {
@@ -484,7 +422,7 @@ test('legacy JSONL completion events work without opening a detail page', async 
 
 test('queued retries survive restart and still deliver while the completion source is unavailable', async () => {
   let calls = 0;
-  const transport: WebhookTransport = async () =>
+  const transport: LarkTransport = async () =>
     Response.json({ code: 0 }, { status: ++calls === 1 ? 503 : 200 });
   const h = await harness(transport);
   let restarted: ReturnType<typeof createApp> | undefined;
@@ -494,7 +432,7 @@ test('queued retries survive restart and still deliver while the completion sour
     await h.service.pollNotifications();
     assert.equal(h.service.notifications.state().deliveries[0].status, 'pending');
     await h.service.close();
-    restarted = createApp(h.f.config, { webhookTransport: transport });
+    restarted = createApp(h.f.config, { larkTransport: appTransport(transport) });
     await restarted.pollNotifications();
     restarted.source.completions = async () => {
       throw new Error('Source temporarily unavailable');
@@ -536,7 +474,7 @@ test('admin revocation during asynchronous notification authorization prevents s
     release();
     await rejected;
     assert.equal(h.service.notifications.state().settings.enabled, false);
-    assert.equal(h.service.notifications.state().settings.webhookConfigured, false);
+    assert.equal(h.service.notifications.state().settings.appSecretConfigured, false);
   } finally {
     release();
     await h.close();

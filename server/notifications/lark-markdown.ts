@@ -19,8 +19,8 @@ function linkLabel(node: Nodes): string {
 }
 
 /** Card images require provider-issued image keys, never URLs or local paths. */
-export function larkMarkdown(text: string, app = false) {
-  if (text.includes('!') || (app && /\[|</.test(text))) {
+export function larkMarkdown(text: string) {
+  if (/[!\[<]/.test(text)) {
     const nodes: { node: Nodes; inLink: boolean }[] = [],
       pending = [{ node: fromMarkdown(text) as Nodes, inLink: false }];
     while (pending.length) {
@@ -53,15 +53,13 @@ export function larkMarkdown(text: string, app = false) {
           ? label
           : url
             ? `[${label}](<${url}>)`
-            : app
-              ? label
-              : `${label}（请在会话中查看图片）`;
+            : label;
         edits.push({ start, end, value });
-      } else if (app && (node.type === 'link' || node.type === 'linkReference')) {
+      } else if (node.type === 'link' || node.type === 'linkReference') {
         const url =
           node.type === 'link' ? node.url : definitions.get(node.identifier.toUpperCase());
         if (!webUrl(url)) edits.push({ start, end, value: escapedLabel(linkLabel(node), '附件') });
-      } else if (app && node.type === 'definition' && !webUrl(node.url)) {
+      } else if (node.type === 'definition' && !webUrl(node.url)) {
         edits.push({ start, end, value: '' });
       }
     }

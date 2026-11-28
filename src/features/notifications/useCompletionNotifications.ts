@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { api, ApiError } from '../../api';
+import { api, ApiError, stream } from '../../api';
 import type { CompletionNotificationSnapshot } from '../../types';
 
 export function useCompletionNotifications() {
@@ -9,11 +9,10 @@ export function useCompletionNotifications() {
   const dismissRequest = useRef<((ids?: number[]) => Promise<boolean>) | null>(null);
 
   useEffect(() => {
-    let stopped = false;
+    const connection = new AbortController();
     let current: CompletionNotificationSnapshot | undefined;
     let failed: { generation: string; ids: number[] } | undefined;
     let timer: ReturnType<typeof setTimeout> | undefined;
-    let read: AbortController | undefined;
     let mutation: AbortController | undefined;
 
     const apply = (next: CompletionNotificationSnapshot) => {
@@ -30,38 +29,25 @@ export function useCompletionNotifications() {
       current = next;
       setSnapshot(next);
     };
-    const cancelRead = () => {
-      read?.abort();
-      read = undefined;
-      clearTimeout(timer);
-    };
-    const refresh = async () => {
-      if (stopped || read || mutation) return;
-      const request = new AbortController();
-      read = request;
-      clearTimeout(timer);
-      const timeout = setTimeout(() => request.abort(), 15000);
+    let delay = 1000;
+    const connect = async () => {
       try {
-        const next = await api<CompletionNotificationSnapshot>('/api/notifications/completions', {
-          signal: request.signal,
-        });
-        if (!stopped && read === request) apply(next);
-      } catch {
-        return;
-      } finally {
-        clearTimeout(timeout);
-        if (read === request) {
-          read = undefined;
-          if (!stopped && !mutation) timer = setTimeout(refresh, 3000);
-        }
+        await stream('/api/notifications/completions/stream', (event, data) => {
+          if (connection.signal.aborted || event !== 'snapshot' || data === undefined) return;
+          apply(JSON.parse(data) as CompletionNotificationSnapshot);
+          delay = 1000;
+        }, connection.signal);
+      } catch (error) {
+        if (connection.signal.aborted || (error instanceof ApiError && error.status === 401)) return;
+        timer = setTimeout(connect, delay);
+        delay = Math.min(delay * 2, 30000);
       }
     };
     const dismiss = async (ids?: number[]) => {
-      if (stopped || mutation || !current) return false;
+      if (connection.signal.aborted || mutation || !current) return false;
       const observed = current;
       const targets = ids ?? observed.notifications.map((item) => item.id);
       if (!targets.length) return true;
-      cancelRead();
       const request = new AbortController();
       mutation = request;
       const timeout = setTimeout(() => request.abort(), 15000);
@@ -69,7 +55,7 @@ export function useCompletionNotifications() {
       failed = undefined;
       setError('');
       try {
-        const next = await api<CompletionNotificationSnapshot>(
+        await api<CompletionNotificationSnapshot>(
           '/api/notifications/completions/dismiss',
           {
             method: 'POST',
@@ -81,11 +67,10 @@ export function useCompletionNotifications() {
             }),
           },
         );
-        if (stopped) return false;
-        apply(next);
-        return true;
+        return !connection.signal.aborted;
       } catch (error) {
-        if (!stopped) {
+        if (!connection.signal.aborted && current.generation === observed.generation &&
+            current.notifications.some((item) => targets.includes(item.id))) {
           failed = { generation: observed.generation, ids: targets };
           setError(
             `关闭通知失败：${error instanceof ApiError ? error.message : '网络暂时不可用'}，请重试。`,
@@ -95,26 +80,16 @@ export function useCompletionNotifications() {
       } finally {
         clearTimeout(timeout);
         mutation = undefined;
-        if (!stopped) {
-          setPending(false);
-          void refresh();
-        }
+        if (!connection.signal.aborted) setPending(false);
       }
     };
     dismissRequest.current = dismiss;
-    const resume = () => {
-      if (document.visibilityState === 'visible') void refresh();
-    };
-    void refresh();
-    window.addEventListener('focus', resume);
-    document.addEventListener('visibilitychange', resume);
+    void connect();
     return () => {
-      stopped = true;
-      cancelRead();
+      connection.abort();
+      clearTimeout(timer);
       mutation?.abort();
       dismissRequest.current = null;
-      window.removeEventListener('focus', resume);
-      document.removeEventListener('visibilitychange', resume);
     };
   }, []);
 

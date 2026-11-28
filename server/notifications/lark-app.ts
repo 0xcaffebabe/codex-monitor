@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { z } from 'zod';
-import { LarkDeliveryError, larkCard, larkCardFromMarkdown, larkRequest, type LarkCardReply, type LarkCompletionStyle, type WebhookTransport } from './lark.js';
+import { LarkDeliveryError, larkCard, larkCardFromMarkdown, larkRequest, type LarkCardReply, type LarkCompletionStyle, type LarkTransport } from './lark.js';
 import type { NotificationConfig } from './store.js';
 import type { NotificationAttachment } from './attachments.js';
 import { imageMime } from '../media.js';
@@ -22,7 +22,6 @@ const cardMarkdown = z.object({
 });
 export class LarkReplyAttachmentsTooLarge extends Error {}
 export class LarkReplyDocumentError extends Error {}
-export type LarkRecipient = { type: 'chat_id' | 'open_id'; id: string };
 const fileTypes = new Map([
   ['.opus', 'opus'],
   ['.mp4', 'mp4'],
@@ -45,7 +44,7 @@ export class LarkApp {
     botOpenId?: string;
   };
 
-  constructor(private transport: WebhookTransport = fetch) {}
+  constructor(private transport: LarkTransport = fetch) {}
 
   private async download(url: string, token: string, signal: AbortSignal, limit: number) {
     const response = await this.transport(url, {
@@ -143,12 +142,12 @@ export class LarkApp {
       this.token = token;
     }
     const value = token.value;
-    const send = (recipient: LarkRecipient, uuid: string, msgType: string, content: object) =>
+    const send = (openId: string, uuid: string, msgType: string, content: object) =>
       this.request(
         origin,
-        `im/v1/messages?receive_id_type=${recipient.type}`,
+        'im/v1/messages?receive_id_type=open_id',
         {
-          receive_id: recipient.id,
+          receive_id: openId,
           msg_type: msgType,
           content: JSON.stringify(content),
           uuid,
@@ -171,7 +170,7 @@ export class LarkApp {
         const result = await this.request(
           origin,
           `im/v1/messages/${encodeURIComponent(parent)}/reply`,
-          { msg_type: 'interactive', content: JSON.stringify(typeof card === 'string' ? larkCard(card, { app: true }) : card), uuid },
+          { msg_type: 'interactive', content: JSON.stringify(typeof card === 'string' ? larkCard(card) : card), uuid },
           signal,
           '回复消息',
           value,
@@ -186,12 +185,12 @@ export class LarkApp {
           { msg_type: 'text', content: JSON.stringify({ text }), uuid }, signal, '回复消息', value),
       message: async (id: string) =>
         (await this.request(origin, `im/v1/messages/${encodeURIComponent(id)}`, undefined, signal, '读取引用消息', value))?.data,
-      card: async (recipient: LarkRecipient, uuid: string, text: string, completion?: LarkCompletionStyle) => {
-        const result = await send(recipient, uuid, 'interactive', larkCard(text, { app: true, completion }));
+      card: async (openId: string, uuid: string, text: string, completion?: LarkCompletionStyle) => {
+        const result = await send(openId, uuid, 'interactive', larkCard(text, { completion }));
         const messageId = result?.data?.message_id;
         return {
           messageId: typeof messageId === 'string' && /^om_[\w-]{1,125}$/.test(messageId) ? messageId : undefined,
-          chatId: recipient.type === 'chat_id' ? recipient.id : larkChatId.safeParse(result?.data?.chat_id).data,
+          chatId: larkChatId.safeParse(result?.data?.chat_id).data,
         };
       },
       completeCardReply: async (messageId: string, chatId: string, reply: LarkCardReply, text?: string, updateToken?: string) => {
@@ -218,23 +217,9 @@ export class LarkApp {
             return;
           }
         } else {
-          card = larkCard(text, { app: true, completion: 'interactive', reply });
+          card = larkCard(text, { completion: 'interactive', reply });
         }
         await this.request(origin, endpoint, { content: JSON.stringify(card) }, signal, '更新通知卡片', value, 'PATCH');
-      },
-      isRead: async (messageId: string) => {
-        const result = await this.request(
-          origin,
-          `im/v1/messages/${encodeURIComponent(messageId)}/read_users?user_id_type=open_id&page_size=1`,
-          undefined,
-          signal,
-          '查询消息已读状态',
-          value,
-        );
-        const items = result?.data?.items;
-        if (items == null) return false;
-        if (!Array.isArray(items)) throw new LarkDeliveryError('飞书/Lark 返回了无效的已读列表');
-        return items.length > 0;
       },
       react: async (messageId: string, emoji: string) => {
         const result = await this.request(
@@ -300,7 +285,7 @@ export class LarkApp {
         }
         return attachments;
       },
-      attachment: async (recipient: LarkRecipient, uuid: string, file: NotificationAttachment) => {
+      attachment: async (openId: string, uuid: string, file: NotificationAttachment) => {
         const image = imageMimes.has(file.mime) && file.data.length <= 10 * 1024 * 1024;
         const form = new FormData();
         const blob = new Blob([new Uint8Array(file.data)], { type: file.mime });
@@ -323,7 +308,7 @@ export class LarkApp {
         const key = image ? result?.data?.image_key : result?.data?.file_key;
         if (typeof key !== 'string' || !key)
           throw new LarkDeliveryError('飞书/Lark 未返回附件标识');
-        await send(recipient, uuid, image ? 'image' : 'file', image ? { image_key: key } : { file_key: key });
+        await send(openId, uuid, image ? 'image' : 'file', image ? { image_key: key } : { file_key: key });
       },
     };
   }

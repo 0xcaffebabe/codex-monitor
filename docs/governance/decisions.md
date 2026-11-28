@@ -84,7 +84,7 @@ Uploads 与 RolloutStore 对空 relative 或 '..' 前缀更严格，有真实保
 
 Deletion Test：删除此安装器会重新复制安全顺序、公共/保护路由分界及跨路由共用限速器的不变量。参数化现有两个 factory 的契约测试验证匿名401、viewer403、Host/Origin、JSON错误和同一限流预算。
 
-## ADR-012：通知已读跟踪拥有独立生命周期（采纳）
+## ADR-012：通知已读跟踪拥有独立生命周期（轮询方案由 ADR-014 取代）
 
 候选方案：仅把扫描函数拆文件（仍共享四项可变状态）；抽整个交互controller（大量双向回调/授权代次泄漏）；抽 LarkReadTracker（选择）。它完整拥有10秒轮询、扫描互斥、多卡集合、首卡七天期限、100条诊断、目的地取消代次与close等待；service只装配并调用track/status/reset/close。
 
@@ -95,3 +95,11 @@ Deletion Test：删除该模块会重新让轮询、过期和晚到结果保护�
 选择单一 appendAudit(db,action,username,ip) 封装表字段、参数绑定和时间戳规则，完整迁移 AuthStore/control/MessageQueue 六处。AuthStore.log 仍是 WorkspaceAuth 的真实公开方法。它参与调用方现有事务，不新增logger框架/队列、不改变事件名或写入时机。
 
 Deletion Test：删除会把audit schema/绑定顺序变更重新扩散到六处。进程日志、通知失败记录与用户操作审计含义不同，继续保留各自所有者；各域错误和重试也不统一为一个泛型策略。
+
+## ADR-014：私聊投递与网页通知通过事件衔接（采纳）
+
+Server 只向应用的 Open ID 投递。升级时在同一 SQLite 事务停用旧群聊和 Webhook 配置、切断旧消息关联并取消待发送记录，保留历史与去重键。已有私聊配置、投递进度和重试继续使用。
+
+应用长连接接收 `im.message.message_read_v1`，LarkReadTracker 按应用、收件人和卡片 ID 匹配。任一收件人已读即可关闭对应轮次的网页通知。CompletionNotifications 在上报提交、关闭或移除工作空间后发布快照，登录端用 SSE 订阅并在重连时接收当前快照。认证、撤权和背压在 SSE 路由处理。
+
+匹配早到回执、拒绝错误收件人的回执、禁止旧目的地重投、登录端同步关闭及断线恢复均由 `npm run check` 中的接口与浏览器测试约束。

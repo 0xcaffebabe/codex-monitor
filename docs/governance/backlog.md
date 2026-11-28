@@ -22,6 +22,7 @@
 | A16 | 中 / 完成 | 两入口重复账号 API 安全装配归入 http/account-api | 两factory安全边界基线+回归8项、TypeScript/独立复审通过 |
 | A17 | 低 / 已评估保留 | feature目录聚合存在git/control及attachments/workspace双向组件组合，无文件级环 | 当前各能力公开组件/Hook有真实调用方；为目录图搬迁/层层注入会增加复杂度，独立包拆分时再评估 |
 | A18 | 低 / 后续韧性 | Git远程权限等待期间close可能返回通用500；现有ProjectGit禁止closed后派发，未发现权限绕过 | 若统一关闭错误契约，补真实在途close测试后再做，不混入已验证授权迁移 |
+| A19 | 高 / 完成 | G17 迁移为私聊投递，已读和网页完成通知由事件驱动 | ADR-014，隔离测试替身与真实 SSE 验证，`npm run check` 通过 |
 
 ## 待确认
 

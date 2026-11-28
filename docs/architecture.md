@@ -22,7 +22,7 @@ src/
     control/               # 消息草稿、回执、队列、命令、目标、新建会话
     attachments/           # 上传、移除、缩略图、项目文件树与文件名搜索
     usage/                 # 用量查询、筛选、指标、图表、请求日志
-    settings/              # 设备、密码、访问账户和 Webhook 通知配置
+    settings/              # 设备、密码、访问账户和 私聊通知配置
   shared/                  # 通用展示组件、格式化、剪贴板
   api.ts                   # HTTP、认证令牌与 SSE 传输
   workspace-scope.ts       # 文档级工作空间 URL 与草稿范围；切换通过导航取消旧页面请求
@@ -97,14 +97,15 @@ server/
     completions.ts         # 完成轮次与 JSONL 完成事件读取
     input-requests.ts      # 结构化待答问题、选项、已答过滤与实时记录去重
   notifications/
-    lark.ts                # 飞书/Lark 校验、签名、限时 HTTP 投递与业务码检查
+    lark.ts                # 飞书/Lark 卡片格式和限时 HTTP 传输
     store.ts               # 私有配置、持久化去重、投递队列和历史
     events.ts              # 通知策略、结构化事件和批次契约；不包含接收凭据
     reporter.ts            # Client 后台扫描、已回答问题识别和确认后清理
     report-store.ts        # Client 扫描断点、事件上报日志和待答问题状态
     messages.ts            # Server 统一格式化消息、工作空间及会话链接
     service.ts             # Server 接收去重、统一投递、退避重试和资源关闭
-    lark-read-tracker.ts    # 已读扫描、多卡聚合、期限与取消/关闭生命周期
+    completions.ts         # 网页通知快照、订阅与 Client 完成事件日志
+    lark-read-tracker.ts    # 已读事件与私聊卡片匹配、处理早到回执
   usage.ts                 # 增量扫描、SQLite 缓存和查询失效策略
   usage-query.ts           # 流式用量汇总、分页结果与时间分桶
 ```

@@ -73,21 +73,12 @@ export async function currentUser() {
   return (await api<{ user: User }>('/api/auth/me')).user;
 }
 export async function stream(
-  session: string | undefined,
+  url: string,
   onEvent: (event: string, data: string | undefined) => void,
   signal: AbortSignal,
 ) {
-  signal = workspaceSignal('/api/stream', signal)!;
-  const response = await fetch(
-    workspaceUrl(`/api/stream${session ? '?session=' + encodeURIComponent(session) : ''}`),
-    { headers: { Authorization: `Bearer ${getToken()}` }, signal, cache: 'no-store' },
-  );
-  signal.throwIfAborted();
-  if (response.status === 401) {
-    clearToken();
-    return;
-  }
-  if (!response.ok) throw new Error('实时连接失败');
+  const { response, signal: scopedSignal } = await request(url, { signal }, '实时连接失败');
+  signal = scopedSignal!;
   const reader = response.body!.getReader(),
     decoder = new TextDecoder();
   let pending = '';
@@ -110,6 +101,7 @@ export async function stream(
       }
     }
   } finally {
+    void reader.cancel().catch(() => {});
     reader.releaseLock();
   }
   if (!signal.aborted) throw new Error('连接已断开');

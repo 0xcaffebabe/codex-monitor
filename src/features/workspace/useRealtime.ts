@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { stream } from '../../api';
+import { ApiError, stream } from '../../api';
 import type { SessionReconnect } from '../../types';
 
 export function useRealtime(
@@ -27,7 +27,7 @@ export function useRealtime(
     const connect = async () => {
       try {
         await stream(
-          selected,
+          `/api/stream${selected ? '?session=' + encodeURIComponent(selected) : ''}`,
           (event, data) => {
             if (controller.signal.aborted) return;
             if (event === 'ready' || event === 'heartbeat') setConnected(true);
@@ -50,8 +50,8 @@ export function useRealtime(
           },
           controller.signal,
         );
-      } catch {
-        if (controller.signal.aborted) return;
+      } catch (error) {
+        if (controller.signal.aborted || (error instanceof ApiError && error.status === 401)) return;
         setConnected(false);
         setRetryStatus(undefined);
         retry = setTimeout(connect, delay);

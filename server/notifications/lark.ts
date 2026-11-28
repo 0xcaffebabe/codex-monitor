@@ -1,28 +1,9 @@
-import { createHmac } from 'node:crypto';
 import { gitCommitShortcuts } from '../../src/shared/git-commit-shortcuts.js';
 import { larkMarkdown } from './lark-markdown.js';
 import { limitMarkdown } from './markdown-limit.js';
 
-// Leave room for the card envelope and webhook signature within the request limit.
+// Leave room for the card envelope within the request limit.
 const LARK_MARKDOWN_BYTES = 16 * 1024;
-
-export function validLarkWebhook(value: string) {
-  try {
-    const url = new URL(value);
-    return (
-      url.protocol === 'https:' &&
-      ['open.feishu.cn', 'open.larksuite.com'].includes(url.hostname) &&
-      !url.port &&
-      !url.username &&
-      !url.password &&
-      !url.search &&
-      !url.hash &&
-      /^\/open-apis\/bot\/v2\/hook\/[a-zA-Z0-9-]{16,100}$/.test(url.pathname)
-    );
-  } catch {
-    return false;
-  }
-}
 
 export class LarkDeliveryError extends Error {
   constructor(
@@ -34,7 +15,7 @@ export class LarkDeliveryError extends Error {
   }
 }
 
-export type WebhookTransport = typeof fetch;
+export type LarkTransport = typeof fetch;
 
 export const larkReplyForm = {
   inputName: 'session_reply',
@@ -49,10 +30,10 @@ const legacyCompletionHeading = `✅ ${completionTitle}\n`;
 
 export function larkCard(
   text: string,
-  { app, completion, reply }: { app?: boolean; completion?: LarkCompletionStyle; reply?: LarkCardReply } = {},
+  { completion, reply }: { completion?: LarkCompletionStyle; reply?: LarkCardReply } = {},
 ) {
   return larkCardFromMarkdown(limitMarkdown(
-    larkMarkdown(text, app),
+    larkMarkdown(text),
     (markdown) => Buffer.byteLength(JSON.stringify(markdown)) <= LARK_MARKDOWN_BYTES,
   ), completion, reply);
 }
@@ -130,45 +111,11 @@ export function larkCardFromMarkdown(content: string, completion?: LarkCompletio
   };
 }
 
-/** Only this adapter handles credentials and the provider's wire format. */
-export async function sendLark(
-  config: { webhookUrl: string; signingSecret: string },
-  text: string,
-  signal: AbortSignal,
-  transport: WebhookTransport = fetch,
-  completed = false,
-) {
-  if (!validLarkWebhook(config.webhookUrl))
-    throw new LarkDeliveryError('请配置有效的飞书/Lark Webhook');
-  const timestamp = String(Math.floor(Date.now() / 1000));
-  const body = {
-    msg_type: 'interactive',
-    card: larkCard(text, { completion: completed ? 'read-only' : undefined }),
-    ...(config.signingSecret
-      ? {
-          timestamp,
-          sign: createHmac('sha256', `${timestamp}\n${config.signingSecret}`)
-            .update('')
-            .digest('base64'),
-        }
-      : {}),
-  };
-  const result = await larkRequest(config.webhookUrl, body, signal, transport);
-  const code = result?.code ?? result?.StatusCode;
-  if (typeof code !== 'number') throw new LarkDeliveryError('飞书/Lark 返回了无效响应');
-  if (code === 11246)
-    throw new LarkDeliveryError(
-      '飞书/Lark 消息内容创建失败（错误码 11246），请检查卡片格式及图片资源',
-    );
-  if (code !== 0)
-    throw new LarkDeliveryError(`飞书/Lark 拒绝消息（错误码 ${code}），请检查机器人安全设置`);
-}
-
 export async function larkRequest(
   url: string,
   body: object | undefined,
   signal: AbortSignal,
-  transport: WebhookTransport,
+  transport: LarkTransport,
   token?: string,
   maxResponseBytes = 16384,
   method: 'GET' | 'POST' | 'DELETE' | 'PATCH' = body ? 'POST' : 'GET',
@@ -213,7 +160,6 @@ export async function larkRequest(
     try {
       return JSON.parse(Buffer.concat(chunks).toString('utf8')) as {
         code?: unknown;
-        StatusCode?: unknown;
         tenant_access_token?: unknown;
         expire?: unknown;
         bot?: { open_id?: unknown };
@@ -232,7 +178,7 @@ export async function larkRequest(
     }
   } catch (error) {
     if (error instanceof LarkDeliveryError) throw error;
-    // Fetch errors can contain the complete webhook URL; never expose them.
+    // Fetch errors can contain provider URLs; never expose them.
     throw new LarkDeliveryError('飞书/Lark 连接失败或超时', true);
   }
 }

@@ -46,6 +46,11 @@ test('viewing or closing a completion marks the session read on its workspace', 
   monitor,
 }) => {
   const title = '远端已完成会话';
+  const polled: string[] = [];
+  await browserPage.route('**/api/notifications/completions', async (route) => {
+    polled.push(route.request().url());
+    await route.abort();
+  });
   const remote = await monitor.addWorkspace('任务主机', title);
   const complete = (ordinal: number) => {
     const now = Math.floor(Date.now() / 1000);
@@ -66,6 +71,7 @@ test('viewing or closing a completion marks the session read on its workspace', 
   await expect(notices).toHaveCount(0);
   await expect.poll(() => remote.control.readThreads).toEqual([ids.modern, ids.modern]);
   expect(local.control.readThreads).toEqual([]);
+  expect(polled).toEqual([]);
 });
 
 test('the session header and composer follow desktop ownership after a turn completes', async ({

@@ -1,6 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite';
 import type { CompletionNotification, LarkStartTarget } from '../../src/types.js';
-import { LarkDeliveryError, larkReplyForm, sendLark, type WebhookTransport } from './lark.js';
+import { LarkDeliveryError, larkReplyForm, type LarkTransport } from './lark.js';
 import {
   NotificationStore,
   notificationConfigured,
@@ -11,12 +11,13 @@ import {
 import { notificationKey, type NotificationEvent, type NotificationPolicy, type NotificationReport } from './events.js';
 import { notificationMessage } from './messages.js';
 import { CompletionNotifications } from './completions.js';
-import { LarkApp, LarkReplyAttachmentsTooLarge, LarkReplyDocumentError, type LarkRecipient } from './lark-app.js';
+import { LarkApp, LarkReplyAttachmentsTooLarge, LarkReplyDocumentError } from './lark-app.js';
 import {
   larkCompletionAction,
   larkCardAction,
   larkRepliesEnabled,
   larkReply,
+  larkRead,
   larkReplyHistory,
   larkReplyReaction,
   larkQuotedResources,
@@ -95,14 +96,13 @@ export class NotificationService {
   constructor(
     private db: DatabaseSync,
     pollMs: number,
-    private transport?: WebhookTransport,
+    transport?: LarkTransport,
     private listenForReplies: LarkReplyListener = listenForLarkReplies,
   ) {
     this.store = new NotificationStore(db);
     this.app = new LarkApp(transport);
     this.completions = new CompletionNotifications(db);
-    this.larkReads = new LarkReadTracker(this.completions, (signal) =>
-      this.app.sender(this.store.config(), signal));
+    this.larkReads = new LarkReadTracker(this.completions);
     this.timer = setInterval(() => void this.poll(), pollMs);
     this.timer.unref();
     void this.poll();
@@ -130,19 +130,11 @@ export class NotificationService {
   ) {
     const old = this.store.config();
     const next = { ...old, ...input };
-    const connectionChanged =
-      next.mode !== old.mode ||
-      (next.mode === 'app'
-        ? next.appRegion !== old.appRegion ||
-          next.appId !== old.appId ||
-          next.appSecret !== old.appSecret ||
-          next.chatId !== old.chatId
-        : next.webhookUrl !== old.webhookUrl || next.signingSecret !== old.signingSecret);
+    const connectionChanged = next.appRegion !== old.appRegion ||
+      next.appId !== old.appId || next.appSecret !== old.appSecret;
     const openIdsChanged = next.replyOpenIds.length !== old.replyOpenIds.length ||
       next.replyOpenIds.some((id) => !old.replyOpenIds.includes(id));
-    const changed = connectionChanged || (next.mode === 'app' && (
-      next.appRecipientType !== old.appRecipientType || (next.appRecipientType === 'private' && openIdsChanged)
-    ));
+    const changed = connectionChanged || openIdsChanged;
     const reset = input.enabled && (!old.enabled || changed);
     if (!(await authorized())) throw new Error('登录或操作权限已失效，请重新登录');
     if (this.store.config().revision !== old.revision)
@@ -170,7 +162,7 @@ export class NotificationService {
     if (changed || disabled) {
       this.deliveryDestination.abort();
       this.deliveryDestination = new AbortController();
-      this.larkReads.reset('Lark 已读查询已停止，通知接收配置已变更或关闭');
+      this.larkReads.reset();
     }
     this.monitorErrors.clear();
     this.syncReplyListener();
@@ -192,15 +184,21 @@ export class NotificationService {
   }
   private syncReplyListener() {
     const config = this.store.config();
-    const destination = !this.closed && this.submitReply && larkRepliesEnabled(config)
+    const destination = !this.closed && this.submitReply && config.enabled && notificationConfigured(config)
       ? config.larkDestination
       : undefined;
     if (destination === this.replyDestination) return;
     this.replyConnection?.close({ force: true });
     this.replyDestination = destination;
+    const signal = this.destination.signal;
     this.replyConnection = destination
       ? this.listenForReplies(config, (event) => this.receiveReply(destination, event),
-        (event) => this.receiveCompletionAction(destination, event))
+        (event) => this.receiveCompletionAction(destination, event),
+        (event) => {
+          if (signal.aborted || this.closed || this.replyDestination !== destination) return;
+          const receipt = larkRead(this.store.config(), event);
+          if (receipt) this.larkReads.read(receipt.openId, receipt.messageIds);
+        })
       : undefined;
   }
   private async receiveCompletionAction(destination: string, event: unknown): Promise<LarkActionResponse | undefined> {
@@ -209,7 +207,7 @@ export class NotificationService {
     const callback = larkCardAction(config, event);
     if (!callback) return;
     const target = this.store.larkTarget(destination, callback.messageId, true);
-    if (target && (target.chatId ?? config.chatId) !== callback.chatId) return;
+    if (target && target.chatId !== callback.chatId) return;
     if (!this.canUseLarkActions(config, callback.openId)) {
       return { toast: { type: 'error', content: '此账号未获授权操作此卡片。' } };
     }
@@ -299,10 +297,11 @@ export class NotificationService {
     if (this.closed || destination !== this.replyDestination || !this.submitReply)
       return;
     const config = this.store.config();
+    if (!larkRepliesEnabled(config)) return;
     const reply = larkReply(config, event);
     if (!reply) return;
     const referencedTargets = reply.parents.flatMap((id) => this.store.larkTarget(destination, id) ?? []);
-    const target = referencedTargets.find((item) => (item.chatId ?? config.chatId) === reply.chatId);
+    const target = referencedTargets.find((item) => item.chatId === reply.chatId);
     if (!target && referencedTargets.length) return;
     const key = `${destination}:${reply.messageId}`;
     if (!target) {
@@ -326,7 +325,7 @@ export class NotificationService {
         this.starts.set(key, task);
         return;
       }
-      if (!mentions.length && (!reply.isPrivate || !reply.prompt)) return;
+      if (!mentions.length && !reply.prompt) return;
       const signal = AbortSignal.any([this.abort.signal, this.destination.signal, this.replyAuthorization.signal]);
       const job = this.receiveStart(config, reply, mentions, signal)
         .catch(() => { /* A claimed request with no final receipt remains uncertain. */ })
@@ -394,7 +393,7 @@ export class NotificationService {
     const sender = await this.app.sender(config, signal);
     const botId = mentions.length ? await sender.botOpenId() : undefined;
     const botMentions = mentions.filter(({ openId }) => openId === botId);
-    if ((!reply.isPrivate && !botMentions.length) || signal.aborted || !admin.get(config.replyAdminId)) return;
+    if (signal.aborted || !admin.get(config.replyAdminId)) return;
     const { larkDestination: destination } = config;
     if (!this.store.claimLarkStart(destination, reply.messageId, START_UNKNOWN, reply.chatId)) return;
     const result = await this.dispatchStart(config, reply, sender, botMentions.map(({ key }) => key).filter(Boolean), signal);
@@ -409,7 +408,6 @@ export class NotificationService {
     { larkStart: { defaultAlias, targets } }: NotificationConfig,
     input: string,
     hasAttachments: boolean,
-    isPrivate: boolean,
   ): StartTarget | { text: string } {
     const named = namedTarget.exec(input);
     if (named) {
@@ -432,7 +430,6 @@ export class NotificationService {
     const target = selected ?? (explicitShortcut ? undefined : targets.find(({ alias }) => alias === defaultAlias));
     const prompt = selected && shortcut ? input.slice(shortcut[0].length).trimStart() : input;
     if ((!input && !hasAttachments) || !target) {
-      const prefix = isPrivate ? '' : '@机器人 ';
       const choices = targets.map(({ alias, workspaceId, projectName }) => {
         const workspace = this.workspaceName?.(workspaceId) ?? '工作空间已移除';
         return `- \`${alias}\` ${markdownLabel(workspace)}${projectName ? ` / ${markdownLabel(projectName)}` : ''}${alias === defaultAlias ? '（默认）' : ''}`;
@@ -440,9 +437,9 @@ export class NotificationService {
       return { text: [
         explicitShortcut ? '找不到这个简称。' : targets.length ? '**可用会话目标**' : '当前未设置默认会话目标。',
         ...choices,
-        ...(target ? [isPrivate ? '直接发送任务可使用默认目标。' : '直接 @ 机器人并写任务可使用默认目标。'] : []),
-        ...(targets.length ? [`可发送 “${prefix}简称 任务内容” 指定目标。`] : []),
-        `可发送 “${prefix}工作空间/项目 任务内容”。`,
+        ...(target ? ['直接发送任务可使用默认目标。'] : []),
+        ...(targets.length ? ['可发送 “简称 任务内容” 指定目标。'] : []),
+        '可发送 “工作空间/项目 任务内容”。',
       ].join('\n') };
     }
     return { workspaceId: target.workspaceId, project: { projectId: target.projectId }, label: target.projectName ?? target.alias, prompt };
@@ -456,7 +453,7 @@ export class NotificationService {
   ): Promise<{ text: string; workspaceId?: string; sessionId?: string }> {
     const { prompt: input, resources: ownResources, invalidResource } = larkStartContent(reply.message, mentionKeys);
     const target = this.resolveStartTarget(config, input,
-      !!(ownResources.length || reply.parents.length || invalidResource), reply.isPrivate);
+      !!(ownResources.length || reply.parents.length || invalidResource));
     if ('text' in target) return target;
     const { prompt } = target;
     const workspace = this.workspaceName?.(target.workspaceId);
@@ -729,8 +726,8 @@ export class NotificationService {
         const sender = await this.app.sender(config, signal);
         const cardId = await sender.replyCard(replyTo ?? messageId, larkRequestId(destination, messageId), text);
         if (signal.aborted) return;
-        if (workspaceId && sessionId && this.workspaceName?.(workspaceId))
-          this.store.recordLarkMessage(destination, cardId, workspaceId, sessionId, false, undefined, chatId ?? config.chatId);
+        if (workspaceId && sessionId && chatId && this.workspaceName?.(workspaceId))
+          this.store.recordLarkMessage(destination, cardId, workspaceId, sessionId, false, undefined, chatId);
         this.store.updateLarkStartDelivery(destination, messageId, 0);
       } catch {
         if (!signal.aborted)
@@ -775,9 +772,10 @@ export class NotificationService {
           } else if (cardReplyText !== null &&
               !this.store.hasNewerLarkCardReply(destination, cardMessageId, rowid, receipt)) {
             const sender = await this.app.sender(config, signal);
-            const chatId = this.store.larkTarget(destination, cardMessageId, true)?.chatId ?? config.chatId;
-            await sender.completeCardReply(cardMessageId, chatId, { status: receipt, text: cardReplyText },
-              this.store.larkCardText(destination, cardMessageId), cardUpdateToken ?? undefined);
+            const chatId = this.store.larkTarget(destination, cardMessageId, true)?.chatId;
+            if (chatId)
+              await sender.completeCardReply(cardMessageId, chatId, { status: receipt, text: cardReplyText },
+                this.store.larkCardText(destination, cardMessageId), cardUpdateToken ?? undefined);
           }
         } catch (error) {
           if (!(error instanceof LarkDeliveryError) || error.retryable) throw error;
@@ -802,10 +800,7 @@ export class NotificationService {
     if (delivery.revision !== config.revision || !this.store.start(delivery.id)) return;
     const signal = AbortSignal.any([this.abort.signal, this.deliveryDestination.signal]);
     try {
-      const warning =
-        config.mode === 'app'
-          ? await this.deliverApp(config, delivery, signal)
-          : await sendLark(config, delivery.message, signal, this.transport, delivery.kind === 'session.completed');
+      const warning = await this.deliverApp(config, delivery, signal);
       signal.throwIfAborted();
       if (!this.closed) this.store.sent(delivery.id, warning || '');
     } catch (error) {
@@ -831,16 +826,13 @@ export class NotificationService {
     signal: AbortSignal,
   ) {
     const sender = await this.app.sender(config, signal);
-    if (config.appRecipientType === 'group') {
-      return this.deliverAppTo(config, delivery, sender, { type: 'chat_id', id: config.chatId }, delivery.id, signal);
-    }
     const sentTo = JSON.parse(delivery.larkSentTo) as Record<string, string>;
     const failures: LarkDeliveryError[] = [];
     for (const openId of config.replyOpenIds) {
       signal.throwIfAborted();
       if (Object.hasOwn(sentTo, openId)) continue;
       try {
-        sentTo[openId] = await this.deliverAppTo(config, delivery, sender, { type: 'open_id', id: openId },
+        sentTo[openId] = await this.deliverAppTo(config, delivery, sender, openId,
           larkRequestId(delivery.id, openId), signal);
         signal.throwIfAborted();
         this.store.larkDeliveryProgress(delivery.id, sentTo);
@@ -860,17 +852,20 @@ export class NotificationService {
     config: NotificationConfig,
     delivery: PendingDelivery,
     sender: Awaited<ReturnType<LarkApp['sender']>>,
-    recipient: LarkRecipient,
+    openId: string,
     uuid: string,
     signal: AbortSignal,
   ): Promise<string> {
     const completed = delivery.kind === 'session.completed';
     const completionActions = completed && larkRepliesEnabled(config);
     const completion = completionActions ? 'interactive' : completed ? 'read-only' : undefined;
-    const { messageId, chatId } = await sender.card(recipient, uuid, delivery.message, completion);
+    const sendCard = () => sender.card(openId, uuid, delivery.message, completion);
+    const { messageId, chatId } = completed && delivery.eventKey
+      ? await this.larkReads.track(delivery.id, delivery.eventKey, openId, sendCard)
+      : await sendCard();
     signal.throwIfAborted();
     if (delivery.kind === 'test') {
-      await sender.attachment(recipient, `${uuid}-test`, {
+      await sender.attachment(openId, `${uuid}-test`, {
         name: 'codex-monitor-test.txt',
         mime: 'text/plain',
         data: Buffer.from('Codex Monitor attachment test\n'),
@@ -883,12 +878,10 @@ export class NotificationService {
       if (messageId && chatId) {
         this.store.recordLarkMessage(config.larkDestination, messageId, workspaceId, sessionId, completionActions,
           completionActions ? delivery.id : undefined, chatId);
-      } else if (recipient.type === 'open_id') {
+      } else {
         warnings.add('Lark 未返回私聊卡片的消息 ID 或聊天 ID，无法关联卡片操作');
       }
     }
-    if (delivery.kind === 'session.completed' && delivery.eventKey)
-      this.larkReads.track(delivery.id, delivery.eventKey, messageId);
     if (!this.readAttachment || !workspaceId || !sessionId || !turnId || occurredAt === null)
       return [...warnings].join('；');
     for (let index = 0; index < NOTIFICATION_ATTACHMENT_LIMIT; index++) {
@@ -904,7 +897,7 @@ export class NotificationService {
           warnings.add('部分附件无法读取、格式不可用或超过大小限制');
           continue;
         }
-        await sender.attachment(recipient, `${uuid}-${index}`, file);
+        await sender.attachment(openId, `${uuid}-${index}`, file);
       } catch (error) {
         if (signal.aborted || !(error instanceof LarkDeliveryError)) throw error;
         if (error.retryable && delivery.attempts < 2) throw error;
@@ -916,16 +909,13 @@ export class NotificationService {
   test() {
     if (this.testTask || Date.now() - this.lastTestAt < 5000) return undefined;
     const config = this.store.config();
-    if (!notificationConfigured(config)) throw new Error('请先保存所选方式的通知配置');
+    if (!notificationConfigured(config)) throw new Error('请先保存私聊通知配置');
     this.lastTestAt = Date.now();
     const id = this.store.enqueue(
       {
         kind: 'test',
-        title: config.mode === 'app' ? '应用机器人测试通知' : 'Webhook 测试通知',
-        message:
-          config.mode === 'app'
-            ? '✅ **Codex Monitor 测试通知**\n本次测试还会发送一个文本附件。'
-            : '✅ **Codex Monitor 测试通知**\n飞书/Lark Webhook 连接测试成功。',
+        title: '应用机器人测试通知',
+        message: '✅ **Codex Monitor 测试通知**\n本次测试还会发送一个文本附件。',
       },
       config.revision,
     )!;
@@ -942,6 +932,8 @@ export class NotificationService {
     this.replyConnection?.close({ force: true });
     clearInterval(this.timer);
     this.abort.abort();
-    return Promise.allSettled([this.busy, this.testTask, this.larkReads.close(), this.replyScan, this.startScan, ...this.starts.values(), ...[...this.replies.values()].map(({ feedback }) => feedback)]).then(() => {});
+    this.larkReads.reset();
+    this.completions.close();
+    return Promise.allSettled([this.busy, this.testTask, this.replyScan, this.startScan, ...this.starts.values(), ...[...this.replies.values()].map(({ feedback }) => feedback)]).then(() => {});
   }
 }

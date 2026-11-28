@@ -12,7 +12,7 @@ npm run test:e2e -- --repeat-each=3
 
 全新 Linux 环境把安装浏览器的命令换成 `npx playwright install --with-deps chromium`。无需预先启动服务。可用 `--project=desktop`、`--project=mobile` 或 `--grep` 缩小范围。失败后可用 `npx playwright show-report` 查看报告。
 
-每条用例启动自己的 Server、SQLite/JSONL 数据、临时项目和至少一个真实 Client，监听 `127.0.0.1` 的系统分配端口。Server 使用 `dist/public`，通过真实加密 WebSocket 访问 Client，并以 SSE 向浏览器推送更新。只有 Codex 桌面操作使用测试替身；浏览器不访问外部站点，Webhook 不外发。诊断产物可能含测试生成的临时登录数据，不含真实账户、密钥或会话。
+每条用例启动自己的 Server、SQLite/JSONL 数据、临时项目和至少一个真实 Client，监听 `127.0.0.1` 的系统分配端口。Server 使用 `dist/public`，通过真实加密 WebSocket 访问 Client，并以 SSE 向浏览器推送更新。只有 Codex 桌面操作使用测试替身；浏览器不访问外部站点，飞书/Lark 推送使用替身。诊断产物可能含测试生成的临时登录数据，不含真实账户、密钥或会话。
 
 | 测试层 | 覆盖范围 |
 | --- | --- |

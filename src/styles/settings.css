@@ -263,12 +263,6 @@
 .lark-start-targets .secondary {
   justify-self: start;
 }
-.notification-mode {
-  justify-self: start;
-}
-.notification-hint {
-  overflow-wrap: anywhere;
-}
 .notification-actions,
 .sub2api-settings-actions {
   display: flex;

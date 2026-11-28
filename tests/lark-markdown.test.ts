@@ -55,7 +55,7 @@ test('Lark cards turn inline and reference images into ordinary HTTP links', () 
   assert.ok(result.includes('[图片](<http://example.com/empty.png>)'));
 });
 
-test('local and unsupported image sources become readable session placeholders', () => {
+test('local and unsupported image sources become plain captions', () => {
   for (const source of [
     '/tmp/screenshot.png',
     'C:/Users/test/screenshot.png',
@@ -67,7 +67,7 @@ test('local and unsupported image sources become readable session placeholders',
   ]) {
     assert.equal(
       larkMarkdown(`![页面截图](<${source}>)`),
-      '页面截图（请在会话中查看图片）',
+      '页面截图',
       source,
     );
   }
@@ -88,7 +88,7 @@ test('image conversion preserves code, escaped syntax, ordinary links and trunca
     '![被截断](https://example.com/unfinished',
   ].join('\n');
   const result = larkMarkdown(`![截图](/tmp/real.png)\n\n${unchanged}`);
-  assert.equal(result, `截图（请在会话中查看图片）\n\n${unchanged}`);
+  assert.equal(result, `截图\n\n${unchanged}`);
 });
 
 test('linked thumbnails retain the outer link and image captions cannot introduce new markup', () => {

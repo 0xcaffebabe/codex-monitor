@@ -46,7 +46,7 @@ const eventSchema = z.object({
     parent_id: z.string().optional(),
     root_id: z.string().optional(),
     chat_id: larkChatId,
-    chat_type: z.enum(['group', 'p2p']),
+    chat_type: z.literal('p2p'),
     message_type: z.string(),
     content: z.string().max(64 * 1024),
     mentions: z.array(z.object({
@@ -172,7 +172,6 @@ export function larkReply(config: NotificationConfig, event: unknown) {
   const { app_id, sender, message } = parsed.data;
   if (
     (app_id && app_id !== config.appId) ||
-    (message.chat_type === 'group' && message.chat_id !== config.chatId) ||
     !config.replyOpenIds.includes(sender.sender_id.open_id)
   )
     return;
@@ -182,7 +181,6 @@ export function larkReply(config: NotificationConfig, event: unknown) {
   return {
     messageId: message.message_id,
     chatId: message.chat_id,
-    isPrivate: message.chat_type === 'p2p',
     senderId: sender.sender_id.open_id,
     createdAt: Number(message.create_time ?? 0),
     threadId: message.thread_id,
@@ -316,7 +314,6 @@ export function larkRequestId(destination: string, messageId: string) {
 export function larkRepliesEnabled(config: NotificationConfig) {
   return (
     config.enabled &&
-    config.mode === 'app' &&
     notificationConfigured(config) &&
     !!config.replyAdminId &&
     !!config.replyOpenIds.length
@@ -390,9 +387,23 @@ export type LarkReplyListener = (
   config: NotificationConfig,
   receive: (event: unknown) => Promise<void>,
   receiveAction: (event: unknown) => Promise<LarkActionResponse | undefined>,
+  receiveRead: (event: unknown) => void,
 ) => Pick<WSClient, 'getConnectionStatus' | 'close'>;
 
-export const listenForLarkReplies: LarkReplyListener = (config, receive, receiveAction) => {
+const readEvent = z.object({
+  app_id: z.string(),
+  reader: z.object({ reader_id: z.object({ open_id: z.string() }) }),
+  message_id_list: z.array(messageId).min(1).max(1000),
+});
+
+export function larkRead(config: NotificationConfig, event: unknown) {
+  const parsed = readEvent.safeParse(event);
+  if (!parsed.success || parsed.data.app_id !== config.appId) return;
+  const openId = parsed.data.reader.reader_id.open_id;
+  if (config.replyOpenIds.includes(openId)) return { openId, messageIds: parsed.data.message_id_list };
+}
+
+export const listenForLarkReplies: LarkReplyListener = (config, receive, receiveAction, receiveRead) => {
   // The SDK can log event contents and request details. Only expose connection state.
   const quiet = () => {};
   const logger = { error: quiet, warn: quiet, info: quiet, debug: quiet, trace: quiet };
@@ -411,6 +422,7 @@ export const listenForLarkReplies: LarkReplyListener = (config, receive, receive
       });
       const eventDispatcher = new EventDispatcher({ logger }).register({
         'im.message.receive_v1': receive,
+        'im.message.message_read_v1': receiveRead,
         'card.action.trigger': receiveAction,
       });
       await client.start({ eventDispatcher });

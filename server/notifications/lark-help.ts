@@ -45,7 +45,7 @@ const statuses: Record<Session['status'], string> = {
 const plain = (content: string) => ({ tag: 'plain_text', content });
 const label = (value: string) => value.replace(/\s+/g, ' ').trim();
 const markdownLabel = (value: string) => label(value).replace(/[\\`*_[\]<>~]/g, '\\$&');
-const panel = (text: string) => larkCard(text, { app: true }).body.elements[0];
+const panel = (text: string) => larkCard(text).body.elements[0];
 const action = (text: string, help: string, target?: string, shortcut?: string) => ({
   tag: 'button', text: plain(text), behaviors: [{ type: 'callback', value: { help, target, shortcut } }],
 });

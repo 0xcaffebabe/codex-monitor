@@ -15,7 +15,7 @@ import { MonitorClient } from '../server/client/connection.js';
 import { AuthStore } from '../server/auth.js';
 import { ControlError } from '../server/control-error.js';
 import { NotificationStore } from '../server/notifications/store.js';
-import type { WebhookTransport } from '../server/notifications/lark.js';
+import type { LarkTransport } from '../server/notifications/lark.js';
 import type { LarkReplyListener } from '../server/notifications/lark-replies.js';
 import { CHUNK_BYTES, frameSchema, workspacePath } from '../server/transport/protocol.js';
 import { commitAndPushCodeShortcut, commitCodeShortcut } from '../src/shared/git-commit-shortcuts.js';
@@ -26,10 +26,11 @@ const settings = {
   completionMode: 'all',
   enabled: true,
   provider: 'lark',
-  webhookUrl: webhook,
-  signingSecret: 'server-only-signing-secret',
+  appId: 'cli_monitor',
+  appSecret: 'server-only-app-secret',
+  replyOpenIds: ['ou_test'],
   publicUrl: 'https://monitor.example.com/',
-} as const;
+} satisfies import('../server/notifications/store.js').NotificationInput & { provider: 'lark' };
 
 async function until(check: () => boolean | Promise<boolean>) {
   const deadline = Date.now() + 8000;
@@ -58,9 +59,11 @@ function complete(f: ReturnType<typeof fixture>, turnId: string, text: string) {
 }
 async function central(
   f: ReturnType<typeof fixture>,
-  transport: WebhookTransport,
+  transport: LarkTransport,
   port = 0,
-  larkReplyListener?: LarkReplyListener,
+  larkReplyListener: LarkReplyListener = () => ({
+    close() {}, getConnectionStatus: () => ({ state: 'connected', reconnectAttempts: 0 }),
+  }),
 ) {
   const service = createMonitorServer(
     {
@@ -69,7 +72,7 @@ async function central(
       codexHome: path.join(f.root, 'server-has-no-codex'),
       pollMs: 60000,
     },
-    { webhookTransport: transport, larkReplyListener },
+    { larkTransport: transport, larkReplyListener },
   );
   const server = createServer(service.app);
   service.gateway.attach(server, () => true);
@@ -184,7 +187,7 @@ test('Lark starts sessions by name, default, or alias and continues from the sta
     const save = (defaultAlias: string, configured = targets) => fetch(server.base + '/api/notifications', {
       method: 'PUT', headers,
       body: JSON.stringify({
-        provider: 'lark', mode: 'app', appId: 'cli_monitor', appSecret: 'test', chatId: 'oc_team',
+        provider: 'lark', appId: 'cli_monitor', appSecret: 'test',
         enabled: true, publicUrl: 'https://monitor.example.com/', replyOpenIds: ['ou_allowed'],
         larkStart: { defaultAlias, targets: configured },
       }),
@@ -199,7 +202,7 @@ test('Lark starts sessions by name, default, or alias and continues from the sta
       sender: { sender_type: 'user', sender_id: { open_id: options.sender ?? 'ou_allowed' } },
       message: {
         message_id: messageId, chat_id: options.privateChat ?? 'oc_team',
-        chat_type: options.privateChat ? 'p2p' : 'group', message_type: 'text',
+        chat_type: 'p2p', message_type: 'text',
         parent_id: options.parentId, root_id: options.rootId,
         create_time: options.createdAt,
         mentions: options.privateChat ? undefined : [{ key: '@_user_1', id: { open_id: options.mentioned ?? 'ou_bot' } }],
@@ -214,7 +217,8 @@ test('Lark starts sessions by name, default, or alias and continues from the sta
       return cards.get(id)!;
     };
     await receive(event('om_wrong_user', 'rt-pc/work 任务', { sender: 'ou_other' }));
-    await receive(event('om_other_mention', 'rt-pc/work 任务', { mentioned: 'ou_teammate' }));
+    const groupMessage = event('om_group_message', 'rt-pc/work 任务');
+    await receive({ ...groupMessage, message: { ...groupMessage.message, chat_type: 'group' } });
     await receive(event('om_no_default', ''));
     assert.match((await waitForCard('om_no_default')).text, /工作空间\/项目/);
     await receive(event('om_no_workspace', 'missing/work 检查日志'));
@@ -269,8 +273,8 @@ test('Lark starts sessions by name, default, or alias and continues from the sta
     await receive(event('om_help', ''));
     const help = (await waitForCard('om_help')).text;
     assert.match(help, /w.*Windows.*默认/);
-    assert.match(help, /@机器人 简称 任务内容/);
-    assert.ok(!cards.has('om_other_mention') && !cards.has('om_wrong_user'));
+    assert.match(help, /简称 任务内容/);
+    assert.ok(!cards.has('om_group_message') && !cards.has('om_wrong_user'));
 
     const start = event('om_default', 'migrate 查一下断线');
     await Promise.all([receive(start), receive(start)]);
@@ -315,7 +319,7 @@ test('Lark starts sessions by name, default, or alias and continues from the sta
     assert.equal((await fetch(server.base + '/api/notifications', {
       method: 'PUT', headers,
       body: JSON.stringify({
-        provider: 'lark', mode: 'app', appId: 'cli_monitor', appSecret: 'test', chatId: 'oc_team',
+        provider: 'lark', appId: 'cli_monitor', appSecret: 'test',
         enabled: true, publicUrl: 'https://monitor.example.com/', replyOpenIds: ['ou_allowed', 'ou_member'],
         larkStart: { defaultAlias: 'w', targets },
       }),
@@ -366,14 +370,14 @@ test('Lark starts sessions by name, default, or alias and continues from the sta
     }))?.card?.data as MenuCard;
     assert.match(session.body.elements[0].content!, /rt-pc/);
     const [replyInput, replyButton] = menuForm(session);
-    const send = { name: replyButton.name, form_value: { [replyInput.name!]: '来自群菜单的后续消息' } };
+    const send = { name: replyButton.name, form_value: { [replyInput.name!]: '来自私聊菜单的后续消息' } };
     const clickId = randomUUID();
     const sendResults = await Promise.all([click(send, { id: clickId }), click(send, { id: clickId })]);
     assert.ok(sendResults.every((result) => result?.toast?.type === 'success' || result?.toast?.type === 'info'));
     await until(() => desks[1].sends === 5);
     assert.equal(desks[0].sends, 2);
     assert.ok(b.hist.prepare("SELECT 1 FROM thread_items WHERE thread_id=? AND item_json LIKE ?")
-      .get(target.sessionId, '%来自群菜单的后续消息%'));
+      .get(target.sessionId, '%来自私聊菜单的后续消息%'));
     const git = await click(press(session, '提交代码'));
     assert.ok(git?.toast?.type === 'success' || git?.toast?.type === 'info');
     await until(() => desks[1].sends === 6);
@@ -411,7 +415,7 @@ test('Lark starts sessions by name, default, or alias and continues from the sta
     const privateTarget = store.larkTarget(destination, privateReceipt.id)!;
     assert.equal(privateTarget.chatId, 'oc_private');
     assert.equal(privateTarget.workspaceId, targets[1].workspaceId);
-    await receive(event('om_cross_chat', '不能用群卡片继续', { ...privateOptions, parentId: second.id }));
+    await receive(event('om_cross_chat', '不能跨聊天使用卡片', { ...privateOptions, parentId: second.id }));
     await receive(event('om_private_followup', '检查私聊附件', {
       ...privateOptions, parentId: privateReceipt.id, createdAt: String(Date.now()),
     }));
@@ -566,7 +570,7 @@ test('authorized Lark quotes target the card workspace and reuse the Monitor mes
     assert.equal(pathname, '/open-apis/im/v1/messages');
     const cardId = 'om_card_' + ++cardCount;
     completionCards.set(cardId, JSON.parse(String(init?.body)).content);
-    return Response.json({ code: 0, data: { message_id: cardId } });
+    return Response.json({ code: 0, data: { message_id: cardId, chat_id: 'oc_team' } });
   }, 0, (_config, handler, actionHandler) => {
     receive = handler;
     receiveAction = actionHandler;
@@ -597,8 +601,8 @@ test('authorized Lark quotes target the card workspace and reuse the Monitor mes
       method: 'PUT',
       headers,
       body: JSON.stringify({
-        provider: 'lark', mode: 'app', appId: 'cli_monitor', appSecret: 'test',
-        chatId: 'oc_team', enabled: true, completionMode: 'all', publicUrl: '', replyOpenIds,
+        provider: 'lark', appId: 'cli_monitor', appSecret: 'test',
+        enabled: replyOpenIds.length > 0, completionMode: 'all', publicUrl: '', replyOpenIds,
       }),
     });
     assert.equal((await save(['bad-id'])).status, 400);
@@ -619,7 +623,7 @@ test('authorized Lark quotes target the card workspace and reuse the Monitor mes
       app_id: 'cli_monitor',
       sender: { sender_type: 'user', sender_id: { open_id: openId } },
       message: {
-        message_id: id, chat_id: 'oc_team', chat_type: 'group', message_type: 'text',
+        message_id: id, chat_id: 'oc_team', chat_type: 'p2p', message_type: 'text',
         parent_id: 'om_card_2',
         mentions: [{ key: '@_user_1' }],
         content: JSON.stringify({ text: '@_user_1 请继续\n补充说明' }),
@@ -862,7 +866,7 @@ test('authorized Lark quotes target the card workspace and reuse the Monitor mes
         },
       }, { needCheck: false });
     const commit = commitCodeShortcut.id;
-    store.recordLarkMessage(store.config().larkDestination, 'om_startup_card', workspaces[1].workspace.id, ids.modern);
+    store.recordLarkMessage(store.config().larkDestination, 'om_startup_card', workspaces[1].workspace.id, ids.modern, false, undefined, 'oc_team');
     assert.equal((await click('wrong-user', commit, { openId: 'ou_other' }))?.toast.type, 'error');
     assert.equal((await click('startup-card', commit, { messageId: 'om_startup_card' }))?.toast.type, 'error');
     assert.equal(await click('wrong-chat', commit, { chatId: 'oc_other' }), undefined);
@@ -940,7 +944,7 @@ test('authorized Lark quotes target the card workspace and reuse the Monitor mes
     });
     assert.equal(cardPatchAttempts, 4);
 
-    store.recordLarkMessage(store.config().larkDestination, 'om_legacy', workspaces[0].workspace.id, ids.modern, true);
+    store.recordLarkMessage(store.config().larkDestination, 'om_legacy', workspaces[0].workspace.id, ids.modern, true, undefined, 'oc_team');
     assert.equal((await click('send-legacy-form', undefined, {
       messageId: 'om_legacy', formText: '从旧卡片继续', token: 'c-legacy-token',
     }))?.toast.type, 'success');
@@ -1034,7 +1038,7 @@ test('Lark app settings send cards, native images and files from a remote worksp
     }
     assert.equal(new Headers(init?.headers).get('authorization'), 'Bearer tenant-token');
     if (endpoint.pathname.endsWith('/messages')) {
-      assert.equal(endpoint.searchParams.get('receive_id_type'), 'chat_id');
+      assert.equal(endpoint.searchParams.get('receive_id_type'), 'open_id');
       messages.push(JSON.parse(String(init?.body)));
       return Response.json({ code: 0 });
     }
@@ -1062,11 +1066,10 @@ test('Lark app settings send cards, native images and files from a remote worksp
         headers,
         body: JSON.stringify({
           provider: 'lark',
-          mode: 'app',
           appRegion: 'lark',
           appId: 'cli_monitor',
           appSecret,
-          chatId: 'oc_team',
+          replyOpenIds: ['ou_test'],
           enabled,
           completionMode: 'all',
           publicUrl: '',
@@ -1116,7 +1119,7 @@ test('Lark app settings send cards, native images and files from a remote worksp
         );
     });
     assert.equal(tokenRequests, 1);
-    assert.ok(messages.every((item) => item.receive_id === 'oc_team' && item.uuid.length <= 50));
+    assert.ok(messages.every((item) => item.receive_id === 'ou_test' && item.uuid.length <= 50));
     assert.deepEqual(
       messages.slice(2).map((item) => item.msg_type),
       ['interactive', 'image', 'file'],
@@ -1124,7 +1127,7 @@ test('Lark app settings send cards, native images and files from a remote worksp
     assert.match(messages[2].content, /截图/);
     const completionCard = JSON.parse(messages[2].content);
     assert.equal(completionCard.header.template, 'green');
-    assert.deepEqual(completionCard.body.elements.map(({ tag }: { tag: string }) => tag), ['markdown']);
+    assert.deepEqual(completionCard.body.elements.map(({ tag }: { tag: string }) => tag), ['markdown', 'form', 'column_set']);
     assert.doesNotMatch(messages[2].content, /shot\.png|\.env/);
     assert.deepEqual(JSON.parse(messages[3].content), { image_key: 'img_test' });
     assert.deepEqual(JSON.parse(messages[4].content), { file_key: 'file_test' });
@@ -1142,7 +1145,7 @@ test('Lark app settings send cards, native images and files from a remote worksp
   }
 });
 
-test('Lark app switches outbound notifications between a group and authorized private recipients', async () => {
+test('Lark app sends only to authorized private recipients and retries each recipient independently', async () => {
   const f = fixture();
   const messages: { receiveId: string; type: string; kind: string; uuid: string }[] = [];
   let retryMember = true;
@@ -1176,7 +1179,7 @@ test('Lark app switches outbound notifications between a group and authorized pr
     const save = (options: object = {}) => fetch(server.base + '/api/notifications', {
       method: 'PUT', headers,
       body: JSON.stringify({
-        provider: 'lark', mode: 'app', appId: 'cli_monitor', appSecret: 'test', chatId: 'oc_team',
+        provider: 'lark', appId: 'cli_monitor', appSecret: 'test',
         replyOpenIds: ['ou_owner', 'ou_member'], completionMode: 'all', enabled: true, publicUrl: '', ...options,
       }),
     });
@@ -1195,26 +1198,11 @@ test('Lark app switches outbound notifications between a group and authorized pr
       context: { open_message_id: messageId, open_chat_id: chatId },
       action: { tag: 'button', value: { shortcut: commitCodeShortcut.id } },
     });
-    assert.equal((await save({ appRecipientType: 'private', replyOpenIds: [] })).status, 400);
-    assert.equal((await save({ appRecipientType: 'private', chatId: '', enabled: false })).status, 200);
-    const group = await save({ appRecipientType: 'group' });
-    assert.equal(group.status, 200);
-    assert.equal((await group.json()).settings.appRecipientType, 'group');
-    assert.equal(completeTurn('group'), true);
-    await service.poll();
-    assert.deepEqual(messages.map(({ receiveId, type, kind }) => [receiveId, type, kind]), [
-      ['oc_team', 'chat_id', 'interactive'], ['oc_team', 'chat_id', 'file'],
-    ]);
-    const destination = store.config().larkDestination;
-    assert.equal(completeTurn('queued-for-group'), true);
-    const switched = await save({ appRecipientType: 'private' });
-    assert.equal(switched.status, 200);
-    assert.equal((await switched.json()).settings.appRecipientType, 'private');
-    assert.equal(store.config().larkDestination, destination);
+    assert.equal((await save({ replyOpenIds: [] })).status, 400);
+    assert.equal((await save({ appRecipientType: 'group', chatId: 'oc_team' })).status, 400);
+    assert.equal((await save({ mode: 'webhook', webhookUrl: webhook })).status, 400);
+    assert.equal((await save()).status, 200);
     assert.equal(listenerStarts, 1);
-    assert.equal(store.history()[0].status, 'cancelled');
-    assert.equal((await click('om_sent_1', 'oc_team'))?.toast?.content, '工作空间已离线，请等客户端重新连接后再试。');
-
     assert.equal(completeTurn('private'), true);
     await service.poll();
     const delivery = store.history().find(({ status }) => status === 'pending')!;
@@ -1222,18 +1210,18 @@ test('Lark app switches outbound notifications between a group and authorized pr
     server.service.auth.db.prepare('UPDATE notification_deliveries SET next_attempt_at=0 WHERE id=?').run(delivery.id);
     await service.poll();
     assert.equal(store.delivery(delivery.id)?.status, 'sent');
-    assert.deepEqual(messages.slice(2).map(({ receiveId, type, kind }) => [receiveId, type, kind]), [
+    assert.deepEqual(messages.map(({ receiveId, type, kind }) => [receiveId, type, kind]), [
       ['ou_owner', 'open_id', 'interactive'], ['ou_owner', 'open_id', 'file'],
       ['ou_member', 'open_id', 'interactive'], ['ou_member', 'open_id', 'interactive'], ['ou_member', 'open_id', 'file'],
     ]);
-    assert.equal(messages[4].uuid, messages[5].uuid);
-    assert.notEqual(messages[2].uuid, messages[5].uuid);
-    assert.equal(await click('om_sent_3', 'oc_ou_member'), undefined);
-    assert.equal((await click('om_sent_3', 'oc_ou_owner'))?.toast?.content, '工作空间已离线，请等客户端重新连接后再试。');
+    assert.equal(messages[2].uuid, messages[3].uuid);
+    assert.notEqual(messages[0].uuid, messages[3].uuid);
+    assert.equal(await click('om_sent_1', 'oc_ou_member'), undefined);
+    assert.equal((await click('om_sent_1', 'oc_ou_owner'))?.toast?.content, '工作空间已离线，请等客户端重新连接后再试。');
 
     const tested = await fetch(server.base + '/api/notifications/test', { method: 'POST', headers });
     assert.equal(tested.status, 200, await tested.text());
-    assert.deepEqual(messages.slice(7).map(({ receiveId, kind }) => [receiveId, kind]), [
+    assert.deepEqual(messages.slice(5).map(({ receiveId, kind }) => [receiveId, kind]), [
       ['ou_owner', 'interactive'], ['ou_owner', 'file'], ['ou_member', 'interactive'], ['ou_member', 'file'],
     ]);
   } finally {
@@ -1250,12 +1238,21 @@ test('Server owns one configuration and delivers events from two encrypted clien
   const receiver = createServer(async (request, response) => {
     let body = '';
     for await (const chunk of request) body += chunk.toString();
-    received.push(JSON.parse(body));
+    const message = JSON.parse(body);
+    received.push({ ...message, card: JSON.parse(message.content) });
     response.writeHead(200, { 'Content-Type': 'application/json' }).end('{"code":0}');
   }).listen(0, '127.0.0.1');
   await once(receiver, 'listening');
-  const server = await central(a, (url, init) => {
-    assert.equal(url, webhook);
+  const server = await central(a, async (url, init) => {
+    const endpoint = new URL(String(url));
+    assert.equal(endpoint.origin, 'https://open.larksuite.com');
+    if (endpoint.pathname.includes('/auth/'))
+      return Response.json({ code: 0, tenant_access_token: 'test-token', expire: 7200 });
+    if (endpoint.pathname.endsWith('/files'))
+      return Response.json({ code: 0, data: { file_key: 'file_test' } });
+    if (JSON.parse(String(init?.body)).msg_type === 'file')
+      return Response.json({ code: 0 });
+    assert.equal(endpoint.searchParams.get('receive_id_type'), 'open_id');
     return fetch(`http://127.0.0.1:${(receiver.address() as { port: number }).port}`, init);
   });
   const clients: MonitorClient[] = [];
@@ -1273,7 +1270,7 @@ test('Server owns one configuration and delivers events from two encrypted clien
       body: JSON.stringify({ ...settings, enabled: false }),
     });
     assert.equal(saved.status, 200);
-    assert.doesNotMatch(await saved.text(), /server-only-signing-secret|aaaaaaaa-bbbb/);
+    assert.doesNotMatch(await saved.text(), /server-only-app-secret/);
     assert.equal(
       (await fetch(server.base + '/api/notifications/test', { method: 'POST', headers })).status,
       200,
@@ -1284,7 +1281,7 @@ test('Server owns one configuration and delivers events from two encrypted clien
     const legacy = new AuthStore(a.config.dataDir);
     const oldNotifications = new NotificationStore(legacy.db);
     oldNotifications.save(
-      { ...settings, webhookUrl: webhook.replace('aaaaaaaa', 'bbbbbbbb') },
+      { ...settings, appSecret: 'retired-app-secret' },
       Date.now(),
       true,
     );
@@ -1314,11 +1311,12 @@ test('Server owns one configuration and delivers events from two encrypted clien
     });
     try {
       const retired = clientDb
-        .prepare('SELECT enabled,webhook_url,signing_secret FROM notification_settings')
+        .prepare('SELECT enabled,webhook_url,signing_secret,app_secret FROM notification_settings')
         .get()!;
       assert.equal(retired.enabled, 0);
       assert.equal(retired.webhook_url, '');
       assert.equal(retired.signing_secret, '');
+      assert.equal(retired.app_secret, '');
       assert.equal(
         clientDb.prepare('SELECT status FROM notification_deliveries WHERE event_key=?').get('old')!
           .status,
@@ -1388,8 +1386,10 @@ test('lost report acknowledgements replay safely after both sides restart and Se
   const f = fixture();
   f.config.pollMs = 60000;
   let calls = 0;
-  const transport: WebhookTransport = async () =>
-    Response.json({ code: 0 }, { status: ++calls === 1 ? 503 : 200 });
+  const transport: LarkTransport = async (url) =>
+    String(url).includes('/auth/')
+      ? Response.json({ code: 0, tenant_access_token: 'test-token', expire: 7200 })
+      : Response.json({ code: 0 }, { status: ++calls === 1 ? 503 : 200 });
   let server = await central(f, transport);
   let client: MonitorClient | undefined;
   try {
@@ -1444,8 +1444,14 @@ test('lost report acknowledgements replay safely after both sides restart and Se
     server.service.auth.db.prepare('UPDATE notification_deliveries SET next_attempt_at=0').run();
     await server.service.notifications.poll();
     assert.equal(calls, 2);
-    assert.equal(server.service.notifications.state().deliveries[0].status, 'sent');
-    assert.equal(server.service.notifications.state().deliveries[0].attempts, 2);
+    assert.equal(server.service.notifications.state().deliveries[0].status, 'pending');
+    server.service.auth.db.prepare('UPDATE notification_deliveries SET next_attempt_at=0').run();
+    await server.service.notifications.poll();
+    const [delivery] = server.service.notifications.state().deliveries;
+    assert.equal(calls, 3);
+    assert.equal(delivery.status, 'sent');
+    assert.equal(delivery.attempts, 3);
+    assert.match(delivery.error, /暂无法读取通知附件/);
   } finally {
     await client?.close();
     await server.close();
@@ -1500,7 +1506,7 @@ test('notification frames carry bounded events only and cannot override the auth
   assert.equal(workspacePath('POST', '/api/notifications/test'), false);
 });
 
-test('upgrading an existing standalone database preserves its configuration, pending deliveries and deduplication keys', () => {
+test('upgrading an existing standalone database disables legacy push and preserves delivery history and deduplication keys', () => {
   const db = new DatabaseSync(':memory:');
   try {
     db.exec(`CREATE TABLE notification_settings (
@@ -1513,21 +1519,22 @@ test('upgrading an existing standalone database preserves its configuration, pen
     );`);
     db.prepare('INSERT INTO notification_settings VALUES(1,1,?,?,?,1000,2000,7,1001)').run(
       webhook,
-      settings.signingSecret,
+      'legacy-signing-secret',
       settings.publicUrl,
     );
     db.prepare(
       "INSERT INTO notification_deliveries VALUES('old','session:turn','session.completed','session','title','body','pending',1,'',1000,NULL,5000,7)",
     ).run();
     let store = new NotificationStore(db);
-    assert.equal(store.config().webhookUrl, webhook);
-    assert.equal(store.config().signingSecret, settings.signingSecret);
-    assert.equal(store.config().revision, 7);
+    assert.equal(store.config().enabled, false);
+    assert.equal(store.config().publicUrl, settings.publicUrl);
+    assert.equal(store.config().revision, 8);
     assert.equal(store.has('local:session:turn'), true);
-    assert.equal(store.history()[0].status, 'pending');
+    assert.equal(store.history()[0].status, 'cancelled');
     assert.equal(store.history()[0].workspaceId, 'local');
     assert.equal(store.history()[0].attempts, 1);
     store = new NotificationStore(db);
+    assert.equal(store.config().revision, 8);
     assert.equal(store.has('local:session:turn'), true, 'migration does not namespace a key twice');
     assert.equal(store.has('local:local:session:turn'), false);
   } finally {

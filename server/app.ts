@@ -7,19 +7,19 @@ import { installFrontend } from './http/frontend.js';
 import { installWorkspaceRuntime, type WorkspaceServices } from './workspace-runtime.js';
 import { NotificationService } from './notifications/service.js';
 import { NotificationReporter } from './notifications/reporter.js';
-import type { WebhookTransport } from './notifications/lark.js';
+import type { LarkTransport } from './notifications/lark.js';
 import { installNotificationRoutes } from './http/notification-routes.js';
 
 /** Local HTTP harness for capability tests; production uses server-app and client/connection. */
 export function createApp(
   config: Config,
-  services: WorkspaceServices & { publicDir?: string; webhookTransport?: WebhookTransport } = {},
+  services: WorkspaceServices & { publicDir?: string; larkTransport?: LarkTransport } = {},
 ) {
   const app = express(),
     auth = new AuthStore(config.dataDir, config.sessionDays);
   installAccountApi(app, auth, config);
   const runtime = installWorkspaceRuntime(app, config, auth, services);
-  const notifications = new NotificationService(auth.db, config.pollMs, services.webhookTransport);
+  const notifications = new NotificationService(auth.db, config.pollMs, services.larkTransport);
   notifications.readAttachment = (_workspaceId, ref, signal) =>
     runtime.notificationAttachments.read(ref, signal);
   const notificationReporter = new NotificationReporter(

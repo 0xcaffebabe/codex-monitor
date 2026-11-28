@@ -9,6 +9,7 @@ export class CompletionNotifications {
   private readonly generation = randomUUID();
   private revision = 0;
   private pending = new Map<number, CompletionNotification>();
+  private listeners = new Set<(snapshot?: CompletionNotificationSnapshot) => void>();
   constructor(private db: DatabaseSync) {
     db.exec(`CREATE TABLE IF NOT EXISTS browser_notification_state (
       id INTEGER PRIMARY KEY CHECK(id=1), since INTEGER NOT NULL
@@ -53,7 +54,7 @@ export class CompletionNotifications {
     if (!notifications.length) return;
     for (const notification of notifications) this.pending.set(notification.id, notification);
     while (this.pending.size > 50) this.pending.delete(this.pending.keys().next().value!);
-    this.revision++;
+    this.changed();
   }
   pendingId(eventKey: string) {
     const row = this.db.prepare('SELECT seq FROM browser_notifications WHERE event_key=?').get(eventKey);
@@ -73,12 +74,27 @@ export class CompletionNotifications {
       notifications: [...this.pending.values()],
     };
   }
+  subscribe(listener: (snapshot?: CompletionNotificationSnapshot) => void) {
+    this.listeners.add(listener);
+    listener(this.snapshot());
+    return () => { this.listeners.delete(listener); };
+  }
+  close() {
+    for (const listener of this.listeners) listener();
+    this.listeners.clear();
+  }
+  private changed() {
+    this.revision++;
+    if (!this.listeners.size) return;
+    const snapshot = this.snapshot();
+    for (const listener of this.listeners) listener(snapshot);
+  }
   dismiss(generation: string, ids: number[]) {
     // An old page cannot clear notices belonging to a restarted Server.
     if (generation !== this.generation) return undefined;
     let changed = false;
     for (const id of ids) if (this.pending.delete(id)) changed = true;
-    if (changed) this.revision++;
+    if (changed) this.changed();
     return this.snapshot();
   }
 }

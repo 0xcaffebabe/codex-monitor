@@ -36,7 +36,7 @@ async function startMonitor(defer: Cleanup) {
   });
   const monitor = createMonitorServer(config, {
     publicDir,
-    webhookTransport: () => Promise.reject(new Error('External delivery is disabled in E2E')),
+    larkTransport: () => Promise.reject(new Error('External delivery is disabled in E2E')),
   });
   const server = createServer(monitor.app);
   defer(

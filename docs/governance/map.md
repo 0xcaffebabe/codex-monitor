@@ -45,7 +45,7 @@ flowchart TD
 | 会话事实 | `source.ts` + 专用 readers | Codex 原始库只读；SQLite 与 rollout 是不同版本和故障回退来源 |
 | 上传与文件读取 | uploads、project-files、file-preview、media | 上传绑定/范围/路径校验不同，不合并成万能文件服务 |
 | 用量与计价 | usage、usage-parser、usage-query、pricing | parser 版本决定缓存失效；配置 JSON 是价格权威 |
-| 通知 | reporter/report-store、service/store、Lark adapters | Client 采集事实，Server 决定投递；已读卡片生命周期由 LarkReadTracker 持有，不能合并两端队列 |
+| 通知 | reporter/report-store、service/store、Lark adapters | Client 采集事实，Server 决定投递；LarkReadTracker 按私聊卡片与收件人匹配已读，CompletionNotifications 发布网页快照，不能合并两端队列 |
 | 用户操作审计 | `audit.ts` | 唯一参数化写入；调用方拥有事件含义/时机及事务，AuthStore.log保留公开契约 |
 | 运行配置 | config、cli、client/config、平台启动器 | 优先级是 CLI > 进程 env > 启动器 .env > 默认值；Node 入口不自动加载 .env |
 
@@ -64,7 +64,8 @@ flowchart TD
 | 用量扫描断点/派生缓存 | UsageStore / usage.sqlite | 可重建；parser/价格变化触发对应失效 |
 | 通知事件与待答问题 | Client report-store | Server 确认后清理，重启/重连可重传 |
 | 通知策略/投递/去重 | Server notification store | 持久去重，有限重试，不确定回执不能当成未发送 |
-| Lark卡片已读跟踪 | Server LarkReadTracker / 内存Map | 首卡七天，多收件人聚合；目的地变更/关闭取消在途，等待扫描结束再关闭DB |
+| Lark卡片已读跟踪 | Server LarkReadTracker / 内存Map | 按消息 ID 和收件人匹配，支持发送响应前到达的回执；配置变更使旧关联失效 |
+| 网页完成通知 | Server CompletionNotifications / 内存列表和 SQLite 去重 | 上报提交后发布，关闭广播给所有连接。SSE 重连返回当前快照 |
 | 认证 token | 浏览器 localStorage 或 sessionStorage / api | remember 决定位置；logout 清理两处并广播 |
 | 草稿、请求 ID、附件引用 | control hooks / sessionStorage | 按账号/工作空间/会话隔离；成功后清理，失败保留 |
 | 主题、布局、新建偏好 | 对应 hook / localStorage | 用户展示偏好，不是服务器业务事实 |

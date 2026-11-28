@@ -159,18 +159,12 @@ export interface NotificationSettings {
   completionMode: 'watched' | 'all';
   enabled: boolean;
   provider: 'lark';
-  mode: 'webhook' | 'app';
   appRegion: 'lark' | 'feishu';
   appId: string;
   appSecretConfigured: boolean;
-  appRecipientType: 'group' | 'private';
-  chatId: string;
   replyOpenIds: string[];
   larkStart: LarkStartSettings;
   replyConnection?: 'idle' | 'connecting' | 'connected' | 'reconnecting' | 'failed';
-  webhookConfigured: boolean;
-  webhookHint: string;
-  signingSecretConfigured: boolean;
   publicUrl: string;
   monitorError: string;
 }

@@ -5,14 +5,9 @@ import type { LarkStartSettings, NotificationDelivery, NotificationSettings } fr
 export type NotificationConfig = {
   completionMode: NotificationSettings['completionMode'];
   enabled: boolean;
-  webhookUrl: string;
-  signingSecret: string;
-  mode: NotificationSettings['mode'];
   appRegion: NotificationSettings['appRegion'];
   appId: string;
   appSecret: string;
-  appRecipientType: NotificationSettings['appRecipientType'];
-  chatId: string;
   replyOpenIds: string[];
   replyAdminId: string;
   larkStart: LarkStartSettings;
@@ -24,12 +19,10 @@ export type NotificationConfig = {
   revision: number;
 };
 export type NotificationInput = Partial<
-  Pick<NotificationConfig, 'mode' | 'appRegion' | 'appId' | 'appSecret' | 'appRecipientType' | 'chatId' | 'replyOpenIds' | 'larkStart'>
+  Pick<NotificationConfig, 'appRegion' | 'appId' | 'appSecret' | 'replyOpenIds' | 'larkStart'>
 > & {
   completionMode?: NotificationSettings['completionMode'];
   enabled: boolean;
-  webhookUrl?: string;
-  signingSecret?: string;
   publicUrl: string;
 };
 export type PendingDelivery = NotificationDelivery & {
@@ -42,10 +35,7 @@ export type PendingDelivery = NotificationDelivery & {
 };
 
 export function notificationConfigured(config: NotificationConfig) {
-  return config.mode === 'app'
-    ? !!(config.appId && config.appSecret &&
-      (config.appRecipientType === 'private' ? config.replyOpenIds.length : config.chatId))
-    : !!config.webhookUrl;
+  return !!(config.appId && config.appSecret && config.replyOpenIds.length);
 }
 
 export class NotificationStore {
@@ -160,20 +150,29 @@ export class NotificationStore {
       ON notification_lark_replies(destination,check_at) WHERE workspace_id IS NOT NULL;
       CREATE INDEX IF NOT EXISTS notification_lark_card_replies
       ON notification_lark_replies(destination,card_message_id) WHERE card_message_id IS NOT NULL`);
+    // Keep legacy columns for SQLite compatibility, but invalidate unsupported destinations atomically.
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      const migrated = db.prepare(`UPDATE notification_settings
+        SET enabled=0, mode='app', app_recipient_type='private', lark_destination=?, revision=revision+1
+        WHERE mode<>'app' OR app_recipient_type<>'private'`).run(randomUUID());
+      if (migrated.changes)
+        db.exec(`UPDATE notification_deliveries SET status='cancelled',error='旧通知方式已停用，请重新启用私聊推送'
+          WHERE status='pending'`);
+      db.exec('COMMIT');
+    } catch (error) {
+      db.exec('ROLLBACK');
+      throw error;
+    }
   }
   config(): NotificationConfig {
     const row = this.db.prepare('SELECT * FROM notification_settings WHERE id=1').get()!;
     return {
       completionMode: row.completion_mode === 'all' ? 'all' : 'watched',
       enabled: !!row.enabled,
-      webhookUrl: String(row.webhook_url),
-      signingSecret: String(row.signing_secret),
-      mode: row.mode === 'app' ? 'app' : 'webhook',
       appRegion: row.app_region === 'feishu' ? 'feishu' : 'lark',
       appId: String(row.app_id),
       appSecret: String(row.app_secret),
-      appRecipientType: row.app_recipient_type === 'private' ? 'private' : 'group',
-      chatId: String(row.chat_id),
       replyOpenIds: JSON.parse(String(row.reply_open_ids)) as string[],
       replyAdminId: String(row.reply_admin_id),
       larkStart: JSON.parse(String(row.lark_start)) as LarkStartSettings,
@@ -191,19 +190,11 @@ export class NotificationStore {
       completionMode: config.completionMode,
       enabled: config.enabled,
       provider: 'lark',
-      mode: config.mode,
       appRegion: config.appRegion,
       appId: config.appId,
       appSecretConfigured: !!config.appSecret,
-      appRecipientType: config.appRecipientType,
-      chatId: config.chatId,
       replyOpenIds: config.replyOpenIds,
       larkStart: config.larkStart,
-      webhookConfigured: !!config.webhookUrl,
-      webhookHint: config.webhookUrl
-        ? `${new URL(config.webhookUrl).origin}/…/${config.webhookUrl.slice(-4)}`
-        : '',
-      signingSecretConfigured: !!config.signingSecret,
       publicUrl: config.publicUrl,
       monitorError,
     };
@@ -214,26 +205,21 @@ export class NotificationStore {
     try {
       this.db
         .prepare(
-          `UPDATE notification_settings SET enabled=?,webhook_url=?,signing_secret=?,public_url=?,
-        enabled_at=?,scan_at=?,input_since=?,completion_mode=?,mode=?,app_region=?,app_id=?,
-        app_secret=?,app_recipient_type=?,chat_id=?,reply_open_ids=?,reply_admin_id=?,lark_destination=?,lark_start=?,
+          `UPDATE notification_settings SET enabled=?,public_url=?,
+        enabled_at=?,scan_at=?,input_since=?,completion_mode=?,app_region=?,app_id=?,
+        app_secret=?,reply_open_ids=?,reply_admin_id=?,lark_destination=?,lark_start=?,
         revision=revision+1 WHERE id=1`,
         )
         .run(
           Number(input.enabled),
-          input.webhookUrl ?? old.webhookUrl,
-          input.signingSecret ?? old.signingSecret,
           input.publicUrl,
           reset ? enabledAt : old.enabledAt,
           reset ? enabledAt : old.scanAt,
           reset ? Math.max(Date.now(), old.inputSince + 1) : old.inputSince,
           input.completionMode ?? old.completionMode,
-          input.mode ?? old.mode,
           input.appRegion ?? old.appRegion,
           input.appId ?? old.appId,
           input.appSecret ?? old.appSecret,
-          input.appRecipientType ?? old.appRecipientType,
-          input.chatId ?? old.chatId,
           JSON.stringify(input.replyOpenIds ?? old.replyOpenIds),
           input.replyOpenIds?.length === 0 ? '' : adminId ?? old.replyAdminId,
           destinationChanged ? randomUUID() : old.larkDestination,

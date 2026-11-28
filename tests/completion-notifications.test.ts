@@ -6,7 +6,7 @@ import { once } from 'node:events';
 import { createServer } from 'node:http';
 import { rmSync } from 'node:fs';
 import path from 'node:path';
-import { setImmediate as flush, setTimeout as delay } from 'node:timers/promises';
+import { setTimeout as delay } from 'node:timers/promises';
 import { CompletionNotifications } from '../server/notifications/completions.js';
 import { NotificationService } from '../server/notifications/service.js';
 import type { CompletionEvent } from '../server/notifications/events.js';
@@ -14,6 +14,7 @@ import { createApp } from '../server/app.js';
 import { createMonitorServer } from '../server/server-app.js';
 import { MonitorClient } from '../server/client/connection.js';
 import { requestGuard } from '../server/http/security.js';
+import type { CompletionNotificationSnapshot } from '../src/types.js';
 import { fixture, ids } from './fixture.js';
 
 function event(turnId = randomUUID()): CompletionEvent {
@@ -129,12 +130,12 @@ test('Server restart empties pending memory, retains deduplication receipts and 
   }
 });
 
-test('authenticated viewers poll completions with webhook disabled; old, failed, interrupted and internal turns are excluded', async () => {
+test('authenticated viewers can read completions with private push disabled; old, failed, interrupted and internal turns are excluded', async () => {
   const f = fixture();
   f.config.pollMs = 60000;
   let sends = 0;
   const service = createApp(f.config, {
-    webhookTransport: async () => {
+    larkTransport: async () => {
       sends++;
       return Response.json({ code: 0 });
     },
@@ -295,7 +296,7 @@ test('browser-only completions traverse the encrypted client tunnel and lost ack
       'an unacknowledged report must not resurrect a notice closed before restart',
     );
     assert.equal(service.notifications.state().deliveries.length, 0);
-    // A webhook generation change does not reset or lose browser-only completions.
+    // A delivery configuration change does not reset or lose browser-only completions.
     complete(f);
     const configure = client.notifications.configure.bind(client.notifications);
     let entered!: () => void;
@@ -346,8 +347,7 @@ test('a rolled-back report never publishes notices or consumes their deduplicati
       enabled: true,
       completionMode: 'all',
       publicUrl: '',
-      webhookUrl:
-        'https://open.larksuite.com/open-apis/bot/v2/hook/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
+      appId: 'cli_monitor', appSecret: 'test', replyOpenIds: ['ou_test'],
     });
     const completion = event();
     const report = {
@@ -379,7 +379,7 @@ test('watched completion delivery is workspace-scoped and does not replay pre-wa
     await service.configure({
       enabled: true,
       publicUrl: '',
-      webhookUrl: 'https://open.larksuite.com/open-apis/bot/v2/hook/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
+      appId: 'cli_monitor', appSecret: 'test', replyOpenIds: ['ou_test'],
     });
     const workspace = { id: 'local', name: '本机' };
     const completion = { ...event(), occurredAt: Date.now() };
@@ -400,157 +400,95 @@ test('watched completion delivery is workspace-scoped and does not replay pre-wa
   }
 });
 
-test('Lark read scans dismiss only the matching browser notice and stop querying dismissed cards', async (t) => {
-  t.mock.timers.enable({ apis: ['setInterval'] });
-  const db = new DatabaseSync(':memory:');
+test('authenticated SSE delivers read dismissals and reconnect snapshots', { timeout: 10000 }, async () => {
+  const f = fixture();
   let sent = 0;
-  const queried: string[] = [];
-  const read = new Set<string>();
-  let failNextRead = '';
-  const service = new NotificationService(db, 60000, async (url, init) => {
-    const endpoint = new URL(String(url));
-    if (endpoint.pathname.endsWith('/tenant_access_token/internal'))
-      return Response.json({ code: 0, tenant_access_token: 'token', expire: 7200 });
-    assert.equal(new Headers(init?.headers).get('Authorization'), 'Bearer token');
-    if (endpoint.pathname === '/open-apis/im/v1/messages')
-      return Response.json({ code: 0, data: { message_id: `om_card_${++sent}` } });
-    const match = endpoint.pathname.match(/\/messages\/(om_card_\d+)\/read_users$/);
-    assert.ok(match);
-    assert.equal(init?.method, 'GET');
-    assert.equal(endpoint.searchParams.get('user_id_type'), 'open_id');
-    assert.equal(endpoint.searchParams.get('page_size'), '1');
-    const [, messageId] = match;
-    queried.push(messageId);
-    if (failNextRead === messageId) {
-      failNextRead = '';
-      return Response.json({ code: 230027 }, { status: 403 });
-    }
-    return Response.json({
-      code: 0,
-      data: { items: read.has(messageId) ? [{ timestamp: '1609484183000' }] : [] },
-    });
+  let read!: (event: unknown) => void;
+  const service = createMonitorServer({ ...f.config, pollMs: 60000 }, {
+    larkReplyListener: (_config, _reply, _action, receiveRead) => {
+      read = receiveRead;
+      return { close() {}, getConnectionStatus: () => ({ state: 'connected', reconnectAttempts: 0 }) };
+    },
+    larkTransport: async (url) => {
+      const endpoint = new URL(String(url));
+      if (endpoint.pathname.endsWith('/tenant_access_token/internal'))
+        return Response.json({ code: 0, tenant_access_token: 'token', expire: 7200 });
+      assert.equal(endpoint.pathname, '/open-apis/im/v1/messages');
+      assert.equal(endpoint.searchParams.get('receive_id_type'), 'open_id');
+      return Response.json({ code: 0, data: { message_id: `om_card_${++sent}`, chat_id: 'oc_private' } });
+    },
   });
+  const server = createServer(service.app).listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  const endpoint = `http://127.0.0.1:${(server.address() as { port: number }).port}/api/notifications/completions/stream`;
+  const controllers: AbortController[] = [];
   try {
-    await service.configure({
-      enabled: true,
-      mode: 'app',
-      appId: 'cli_monitor',
-      appSecret: 'test',
-      chatId: 'oc_monitor',
-      completionMode: 'all',
-      publicUrl: '',
-    });
-    const first = event();
-    for (const [workspaceId, completion] of [
-      ['local', first],
-      ['local', event()],
-      ['remote', first],
-    ] as const) {
-      service.receive({ id: workspaceId, name: workspaceId }, {
-        revision: service.policy().revision,
-        events: [completion],
-        monitorError: '',
+    const owner = await service.auth.setup('owner', 'notification-test-password');
+    const token = service.auth.issue(owner, 'notifications').token;
+    const open = async () => {
+      const controller = new AbortController();
+      controllers.push(controller);
+      const response = await fetch(endpoint, {
+        headers: { Authorization: `Bearer ${token}` }, signal: controller.signal,
       });
-      await service.poll();
-    }
-    assert.equal(sent, 3);
-    const initial = service.completions.snapshot();
-    assert.equal(initial.notifications.length, 3);
-    const [firstNotice, secondNotice, remoteNotice] = initial.notifications;
-
-    t.mock.timers.tick(9999);
-    assert.deepEqual(queried, []);
-    t.mock.timers.tick(1);
-    await flush();
-    assert.deepEqual(queried.splice(0), ['om_card_1', 'om_card_2', 'om_card_3']);
-    assert.deepEqual(service.completions.snapshot(), initial);
-    assert.ok(service.state().deliveries.every((delivery) => delivery.larkReadStatus === 'Lark 暂无已读记录'));
-
-    service.completions.dismiss(initial.generation, [remoteNotice.id]);
-    read.add('om_card_1');
-    failNextRead = 'om_card_2';
-    t.mock.timers.tick(10000);
-    await flush();
-    assert.deepEqual(queried.splice(0), ['om_card_1', 'om_card_2']);
-    assert.deepEqual(service.completions.snapshot().notifications, [secondNotice]);
-    assert.ok(service.completions.snapshot().revision > initial.revision);
-    const statuses = service.state().deliveries.map((delivery) => delivery.larkReadStatus);
-    assert.ok(statuses.includes('Lark 已读，网页通知已关闭'));
-    assert.ok(statuses.some((status) => status?.includes('230027')));
-    assert.ok(statuses.includes('Lark 已读查询已停止，网页通知已移除'));
-
-    read.add('om_card_2');
-    t.mock.timers.tick(10000);
-    await flush();
-    assert.deepEqual(queried.splice(0), ['om_card_2']);
-    assert.deepEqual(service.completions.snapshot().notifications, []);
-
-    t.mock.timers.tick(20000);
-    await flush();
-    assert.deepEqual(queried, []);
-    assert.notEqual(firstNotice.id, secondNotice.id);
-  } finally {
-    await service.close();
-    db.close();
-  }
-});
-
-test('changing notification destination cancels an in-flight read without dismissing notices from either destination', async (t) => {
-  t.mock.timers.enable({ apis: ['setInterval'] });
-  const db = new DatabaseSync(':memory:');
-  let sent = 0;
-  let readSignal: AbortSignal | undefined;
-  let finishRead!: (response: Response) => void;
-  const delayedRead = new Promise<Response>((resolve) => { finishRead = resolve; });
-  const queried: string[] = [];
-  const service = new NotificationService(db, 60000, async (url, init) => {
-    const endpoint = new URL(String(url));
-    if (endpoint.pathname.endsWith('/tenant_access_token/internal'))
-      return Response.json({ code: 0, tenant_access_token: 'token', expire: 7200 });
-    if (endpoint.pathname === '/open-apis/im/v1/messages')
-      return Response.json({ code: 0, data: { message_id: `om_card_${++sent}` } });
-    const messageId = endpoint.pathname.match(/\/messages\/(om_card_\d+)\/read_users$/)?.[1];
-    assert.ok(messageId);
-    queried.push(messageId);
-    if (messageId === 'om_card_1') {
-      readSignal = init?.signal ?? undefined;
-      return delayedRead;
-    }
-    return Response.json({ code: 0, data: { items: [{}] } });
-  });
-  const config = {
-    enabled: true, mode: 'app' as const, appId: 'cli_monitor', appSecret: 'test',
-    chatId: 'oc_before', completionMode: 'all' as const, publicUrl: '',
-  };
-  const complete = async () => {
-    service.receive({ id: 'local', name: 'Local' }, {
-      revision: service.policy().revision, events: [event()], monitorError: '',
+      assert.equal(response.status, 200);
+      assert.match(response.headers.get('content-type')!, /^text\/event-stream/);
+      const reader = response.body!.pipeThrough(new TextDecoderStream()).getReader();
+      let pending = '';
+      const next = async () => {
+        for (;;) {
+          const end = pending.indexOf('\n\n');
+          if (end >= 0) {
+            const frame = pending.slice(0, end);
+            pending = pending.slice(end + 2);
+            const [event, data] = frame.split('\n');
+            if (event === 'event: snapshot') return JSON.parse(data.slice(6)) as CompletionNotificationSnapshot;
+            continue;
+          }
+          const chunk = await reader.read();
+          assert.equal(chunk.done, false);
+          pending += chunk.value;
+        }
+      };
+      return { next, close: () => controller.abort() };
+    };
+    assert.equal((await fetch(endpoint)).status, 401);
+    const firstTab = await open(), secondTab = await open();
+    assert.deepEqual(await firstTab.next(), await secondTab.next());
+    const config = {
+      enabled: true, appId: 'cli_monitor', appSecret: 'test', replyOpenIds: ['ou_test', 'ou_second'],
+      completionMode: 'all' as const, publicUrl: '',
+    };
+    await service.notifications.configure(config);
+    service.notifications.receive({ id: 'local', name: 'Local' }, {
+      revision: service.notifications.policy().revision, events: [event()], monitorError: '',
     });
-    await service.poll();
-  };
-  try {
-    await service.configure(config);
-    await complete();
-    const [first] = service.completions.snapshot().notifications;
-    t.mock.timers.tick(10_000);
-    await flush();
-    assert.deepEqual(queried, ['om_card_1']);
-    assert.equal(readSignal?.aborted, false);
-    await service.configure({ ...config, chatId: 'oc_after' });
-    assert.equal(readSignal?.aborted, true);
-    await complete();
-    finishRead(Response.json({ code: 0, data: { items: [{}] } }));
-    await flush();
-    assert.equal(service.completions.snapshot().notifications.length, 2);
-    assert.ok(service.state().deliveries.some(({ larkReadStatus }) =>
-      larkReadStatus === 'Lark 已读查询已停止，通知接收配置已变更或关闭'));
-    t.mock.timers.tick(10_000);
-    await flush();
-    assert.deepEqual(queried, ['om_card_1', 'om_card_2']);
-    assert.deepEqual(service.completions.snapshot().notifications, [first]);
+    await service.notifications.poll();
+    assert.equal(sent, 2);
+    const initial = await firstTab.next();
+    assert.equal(initial.notifications.length, 1);
+    assert.deepEqual(await secondTab.next(), initial);
+    const receipt = (open_id: string, message_id_list: string[], app_id = config.appId) => ({
+      app_id, reader: { reader_id: { open_id } }, message_id_list,
+    });
+    read(receipt('ou_second', ['om_card_1']));
+    read(receipt('ou_test', ['om_card_1'], 'cli_other'));
+    assert.deepEqual(service.notifications.completions.snapshot(), initial);
+    read(receipt('ou_second', ['om_card_2']));
+    const dismissed = await firstTab.next();
+    assert.deepEqual(dismissed.notifications, []);
+    assert.equal(dismissed.revision, initial.revision + 1);
+    assert.deepEqual(await secondTab.next(), dismissed);
+    secondTab.close();
+    read(receipt('ou_second', ['om_card_2']));
+    assert.deepEqual(service.notifications.completions.snapshot(), dismissed);
+    assert.deepEqual(await (await open()).next(), dismissed);
   } finally {
-    finishRead(Response.json({ code: 0, data: { items: [] } }));
+    for (const controller of controllers) controller.abort();
     await service.close();
-    db.close();
+    server.closeAllConnections();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    f.close();
+    rmSync(f.root, { recursive: true, force: true });
   }
 });

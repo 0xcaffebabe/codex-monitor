@@ -8,8 +8,9 @@ import { fixture, ids } from './fixture.js';
 
 const settings = {
   enabled: true,
-  webhookUrl:
-    'https://open.larksuite.com/open-apis/bot/v2/hook/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
+  appId: 'cli_monitor',
+  appSecret: 'test-app-secret',
+  replyOpenIds: ['ou_test'],
   publicUrl: 'https://monitor.example.com/',
 };
 const questions = [
@@ -41,11 +42,14 @@ async function harness(status = 200) {
   f.config.pollMs = 60000;
   const messages: string[] = [];
   const service = createApp(f.config, {
-    webhookTransport: async (_url, init) => {
+    larkTransport: async (url, init) => {
+      if (String(url).includes('/auth/'))
+        return Response.json({ code: 0, tenant_access_token: 'test-token', expire: 7200 });
       const message = JSON.parse(String(init!.body));
+      const card = JSON.parse(message.content);
       assert.equal(message.msg_type, 'interactive');
-      assert.equal(message.card.schema, '2.0');
-      messages.push(message.card.body.elements[0].content);
+      assert.equal(card.schema, '2.0');
+      messages.push(card.body.elements[0].content);
       return Response.json({ code: 0 }, { status });
     },
   });
@@ -93,7 +97,7 @@ test('native async question forms notify with choices, stay separate from comple
     assert.equal(h.service.notifications.state().deliveries[0].kind, 'session.input_required');
     await h.service.close();
     restarted = createApp(h.f.config, {
-      webhookTransport: async (_url, init) => {
+      larkTransport: async (_url, init) => {
         h.messages.push(String(init!.body));
         return Response.json({ code: 0 });
       },

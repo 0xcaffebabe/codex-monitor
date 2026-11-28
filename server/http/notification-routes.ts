@@ -2,7 +2,6 @@ import type { Express, Request } from 'express';
 import { z } from 'zod';
 import type { CompletionNotification } from '../../src/types.js';
 import type { NotificationService } from '../notifications/service.js';
-import { validLarkWebhook } from '../notifications/lark.js';
 import { notificationConfigured } from '../notifications/store.js';
 import { admin, fail } from './access.js';
 import type { WorkspaceAuth } from '../authorization.js';
@@ -44,14 +43,9 @@ const settings = z
     enabled: z.boolean(),
     provider: z.literal('lark'),
     completionMode: z.enum(['watched', 'all']).optional(),
-    webhookUrl: z.string().trim().max(512).refine(validLarkWebhook).optional(),
-    signingSecret: z.string().trim().max(256).optional(),
-    mode: z.enum(['webhook', 'app']).optional(),
     appRegion: z.enum(['lark', 'feishu']).optional(),
     appId: z.string().trim().regex(/^(?:cli_[A-Za-z0-9]{1,100})?$/).optional(),
     appSecret: z.string().trim().max(256).optional(),
-    appRecipientType: z.enum(['group', 'private']).optional(),
-    chatId: z.string().trim().regex(/^(?:oc_[A-Za-z0-9_-]{1,100})?$/).optional(),
     replyOpenIds: z.array(z.string().trim().regex(/^ou_[A-Za-z0-9_-]{1,100}$/)).max(50)
       .transform((ids) => [...new Set(ids)]).optional(),
     larkStart: larkStart.optional(),
@@ -75,9 +69,56 @@ export function installNotificationRoutes(
   markRead: (notice: CompletionNotification) => Promise<void>,
   authorized?: (req: Request) => Promise<boolean>,
 ) {
+  const streams = new Map<string, number>();
+  let streamCount = 0;
   // All authenticated readers can already read sessions in every registered workspace.
   app.get('/api/notifications/completions', (_req, res) => {
     res.json(notifications.completions.snapshot());
+  });
+  app.get('/api/notifications/completions/stream', (req, res) => {
+    const sessionId = req.identity!.sessionId;
+    const count = streams.get(sessionId) ?? 0;
+    if (streamCount >= 50 || count >= 5)
+      return fail(res, 429, '通知实时连接数量已达上限');
+    streams.set(sessionId, count + 1);
+    streamCount++;
+    res.set({
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-store, no-transform',
+      'X-Accel-Buffering': 'no',
+    });
+    res.flushHeaders();
+    const send = (event: string, data: unknown) => {
+      if (res.destroyed || res.writableEnded) return;
+      if (res.writableNeedDrain) {
+        res.destroy();
+        return;
+      }
+      res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+    };
+    const authorized = () => {
+      if (res.destroyed || res.writableEnded) return false;
+      if (auth.authenticate(req.token!)) return true;
+      send('unauthorized', {});
+      res.end();
+      return false;
+    };
+    const unsubscribe = notifications.completions.subscribe((snapshot) => {
+      if (!snapshot) res.end();
+      else if (authorized()) send('snapshot', snapshot);
+    });
+    const heartbeat = setInterval(() => {
+      if (authorized()) send('heartbeat', {});
+    }, 15000);
+    heartbeat.unref();
+    res.once('close', () => {
+      streamCount--;
+      const remaining = streams.get(sessionId)! - 1;
+      if (remaining) streams.set(sessionId, remaining);
+      else streams.delete(sessionId);
+      clearInterval(heartbeat);
+      unsubscribe();
+    });
   });
   app.post('/api/notifications/completions/dismiss', (req, res) => {
     const parsed = dismissal.safeParse(req.body);
@@ -111,11 +152,7 @@ export function installNotificationRoutes(
     if (!parsed.success) return fail(res, 400, '请检查飞书/Lark 通知配置、授权 Open ID 和会话目标。简称须唯一，并选定一个默认目标。');
     const config = { ...notifications.store.config(), ...parsed.data };
     if (config.enabled && !notificationConfigured(config))
-      return fail(res, 400, config.mode === 'app'
-        ? config.appRecipientType === 'private'
-          ? '启用私聊通知前请填写 App ID、App Secret 和授权回复的 Open ID'
-          : '启用群聊通知前请填写 App ID、App Secret 和群聊 ID'
-        : '启用通知前请先配置 Webhook');
+      return fail(res, 400, '启用私聊通知前请填写 App ID、App Secret 和接收人的 Open ID');
     try {
       const result = await notifications.configure(
         parsed.data,
@@ -130,7 +167,7 @@ export function installNotificationRoutes(
   });
   app.post('/api/notifications/test', admin, async (req, res) => {
     if (!notificationConfigured(notifications.store.config()))
-      return fail(res, 400, '请先保存所选方式的通知配置');
+      return fail(res, 400, '请先保存私聊通知配置');
     const task = notifications.test();
     if (!task) {
       res.setHeader('Retry-After', '5');
