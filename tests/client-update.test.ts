@@ -3,14 +3,16 @@ import assert from 'node:assert/strict';
 import { execFile, spawn } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import { once } from 'node:events';
-import { mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
+import { pathToFileURL } from 'node:url';
 import { promisify } from 'node:util';
 import { build } from 'esbuild';
 import { createMonitorServer } from '../server/server-app.js';
 import { requestGuard } from '../server/http/security.js';
+import { UPDATE_LOCK } from '../server/maintenance/status.js';
 import type { ManagedWorkspace } from '../src/workspaces.js';
 import { fixture } from './fixture.js';
 
@@ -21,6 +23,7 @@ test(
     const f = fixture();
     const upstream = path.join(f.root, 'upstream');
     const root = path.join(f.root, 'client checkout');
+    const lockPath = path.join(root, UPDATE_LOCK);
     const exec = promisify(execFile);
     const git = (cwd: string, ...args: string[]) => exec('git', args, { cwd });
     const service = createMonitorServer({ ...f.config, mode: 'server' });
@@ -117,9 +120,26 @@ if (existsSync('fail-build')) process.exit(1);
       mkdirSync(path.dirname(entry));
       writeFileSync(entry, outputSource);
       writeFileSync(path.join(root, 'replacement.mjs'), replacement.outputFiles[0].text);
+      const slowLockCleanup = path.join(f.root, 'slow-lock-cleanup.mjs');
+      writeFileSync(
+        slowLockCleanup,
+        `
+import fs from 'node:fs/promises';
+import { syncBuiltinESMExports } from 'node:module';
+import { setTimeout as delay } from 'node:timers/promises';
+const rm = fs.rm;
+fs.rm = async (file, options) => {
+  if (file === ${JSON.stringify(lockPath)}) await delay(400);
+  return rm(file, options);
+};
+syncBuiltinESMExports();
+`,
+      );
       child = spawn(
         process.execPath,
         [
+          '--import',
+          pathToFileURL(slowLockCleanup).href,
           entry,
           '--mode',
           'client',
@@ -153,6 +173,7 @@ if (existsSync('fail-build')) process.exit(1);
       assert.equal((await start(owner.token)).status, 202);
       assert.equal((await start(owner.token)).status, 409);
       const failed = await until((item) => item.clientUpdate?.phase === 'failed');
+      assert.equal(existsSync(lockPath), false, 'Failed update must release its checkout lock');
       assert.equal(failed.online, true);
       assert.equal(failed.buildCommitAt, 12345);
       assert.match(failed.clientUpdate!.message!, /构建失败/);
@@ -162,6 +183,7 @@ if (existsSync('fail-build')) process.exit(1);
       await git(upstream, 'commit', '-m', 'Fix build');
       assert.equal((await start(owner.token)).status, 202);
       const updated = await until((item) => item.clientUpdate?.phase === 'succeeded');
+      assert.equal(existsSync(lockPath), false, 'Successful update must release its checkout lock');
       assert.equal(updated.online, true);
       assert.equal(updated.buildCommitAt, 54321);
       assert.equal(

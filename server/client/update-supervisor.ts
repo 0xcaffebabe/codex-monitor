@@ -129,9 +129,12 @@ export async function superviseClient(root: string, entry: string) {
             });
             return;
           }
-          job = update(id).finally(() => {
-            job = undefined;
-          });
+          // A terminal status lets the Server accept another update immediately.
+          job = update(id)
+            .finally(() => {
+              job = undefined;
+            })
+            .then(publish);
         }
       });
       child.once('error', finish);
@@ -146,7 +149,7 @@ export async function superviseClient(root: string, entry: string) {
     await started;
   }
 
-  async function update(id: string) {
+  async function update(id: string): Promise<UpdateStatus> {
     const lockPath = path.join(root, UPDATE_LOCK);
     let lock: Awaited<ReturnType<typeof open>> | undefined;
     let stage: string | undefined;
@@ -198,7 +201,7 @@ export async function superviseClient(root: string, entry: string) {
       await launch();
       rollback.length = 0;
       installed = nextDependencies;
-      publish({ id, phase: 'succeeded' });
+      return { id, phase: 'succeeded' };
     } catch (error) {
       console.error('[client update]', error);
       if (rollback.length) {
@@ -211,7 +214,6 @@ export async function superviseClient(root: string, entry: string) {
           failure = '恢复上一版本失败，请查看客户端日志。';
         }
       }
-      publish({ id, phase: 'failed', message: failure });
       if (!worker && !abort.signal.aborted) {
         try {
           await launch();
@@ -221,6 +223,7 @@ export async function superviseClient(root: string, entry: string) {
           process.exitCode = 1;
         }
       }
+      return { id, phase: 'failed', message: failure };
     } finally {
       if (stage) await rm(stage, { recursive: true, force: true }).catch(console.error);
       if (lock) {
